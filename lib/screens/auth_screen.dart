@@ -395,13 +395,16 @@ class _AuthScreenState extends State<AuthScreen> {
               Icon(icon, size: 18, color: PortalColors.gold),
               const SizedBox(width: 8),
             ],
-            Text(
-              _loading ? 'PLEASE WAIT…' : label.toUpperCase(),
-              style: PortalTheme.sans(
-                size: 14,
-                weight: FontWeight.w700,
-                letterSpacing: 0.7,
-                color: Colors.white,
+            Flexible(
+              child: Text(
+                _loading ? 'PLEASE WAIT…' : label.toUpperCase(),
+                overflow: TextOverflow.ellipsis,
+                style: PortalTheme.sans(
+                  size: 14,
+                  weight: FontWeight.w700,
+                  letterSpacing: 0.7,
+                  color: Colors.white,
+                ),
               ),
             ),
           ],
@@ -627,8 +630,9 @@ class _AuthScreenState extends State<AuthScreen> {
             ),
           ),
         ),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
+        Wrap(
+          alignment: WrapAlignment.center,
+          crossAxisAlignment: WrapCrossAlignment.center,
           children: [
             Text(
               'First time logging in? ',
