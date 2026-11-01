@@ -1,0 +1,130 @@
+name: Build Records Portal Android APK
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+    inputs:
+      apps_script_url:
+        description: "Optional: Google Apps Script /exec URL to pre-configure in the APK"
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build-android-apk:
+    name: Compile Android Release APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Flutter Stable
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Accept Android SDK Licenses
+        run: |
+          SDK_ROOT="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
+          if [ -n "$SDK_ROOT" ] && [ -x "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" ]; then
+            yes | "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          fi
+
+      - name: Inject Optional Apps Script URL
+        if: ${{ inputs.apps_script_url != '' }}
+        env:
+          INPUT_SCRIPT_URL: ${{ inputs.apps_script_url }}
+        run: |
+          python3 - <<'PY'
+          import os, pathlib
+          url = os.environ.get("INPUT_SCRIPT_URL", "").strip()
+          if url.startswith("https://script.google.com/macros/s/"):
+              cfg = pathlib.Path("lib/config/app_config.dart")
+              txt = cfg.read_text(encoding="utf-8")
+              txt = txt.replace(
+                  "https://script.google.com/macros/s/REPLACE_WITH_YOUR_DEPLOYMENT_ID/exec",
+                  url,
+              )
+              cfg.write_text(txt, encoding="utf-8")
+              print("Pre-configured Apps Script URL into AppConfig.")
+          PY
+
+      - name: Generate Version-Matched Android Gradle Wrapper & Apply Manifest
+        run: |
+          cp android/app/src/main/AndroidManifest.xml /tmp/PortalAndroidManifest.xml
+          rm -rf android
+          flutter create --platforms=android --org com.recordsportal --project-name student_portal_app .
+          cp /tmp/PortalAndroidManifest.xml android/app/src/main/AndroidManifest.xml
+          python3 - <<'PY'
+          import pathlib, re
+
+          kts = pathlib.Path("android/app/build.gradle.kts")
+          groovy = pathlib.Path("android/app/build.gradle")
+
+          if kts.exists():
+              txt = kts.read_text(encoding="utf-8")
+              txt = re.sub(
+                  r"compileSdk\s*=\s*flutter\.compileSdkVersion",
+                  "compileSdk = maxOf(36, flutter.compileSdkVersion)",
+                  txt,
+              )
+              txt = re.sub(
+                  r"minSdk\s*=\s*flutter\.minSdkVersion",
+                  "minSdk = maxOf(24, flutter.minSdkVersion)\n        multiDexEnabled = true",
+                  txt,
+              )
+              kts.write_text(txt, encoding="utf-8")
+          elif groovy.exists():
+              txt = groovy.read_text(encoding="utf-8")
+              txt = re.sub(
+                  r"compileSdk\s*=?\s*flutter\.compileSdkVersion",
+                  "compileSdk = Math.max(36, flutter.compileSdkVersion)",
+                  txt,
+              )
+              txt = re.sub(
+                  r"minSdk\s*=?\s*flutter\.minSdkVersion",
+                  "minSdk = Math.max(24, flutter.minSdkVersion)\n        multiDexEnabled = true",
+                  txt,
+              )
+              groovy.write_text(txt, encoding="utf-8")
+          PY
+
+      - name: Fetch Packages, Analyze & Run Unit Tests
+        run: |
+          flutter pub get
+          flutter analyze --no-fatal-infos --no-fatal-warnings
+          flutter test
+
+      - name: Build Release APK
+        run: |
+          flutter build apk --release
+          cp build/app/outputs/flutter-apk/app-release.apk build/app/outputs/flutter-apk/records-portal.apk
+
+      - name: Upload APK to Actions Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: Records-Portal-Android-APK
+          path: build/app/outputs/flutter-apk/records-portal.apk
+          if-no-files-found: error
+
+      - name: Publish Direct-Download APK to GitHub Releases
+        continue-on-error: true
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.${{ github.run_number }}
+          name: "Records Portal Android v1.0.${{ github.run_number }}"
+          body: "Tap `records-portal.apk` below on your Android phone to download and install."
+          files: build/app/outputs/flutter-apk/records-portal.apk
