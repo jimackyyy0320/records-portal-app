@@ -19,6 +19,7 @@ dependencies:
   mobile_scanner: ^7.0.0
   nfc_manager: ^4.0.0
   nfc_manager_ndef: ^1.0.0
+  ndef_record: ^1.0.0
   google_fonts: ^6.2.1
   image_picker: ^1.1.2
   url_launcher: ^6.3.1

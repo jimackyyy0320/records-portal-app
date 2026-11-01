@@ -10,6 +10,7 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:nfc_manager/nfc_manager.dart';
 import 'package:nfc_manager/nfc_manager_android.dart' as nfc_android;
 import 'package:nfc_manager_ndef/nfc_manager_ndef.dart';
+import 'package:ndef_record/ndef_record.dart';
 
 import '../config/app_config.dart';
 import '../models/portal_models.dart';
