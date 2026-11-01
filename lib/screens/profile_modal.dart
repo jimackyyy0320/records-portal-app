@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../models/portal_models.dart';
 import '../services/api_service.dart';
 import '../theme/portal_theme.dart';
+import '../widgets/common_widgets.dart';
 
 /// Replicates `#profile-screen`, `#survey-warning-modal`, and `#change-pass-modal`
 /// from `index.html`. Supports both mandatory completion gate (non-dismissible)
@@ -148,9 +149,14 @@ class _StudentProfileSheetState extends State<StudentProfileSheet> {
 
     setState(() => _saving = true);
     try {
-      final res = await ApiService.instance.saveStudentProfile(
-        id: widget.studentId,
-        profile: updated,
+      final res = await PortalLoadingOverlay.run(
+        context,
+        message: 'Saving Student Profile...',
+        subtitle: 'Updating your guardian & contact records',
+        task: () => ApiService.instance.saveStudentProfile(
+          id: widget.studentId,
+          profile: updated,
+        ),
       );
       if (res['success'] == true) {
         _currentProfile = updated;

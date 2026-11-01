@@ -8,13 +8,13 @@ import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:nfc_manager/nfc_manager.dart';
-import 'package:nfc_manager/nfc_manager_android.dart' as nfc_android;
 import 'package:nfc_manager_ndef/nfc_manager_ndef.dart';
 import 'package:ndef_record/ndef_record.dart';
 
 import '../config/app_config.dart';
 import '../models/portal_models.dart';
 import '../services/api_service.dart';
+import '../services/device_bridge_service.dart';
 import '../services/local_database.dart';
 import '../services/sync_manager.dart';
 import '../theme/portal_theme.dart';
@@ -23,6 +23,10 @@ import '../theme/portal_theme.dart';
 /// 1. Select Mode first (Attendance -> `Attendance Log` | Recitation -> `Recitation_Log` w/ Points_Awarded = 1)
 /// 2. Select Subject (loaded from Sheet `12DvradQOqCeswwKMtdx7jaIKDRjMUuxWRRD_p1WBCQQ` -> "Reference" Column C)
 /// 3. Editable Timestamp bar right above the scanner (ticks live by default, tap to pin/edit custom date & time)
+///
+/// Includes:
+/// - Global 2.5-second (2500ms) anti-burst lag time for both NFC and QR scans
+/// - Native Android lifecycle-safe NFC Reader Mode + Camera/NFC Permission Setup
 class TeacherScannerScreen extends StatefulWidget {
   final UserSession session;
   final List<SubjectItem> facultySubjects;
@@ -39,7 +43,11 @@ class TeacherScannerScreen extends StatefulWidget {
   State<TeacherScannerScreen> createState() => _TeacherScannerScreenState();
 }
 
-class _TeacherScannerScreenState extends State<TeacherScannerScreen> {
+class _TeacherScannerScreenState extends State<TeacherScannerScreen>
+    with WidgetsBindingObserver {
+  /// 2.5-second (2500ms) anti-burst lag time across both QR and NFC scans.
+  static const int _scanLagDurationMs = 2500;
+
   // Step 1: Select Attendance or Recitation first
   ScanMode _selectedMode = ScanMode.attendance;
 
@@ -54,14 +62,27 @@ class _TeacherScannerScreenState extends State<TeacherScannerScreen> {
   DateTime? _customPinnedTimestamp;
   Timer? _clockTimer;
 
-  // Camera QR Scanner
+  // Camera QR Scanner & Hardware Permissions
   MobileScannerController? _cameraController;
   bool _cameraEnabled = true;
+  HardwareStatus _hwStatus = const HardwareStatus(
+    cameraGranted: false,
+    nfcSupported: false,
+    nfcEnabled: false,
+    nfcReaderAttached: false,
+  );
+  bool _checkingHardware = true;
 
-  // Hardware NFC Reader
-  bool _nfcSupportedAndEnabled = false;
-  bool _nfcSessionActive = false;
-  String _nfcStatusHint = 'Checking NFC...';
+  // Native NFC Bridge & iOS fallback
+  StreamSubscription<NfcTagEvent>? _androidNfcSub;
+  StreamSubscription<HardwareStatus>? _hwStatusSub;
+  bool _iosNfcSessionActive = false;
+  String _nfcStatusHint = 'Checking NFC hardware...';
+
+  // 2.5s Anti-Burst Cooldown state
+  int _cooldownUntilEpochMs = 0;
+  int _cooldownRemainingMs = 0;
+  Timer? _cooldownTickTimer;
 
   // Rapid-fire session state & feedback banner
   int _sessionScanCount = 0;
@@ -71,31 +92,24 @@ class _TeacherScannerScreenState extends State<TeacherScannerScreen> {
   bool _bannerIsDuplicate = false;
   Timer? _bannerDismissTimer;
   bool _duplicateDialogOpen = false;
-  final Map<String, int> _inMemoryCooldownMs = {};
 
   static final DateFormat _sheetTimestampFormat =
       DateFormat('yyyy-MM-dd HH:mm:ss');
 
   bool get _hasFacultyAccess => widget.session.isFaculty;
 
+  bool get _isCoolingDown => _cooldownRemainingMs > 0;
+
   @override
   void initState() {
     super.initState();
     if (!_hasFacultyAccess) {
       _loadingBootstrap = false;
+      _checkingHardware = false;
       return;
     }
 
-    _cameraController = MobileScannerController(
-      formats: const [
-        BarcodeFormat.qrCode,
-        BarcodeFormat.code128,
-        BarcodeFormat.code39,
-      ],
-      detectionSpeed: DetectionSpeed.normal,
-      facing: CameraFacing.back,
-      torchEnabled: false,
-    );
+    WidgetsBinding.instance.addObserver(this);
 
     _clockTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted && _customPinnedTimestamp == null) {
@@ -104,15 +118,31 @@ class _TeacherScannerScreenState extends State<TeacherScannerScreen> {
     });
 
     _loadSubjectsAndRecentScans();
-    _startContinuousNfcListener();
+    _initializeScannerHardware();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (!_hasFacultyAccess) return;
+    if (state == AppLifecycleState.resumed) {
+      // Re-arm Android NFC Reader Mode & refresh permission states upon returning
+      // from phone NFC Settings or system permission prompts.
+      _refreshAndArmHardware();
+    }
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _clockTimer?.cancel();
+    _cooldownTickTimer?.cancel();
     _bannerDismissTimer?.cancel();
+    _androidNfcSub?.cancel();
+    _hwStatusSub?.cancel();
     _cameraController?.dispose();
-    if (_nfcSessionActive) {
+    if (!kIsWeb && Platform.isAndroid) {
+      DeviceBridgeService.instance.setNfcReaderActive(false);
+    } else if (_iosNfcSessionActive) {
       NfcManager.instance.stopSession().catchError((_) {});
     }
     super.dispose();
@@ -123,8 +153,244 @@ class _TeacherScannerScreenState extends State<TeacherScannerScreen> {
   String get _formattedTimestamp =>
       _sheetTimestampFormat.format(_effectiveTimestamp);
 
+  // ─────────────────────────────────────────────────────────────
+  //  CAMERA + NFC PERMISSION & HARDWARE INTEGRATION
+  // ─────────────────────────────────────────────────────────────
+
+  void _ensureCameraController() {
+    _cameraController ??= MobileScannerController(
+      formats: const [
+        BarcodeFormat.qrCode,
+        BarcodeFormat.code128,
+        BarcodeFormat.code39,
+      ],
+      detectionSpeed: DetectionSpeed.normal,
+      facing: CameraFacing.back,
+      torchEnabled: false,
+    );
+  }
+
+  Future<void> _initializeScannerHardware() async {
+    if (!kIsWeb && Platform.isAndroid) {
+      _hwStatusSub =
+          DeviceBridgeService.instance.hardwareStatusStream.listen((status) {
+        if (!mounted) return;
+        _applyHardwareStatus(status);
+      });
+
+      _androidNfcSub =
+          DeviceBridgeService.instance.nfcTagStream.listen((tagEvent) {
+        if (!mounted) return;
+        final cleaned = _sanitizeScannedId(tagEvent.id);
+        if (cleaned.isNotEmpty) {
+          _recordScannedStudent(cleaned, sourceLabel: 'NFC');
+        }
+      });
+
+      final initial = await DeviceBridgeService.instance.getHardwareStatus();
+      if (!mounted) return;
+
+      // Request Camera permission cleanly upfront if not yet granted so NFC
+      // Reader Mode attaches right after the dialog resumes!
+      bool camGranted = initial.cameraGranted;
+      if (!camGranted) {
+        camGranted = await DeviceBridgeService.instance.requestCameraPermission();
+      }
+      if (!mounted) return;
+
+      final armedStatus =
+          await DeviceBridgeService.instance.setNfcReaderActive(true);
+      if (!mounted) return;
+      _applyHardwareStatus(
+        HardwareStatus(
+          cameraGranted: camGranted || armedStatus.cameraGranted,
+          nfcSupported: armedStatus.nfcSupported,
+          nfcEnabled: armedStatus.nfcEnabled,
+          nfcReaderAttached: armedStatus.nfcReaderAttached,
+        ),
+      );
+      setState(() => _checkingHardware = false);
+      return;
+    }
+
+    // Non-Android fallback (iOS)
+    _ensureCameraController();
+    setState(() {
+      _hwStatus = const HardwareStatus(
+        cameraGranted: true,
+        nfcSupported: false,
+        nfcEnabled: false,
+        nfcReaderAttached: false,
+      );
+      _checkingHardware = false;
+    });
+    _startIosFallbackNfcListener();
+  }
+
+  Future<void> _refreshAndArmHardware() async {
+    if (kIsWeb || !Platform.isAndroid) return;
+    final status = await DeviceBridgeService.instance.setNfcReaderActive(true);
+    if (!mounted) return;
+    _applyHardwareStatus(status);
+  }
+
+  void _applyHardwareStatus(HardwareStatus status) {
+    if (status.cameraGranted) {
+      _ensureCameraController();
+    }
+    String nfcHint;
+    if (!status.nfcSupported) {
+      nfcHint = 'No NFC hardware detected on this phone';
+    } else if (!status.nfcEnabled) {
+      nfcHint = 'NFC is turned OFF — Tap Setup to enable in Settings';
+    } else {
+      nfcHint = 'NFC Reader Active — Hold student card behind phone';
+    }
+    setState(() {
+      _hwStatus = status;
+      _nfcStatusHint = nfcHint;
+    });
+  }
+
+  Future<void> _requestCameraPermissionManual() async {
+    final granted = await DeviceBridgeService.instance.requestCameraPermission();
+    if (!mounted) return;
+    if (!granted) {
+      await DeviceBridgeService.instance.openAppSettings();
+    } else {
+      await _refreshAndArmHardware();
+    }
+  }
+
+  Future<void> _startIosFallbackNfcListener() async {
+    if (kIsWeb || !Platform.isIOS) {
+      if (mounted) {
+        setState(() => _nfcStatusHint = 'NFC unavailable on this platform');
+      }
+      return;
+    }
+    try {
+      final availability = await NfcManager.instance.checkAvailability();
+      if (!mounted) return;
+      if (availability != NfcAvailability.enabled) {
+        setState(() {
+          _nfcStatusHint = availability == NfcAvailability.disabled
+              ? 'NFC is disabled on this device'
+              : 'No NFC hardware on device';
+        });
+        return;
+      }
+      setState(() {
+        _iosNfcSessionActive = true;
+        _hwStatus = const HardwareStatus(
+          cameraGranted: true,
+          nfcSupported: true,
+          nfcEnabled: true,
+          nfcReaderAttached: true,
+        );
+        _nfcStatusHint = 'NFC Active — Tap student card anytime';
+      });
+
+      await NfcManager.instance.startSession(
+        pollingOptions: const {
+          NfcPollingOption.iso14443,
+          NfcPollingOption.iso15693,
+        },
+        onDiscovered: (NfcTag tag) async {
+          final extractedId = await _extractStudentIdFromIosNfcTag(tag);
+          if (extractedId != null && extractedId.trim().isNotEmpty) {
+            await _recordScannedStudent(extractedId, sourceLabel: 'NFC');
+          }
+        },
+      );
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _iosNfcSessionActive = false;
+          _nfcStatusHint = 'NFC error: $e';
+        });
+      }
+    }
+  }
+
+  Future<String?> _extractStudentIdFromIosNfcTag(NfcTag tag) async {
+    try {
+      final ndef = Ndef.from(tag);
+      NdefMessage? msg = ndef?.cachedMessage;
+      if (msg == null && ndef != null) {
+        try {
+          msg = await ndef.read();
+        } catch (_) {}
+      }
+      if (msg != null && msg.records.isNotEmpty) {
+        for (final rec in msg.records) {
+          final decoded = _decodeNdefRecordPayload(rec);
+          if (decoded.isNotEmpty) return _sanitizeScannedId(decoded);
+        }
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  String _decodeNdefRecordPayload(NdefRecord record) {
+    final payload = record.payload;
+    if (payload.isEmpty) return '';
+    if (record.type.length == 1 && record.type[0] == 0x54) {
+      final statusByte = payload[0];
+      final langLen = statusByte & 0x3F;
+      final start = 1 + langLen;
+      if (payload.length <= start) return '';
+      final isUtf16 = (statusByte & 0x80) != 0;
+      return isUtf16
+          ? String.fromCharCodes(payload.sublist(start)).trim()
+          : utf8.decode(payload.sublist(start), allowMalformed: true).trim();
+    }
+    if (record.type.length == 1 &&
+        record.type[0] == 0x55 &&
+        payload.length > 1) {
+      return utf8.decode(payload.sublist(1), allowMalformed: true).trim();
+    }
+    return utf8.decode(payload, allowMalformed: true).trim();
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  //  2.5-SECOND ANTI-BURST LAG TIMER (QR + NFC)
+  // ─────────────────────────────────────────────────────────────
+
+  void _startScanLagCooldown() {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    _cooldownUntilEpochMs = now + _scanLagDurationMs;
+    _cooldownRemainingMs = _scanLagDurationMs;
+    _cooldownTickTimer?.cancel();
+    _cooldownTickTimer = Timer.periodic(const Duration(milliseconds: 100), (t) {
+      if (!mounted) {
+        t.cancel();
+        return;
+      }
+      final left =
+          _cooldownUntilEpochMs - DateTime.now().millisecondsSinceEpoch;
+      if (left <= 0) {
+        t.cancel();
+        setState(() => _cooldownRemainingMs = 0);
+      } else {
+        setState(() => _cooldownRemainingMs = left);
+      }
+    });
+  }
+
+  void _clearScanLagCooldown() {
+    _cooldownTickTimer?.cancel();
+    _cooldownUntilEpochMs = 0;
+    if (mounted) {
+      setState(() => _cooldownRemainingMs = 0);
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  //  SUBJECT BOOTSTRAP & EDITABLE TIMESTAMP
+  // ─────────────────────────────────────────────────────────────
+
   Future<void> _loadSubjectsAndRecentScans() async {
-    // 1. Load cached "Reference" Column C subjects immediately (<10ms offline-ready)
     final cached = await LocalDatabase.instance.getCachedReferenceBootstrap();
     final recent = await LocalDatabase.instance.getRecentScans(limit: 30);
 
@@ -143,7 +409,6 @@ class _TeacherScannerScreenState extends State<TeacherScannerScreen> {
       });
     }
 
-    // 2. Refresh from Google Sheet "Reference" Column C in background when online
     final fresh = await ApiService.instance.fetchScannerBootstrap(
       sessionOverride: widget.session,
     );
@@ -194,10 +459,6 @@ class _TeacherScannerScreenState extends State<TeacherScannerScreen> {
     return available.first;
   }
 
-  // ─────────────────────────────────────────────────────────────
-  //  STEP 3: EDITABLE TIMESTAMP DIALOG (DATE + TIME + SECONDS)
-  // ─────────────────────────────────────────────────────────────
-
   Future<void> _editTimestamp() async {
     final base = _effectiveTimestamp;
     final pickedDate = await showDatePicker(
@@ -236,116 +497,13 @@ class _TeacherScannerScreenState extends State<TeacherScannerScreen> {
   }
 
   // ─────────────────────────────────────────────────────────────
-  //  HARDWARE NFC CONTINUOUS READER (NDEF + ANDROID TAG UID)
-  // ─────────────────────────────────────────────────────────────
-
-  Future<void> _startContinuousNfcListener() async {
-    if (!Platform.isAndroid && !Platform.isIOS) {
-      setState(() => _nfcStatusHint = 'NFC unavailable on this platform');
-      return;
-    }
-    try {
-      final availability = await NfcManager.instance.checkAvailability();
-      if (!mounted) return;
-      if (availability != NfcAvailability.enabled) {
-        setState(() {
-          _nfcSupportedAndEnabled = false;
-          _nfcStatusHint = availability == NfcAvailability.disabled
-              ? 'NFC is turned off in Android Settings'
-              : 'No NFC hardware on device';
-        });
-        return;
-      }
-
-      setState(() {
-        _nfcSupportedAndEnabled = true;
-        _nfcSessionActive = true;
-        _nfcStatusHint = 'NFC Active — Tap student card anytime';
-      });
-
-      await NfcManager.instance.startSession(
-        pollingOptions: const {
-          NfcPollingOption.iso14443,
-          NfcPollingOption.iso15693,
-        },
-        onDiscovered: (NfcTag tag) async {
-          final extractedId = await _extractStudentIdFromNfcTag(tag);
-          if (extractedId != null && extractedId.trim().isNotEmpty) {
-            await _recordScannedStudent(extractedId, sourceLabel: 'NFC');
-          }
-          // Intentionally keep NFC session open for rapid back-to-back classroom taps!
-        },
-      );
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _nfcSessionActive = false;
-          _nfcStatusHint = 'NFC error: $e';
-        });
-      }
-    }
-  }
-
-  Future<String?> _extractStudentIdFromNfcTag(NfcTag tag) async {
-    // 1. Prefer NDEF Text / URI / MIME payload when written on the card
-    try {
-      final ndef = Ndef.from(tag);
-      NdefMessage? msg = ndef?.cachedMessage;
-      if (msg == null && ndef != null) {
-        try {
-          msg = await ndef.read();
-        } catch (_) {}
-      }
-      if (msg != null && msg.records.isNotEmpty) {
-        for (final rec in msg.records) {
-          final decoded = _decodeNdefRecordPayload(rec);
-          if (decoded.isNotEmpty) return _sanitizeScannedId(decoded);
-        }
-      }
-    } catch (_) {}
-
-    // 2. Fallback to Android hardware NFC Tag UID (ISO14443 / Mifare / ISO15693)
-    if (Platform.isAndroid) {
-      final uidBytes = nfc_android.NfcTagAndroid.from(tag)?.id;
-      if (uidBytes != null && uidBytes.isNotEmpty) {
-        return uidBytes
-            .map((b) => b.toRadixString(16).padLeft(2, '0'))
-            .join(':')
-            .toUpperCase();
-      }
-    }
-    return null;
-  }
-
-  String _decodeNdefRecordPayload(NdefRecord record) {
-    final payload = record.payload;
-    if (payload.isEmpty) return '';
-
-    // NFC Well-Known Text Record ('T' == 0x54)
-    if (record.type.length == 1 && record.type[0] == 0x54) {
-      final statusByte = payload[0];
-      final langLen = statusByte & 0x3F;
-      final start = 1 + langLen;
-      if (payload.length <= start) return '';
-      final isUtf16 = (statusByte & 0x80) != 0;
-      return isUtf16
-          ? String.fromCharCodes(payload.sublist(start)).trim()
-          : utf8.decode(payload.sublist(start), allowMalformed: true).trim();
-    }
-
-    // NFC Well-Known URI Record ('U' == 0x55)
-    if (record.type.length == 1 && record.type[0] == 0x55 && payload.length > 1) {
-      return utf8.decode(payload.sublist(1), allowMalformed: true).trim();
-    }
-
-    return utf8.decode(payload, allowMalformed: true).trim();
-  }
-
-  // ─────────────────────────────────────────────────────────────
-  //  CAMERA QR CODE HANDLER & SHARED RECORDING PIPELINE
+  //  SHARED QR + NFC + MANUAL RECORDING PIPELINE
   // ─────────────────────────────────────────────────────────────
 
   void _onCameraBarcodeDetected(BarcodeCapture capture) {
+    if (_duplicateDialogOpen) return;
+    if (DateTime.now().millisecondsSinceEpoch < _cooldownUntilEpochMs) return;
+
     for (final barcode in capture.barcodes) {
       final raw = barcode.rawValue;
       if (raw != null && raw.trim().isNotEmpty) {
@@ -357,7 +515,6 @@ class _TeacherScannerScreenState extends State<TeacherScannerScreen> {
 
   String _sanitizeScannedId(String raw) {
     String clean = raw.trim();
-    // Support JSON or URL-encoded QR codes if used (e.g., ?id=2026-001 or {"id":"..."})
     if (clean.startsWith('{') && clean.endsWith('}')) {
       try {
         final decoded = jsonDecode(clean);
@@ -382,11 +539,19 @@ class _TeacherScannerScreenState extends State<TeacherScannerScreen> {
   }) async {
     if (!_hasFacultyAccess || _duplicateDialogOpen) return;
 
+    // Enforce global 2.5-second anti-burst lag time for QR and NFC scans
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    if ((sourceLabel == 'QR' || sourceLabel == 'NFC') &&
+        nowMs < _cooldownUntilEpochMs) {
+      return;
+    }
+
     final studentId = rawStudentId.trim();
     if (studentId.isEmpty) return;
 
     final subject = _selectedSubject?.trim() ?? '';
     if (subject.isEmpty) {
+      _startScanLagCooldown();
       _flashBanner(
         title: 'Select a Subject first (Step 2)',
         subtitle: 'Choose a subject before scanning.',
@@ -395,17 +560,9 @@ class _TeacherScannerScreenState extends State<TeacherScannerScreen> {
       return;
     }
 
-    // Hardware camera-frame anti-burst guard ONLY for 30fps live video ('QR')
-    // so a single wave doesn't fire 20 video frames at once.
-    // Discrete NFC taps and Manual ID entry have zero cooldown for Recitation.
-    final frameKey = '${_selectedMode.wireValue}|$subject|$studentId';
-    final nowMs = DateTime.now().millisecondsSinceEpoch;
-    if (sourceLabel == 'QR') {
-      final prevMs = _inMemoryCooldownMs[frameKey];
-      if (prevMs != null && (nowMs - prevMs) < 1200) {
-        return;
-      }
-      _inMemoryCooldownMs[frameKey] = nowMs;
+    // Lock scanner immediately so burst frames/taps while writing SQLite are ignored
+    if (sourceLabel == 'QR' || sourceLabel == 'NFC') {
+      _startScanLagCooldown();
     }
 
     final timestampStr = _formattedTimestamp;
@@ -415,8 +572,7 @@ class _TeacherScannerScreenState extends State<TeacherScannerScreen> {
     final studentName = _studentDirectory[studentId];
     bool isOverrideAttendance = false;
 
-    // For Attendance ONLY: check if student already has an attendance scan
-    // for this Subject on this class date, warn Faculty, and offer Override access.
+    // Attendance duplicate check with Faculty Override option
     if (_selectedMode == ScanMode.attendance) {
       final existingAttendance =
           await LocalDatabase.instance.findAttendanceScansForSubjectDate(
@@ -438,17 +594,17 @@ class _TeacherScannerScreenState extends State<TeacherScannerScreen> {
             );
           }
         } finally {
-          // Brief camera frame guard right after closing the dialog
-          _inMemoryCooldownMs[frameKey] =
-              DateTime.now().millisecondsSinceEpoch + 600;
           _duplicateDialogOpen = false;
+          // Start a fresh 2.5s lag window after closing the duplicate dialog
+          _startScanLagCooldown();
         }
 
         if (!approvedOverride) {
           if (mounted) {
             _flashBanner(
               title: 'Skipped Duplicate ($studentId)',
-              subtitle: '$subject • Already logged at ${existingAttendance.first.timestamp}',
+              subtitle:
+                  '$subject • Already logged at ${existingAttendance.first.timestamp}',
               isDuplicate: true,
             );
           }
@@ -607,7 +763,7 @@ class _TeacherScannerScreenState extends State<TeacherScannerScreen> {
       _bannerSubtitle = subtitle;
       _bannerIsDuplicate = isDuplicate;
     });
-    _bannerDismissTimer = Timer(const Duration(milliseconds: 2400), () {
+    _bannerDismissTimer = Timer(const Duration(milliseconds: 2500), () {
       if (mounted) {
         setState(() => _bannerText = null);
       }
@@ -624,8 +780,7 @@ class _TeacherScannerScreenState extends State<TeacherScannerScreen> {
       return;
     }
     await LocalDatabase.instance.deleteScan(entry.logId);
-    _inMemoryCooldownMs
-        .remove('${entry.scanType.wireValue}|${entry.subject}|${entry.studentId}');
+    _clearScanLagCooldown();
     await SyncManager.instance.refreshPendingCount();
     final updated = await LocalDatabase.instance.getRecentScans(limit: 30);
     if (mounted) {
@@ -725,6 +880,21 @@ class _TeacherScannerScreenState extends State<TeacherScannerScreen> {
     }
   }
 
+  void _openPermissionsSetupSheet() {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (_) => _ScannerPermissionsSetupSheet(
+        initialStatus: _hwStatus,
+        onRefreshRequested: _refreshAndArmHardware,
+      ),
+    ).then((_) => _refreshAndArmHardware());
+  }
+
   void _openSyncQueueDrawer() {
     showModalBottomSheet<void>(
       context: context,
@@ -767,7 +937,8 @@ class _TeacherScannerScreenState extends State<TeacherScannerScreen> {
                 const SizedBox(height: 14),
                 Text(
                   'Faculty Access Required',
-                  style: PortalTheme.serif(size: 26, color: PortalColors.forest),
+                  style:
+                      PortalTheme.serif(size: 26, color: PortalColors.forest),
                 ),
                 const SizedBox(height: 8),
                 Text(
@@ -792,6 +963,8 @@ class _TeacherScannerScreenState extends State<TeacherScannerScreen> {
     }
 
     final isPinnedTime = _customPinnedTimestamp != null;
+    final needsAttention =
+        !_hwStatus.cameraGranted || (_hwStatus.nfcSupported && !_hwStatus.nfcEnabled);
 
     return Scaffold(
       backgroundColor: PortalColors.parchment,
@@ -800,9 +973,32 @@ class _TeacherScannerScreenState extends State<TeacherScannerScreen> {
         foregroundColor: Colors.white,
         title: Text(
           'Classroom Scanner',
-          style: PortalTheme.serif(size: 23, color: Colors.white),
+          style: PortalTheme.serif(size: 22, color: Colors.white),
         ),
         actions: [
+          IconButton(
+            tooltip: 'Camera & NFC Permission Setup',
+            onPressed: _openPermissionsSetupSheet,
+            icon: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                const Icon(Icons.tune_rounded, color: Colors.white),
+                if (needsAttention)
+                  Positioned(
+                    right: -2,
+                    top: -2,
+                    child: Container(
+                      width: 9,
+                      height: 9,
+                      decoration: const BoxDecoration(
+                        color: PortalColors.gold,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
           ListenableBuilder(
             listenable: SyncManager.instance,
             builder: (context, _) {
@@ -867,12 +1063,66 @@ class _TeacherScannerScreenState extends State<TeacherScannerScreen> {
       body: SafeArea(
         child: Column(
           children: [
+            // Optional 1-tap NFC / Permission Alert Strip if NFC is turned off on phone
+            if (!_checkingHardware && needsAttention)
+              InkWell(
+                onTap: _openPermissionsSetupSheet,
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 8,
+                  ),
+                  color: PortalColors.goldPale,
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.nfc_rounded,
+                        size: 17,
+                        color: PortalColors.forest,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          !_hwStatus.cameraGranted
+                              ? 'Camera permission is required for QR scanning. Tap to grant.'
+                              : 'Phone NFC is currently OFF. Tap here to enable NFC for card taps.',
+                          style: PortalTheme.sans(
+                            size: 11.5,
+                            weight: FontWeight.w700,
+                            color: PortalColors.forest,
+                          ),
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 9,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: PortalColors.forest,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          'SETUP',
+                          style: PortalTheme.sans(
+                            size: 10,
+                            weight: FontWeight.w800,
+                            color: PortalColors.gold,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+
             // ─────────────────────────────────────────────────────
             //  SETUP CONTROLS: 1. MODE -> 2. SUBJECT -> 3. TIMESTAMP
             // ─────────────────────────────────────────────────────
             Container(
               width: double.infinity,
-              padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+              padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
               decoration: const BoxDecoration(
                 color: Colors.white,
                 border: Border(bottom: BorderSide(color: PortalColors.ruleMed)),
@@ -895,7 +1145,7 @@ class _TeacherScannerScreenState extends State<TeacherScannerScreen> {
                       Text(
                         'SCAN TYPE',
                         style: PortalTheme.sans(
-                          size: 11,
+                          size: 10.5,
                           weight: FontWeight.w800,
                           letterSpacing: 1.1,
                           color: PortalColors.ink3,
@@ -912,7 +1162,7 @@ class _TeacherScannerScreenState extends State<TeacherScannerScreen> {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 6),
                   Row(
                     children: [
                       Expanded(
@@ -934,7 +1184,7 @@ class _TeacherScannerScreenState extends State<TeacherScannerScreen> {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 10),
 
                   // STEP 2: Select Subject (from "Reference" Column C)
                   Row(
@@ -944,7 +1194,7 @@ class _TeacherScannerScreenState extends State<TeacherScannerScreen> {
                       Text(
                         'SUBJECT (REFERENCE COL C)',
                         style: PortalTheme.sans(
-                          size: 11,
+                          size: 10.5,
                           weight: FontWeight.w800,
                           letterSpacing: 1.1,
                           color: PortalColors.ink3,
@@ -978,9 +1228,9 @@ class _TeacherScannerScreenState extends State<TeacherScannerScreen> {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 6),
+                  const SizedBox(height: 5),
                   SizedBox(
-                    height: 38,
+                    height: 36,
                     child: ListView.separated(
                       scrollDirection: Axis.horizontal,
                       itemCount: _subjects.length,
@@ -995,7 +1245,7 @@ class _TeacherScannerScreenState extends State<TeacherScannerScreen> {
                           backgroundColor: PortalColors.parchment,
                           checkmarkColor: PortalColors.gold,
                           labelStyle: PortalTheme.sans(
-                            size: 12.5,
+                            size: 12,
                             weight: FontWeight.w800,
                             color: selected
                                 ? PortalColors.gold
@@ -1007,7 +1257,7 @@ class _TeacherScannerScreenState extends State<TeacherScannerScreen> {
                       },
                     ),
                   ),
-                  const SizedBox(height: 10),
+                  const SizedBox(height: 8),
 
                   // STEP 3: Editable Timestamp Bar Above the Scanner
                   InkWell(
@@ -1016,7 +1266,7 @@ class _TeacherScannerScreenState extends State<TeacherScannerScreen> {
                     child: Container(
                       padding: const EdgeInsets.symmetric(
                         horizontal: 12,
-                        vertical: 9,
+                        vertical: 8,
                       ),
                       decoration: BoxDecoration(
                         color: isPinnedTime
@@ -1063,7 +1313,7 @@ class _TeacherScannerScreenState extends State<TeacherScannerScreen> {
                                 Text(
                                   _formattedTimestamp,
                                   style: PortalTheme.sans(
-                                    size: 14,
+                                    size: 13.5,
                                     weight: FontWeight.w800,
                                     color: PortalColors.forest,
                                   ),
@@ -1114,7 +1364,73 @@ class _TeacherScannerScreenState extends State<TeacherScannerScreen> {
               child: Stack(
                 fit: StackFit.expand,
                 children: [
-                  if (_cameraEnabled && _cameraController != null)
+                  if (_checkingHardware)
+                    Container(
+                      color: PortalColors.forestDark,
+                      alignment: Alignment.center,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const CircularProgressIndicator(
+                            color: PortalColors.gold,
+                          ),
+                          const SizedBox(height: 12),
+                          Text(
+                            'INITIALIZING CAMERA & NFC READER...',
+                            style: PortalTheme.sans(
+                              size: 11.5,
+                              weight: FontWeight.w700,
+                              letterSpacing: 1.3,
+                              color: Colors.white70,
+                            ),
+                          ),
+                        ],
+                      ),
+                    )
+                  else if (!_hwStatus.cameraGranted)
+                    Container(
+                      color: PortalColors.forestDark,
+                      alignment: Alignment.center,
+                      padding: const EdgeInsets.all(24),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(
+                            Icons.camera_enhance_rounded,
+                            color: PortalColors.gold,
+                            size: 48,
+                          ),
+                          const SizedBox(height: 10),
+                          Text(
+                            'Camera Permission Needed',
+                            style: PortalTheme.serif(
+                              size: 22,
+                              color: Colors.white,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            'Grant camera access for QR scanning, or continue scanning via NFC card tap & Manual ID.',
+                            textAlign: TextAlign.center,
+                            style: PortalTheme.sans(
+                              size: 12.5,
+                              color: Colors.white70,
+                            ),
+                          ),
+                          const SizedBox(height: 14),
+                          ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: PortalColors.gold,
+                              foregroundColor: PortalColors.forest,
+                            ),
+                            onPressed: _requestCameraPermissionManual,
+                            icon: const Icon(Icons.verified_user_rounded, size: 17),
+                            label: const Text('Grant Camera Permission'),
+                          ),
+                        ],
+                      ),
+                    )
+                  else if (_cameraEnabled && _cameraController != null)
                     MobileScanner(
                       controller: _cameraController!,
                       onDetect: _onCameraBarcodeDetected,
@@ -1122,10 +1438,24 @@ class _TeacherScannerScreenState extends State<TeacherScannerScreen> {
                         color: PortalColors.forestDark,
                         alignment: Alignment.center,
                         padding: const EdgeInsets.all(24),
-                        child: Text(
-                          'Camera unavailable (${error.errorCode.name}).\nNFC & Manual ID scanning remain active.',
-                          textAlign: TextAlign.center,
-                          style: PortalTheme.sans(color: Colors.white),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              'Camera unavailable (${error.errorCode.name}).\nNFC & Manual ID scanning remain active.',
+                              textAlign: TextAlign.center,
+                              style: PortalTheme.sans(color: Colors.white),
+                            ),
+                            const SizedBox(height: 12),
+                            OutlinedButton(
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: PortalColors.gold,
+                                side: const BorderSide(color: PortalColors.gold),
+                              ),
+                              onPressed: _openPermissionsSetupSheet,
+                              child: const Text('Open Scanner Setup'),
+                            ),
+                          ],
                         ),
                       ),
                     )
@@ -1133,6 +1463,7 @@ class _TeacherScannerScreenState extends State<TeacherScannerScreen> {
                     Container(
                       color: PortalColors.forestDark,
                       alignment: Alignment.center,
+                      padding: const EdgeInsets.symmetric(horizontal: 24),
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
@@ -1152,6 +1483,7 @@ class _TeacherScannerScreenState extends State<TeacherScannerScreen> {
                           const SizedBox(height: 4),
                           Text(
                             _nfcStatusHint,
+                            textAlign: TextAlign.center,
                             style: PortalTheme.sans(
                               size: 12.5,
                               color: Colors.white70,
@@ -1161,20 +1493,104 @@ class _TeacherScannerScreenState extends State<TeacherScannerScreen> {
                       ),
                     ),
 
-                  // QR Reticle Frame
-                  if (_cameraEnabled)
+                  // QR Reticle Frame (pulses Gold during 2.5s cooldown)
+                  if (_cameraEnabled && _hwStatus.cameraGranted)
                     IgnorePointer(
                       child: Center(
-                        child: Container(
-                          width: 210,
-                          height: 210,
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 220),
+                          width: 205,
+                          height: 205,
                           decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(22),
+                            borderRadius: BorderRadius.circular(24),
+                            color: _isCoolingDown
+                                ? Colors.black.withAlpha(75)
+                                : Colors.transparent,
                             border: Border.all(
-                              color: _selectedMode == ScanMode.recitation
+                              color: _isCoolingDown
                                   ? PortalColors.gold
-                                  : Colors.white,
+                                  : (_selectedMode == ScanMode.recitation
+                                      ? PortalColors.gold
+                                      : Colors.white),
                               width: 3,
+                            ),
+                          ),
+                          alignment: Alignment.center,
+                          child: _isCoolingDown
+                              ? Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 14,
+                                    vertical: 8,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: Colors.black.withAlpha(185),
+                                    borderRadius: BorderRadius.circular(16),
+                                  ),
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      const Icon(
+                                        Icons.hourglass_bottom_rounded,
+                                        color: PortalColors.gold,
+                                        size: 22,
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        'Next scan in ${(_cooldownRemainingMs / 1000).toStringAsFixed(1)}s',
+                                        style: PortalTheme.sans(
+                                          size: 12,
+                                          weight: FontWeight.w800,
+                                          color: Colors.white,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 6),
+                                      SizedBox(
+                                        width: 110,
+                                        height: 4,
+                                        child: ClipRRect(
+                                          borderRadius:
+                                              BorderRadius.circular(4),
+                                          child: LinearProgressIndicator(
+                                            value: (_cooldownRemainingMs /
+                                                    _scanLagDurationMs)
+                                                .clamp(0.0, 1.0),
+                                            color: PortalColors.gold,
+                                            backgroundColor: Colors.white24,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                )
+                              : null,
+                        ),
+                      ),
+                    ),
+
+                  // 2.5s Cooldown indicator when Camera is paused (NFC-only mode)
+                  if ((!_cameraEnabled || !_hwStatus.cameraGranted) &&
+                      _isCoolingDown)
+                    Positioned(
+                      top: 56,
+                      left: 24,
+                      right: 24,
+                      child: Center(
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 7,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withAlpha(190),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(color: PortalColors.gold),
+                          ),
+                          child: Text(
+                            '⏳ Anti-burst lag: Ready in ${(_cooldownRemainingMs / 1000).toStringAsFixed(1)}s',
+                            style: PortalTheme.sans(
+                              size: 11.5,
+                              weight: FontWeight.w800,
+                              color: PortalColors.gold,
                             ),
                           ),
                         ),
@@ -1188,37 +1604,48 @@ class _TeacherScannerScreenState extends State<TeacherScannerScreen> {
                     right: 12,
                     child: Row(
                       children: [
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 5,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.black.withAlpha(158),
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                Icons.nfc_rounded,
-                                size: 15,
-                                color: _nfcSupportedAndEnabled
-                                    ? PortalColors.gold
-                                    : Colors.white54,
+                        InkWell(
+                          borderRadius: BorderRadius.circular(20),
+                          onTap: _openPermissionsSetupSheet,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 6,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withAlpha(168),
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(
+                                color: _hwStatus.isNfcReady
+                                    ? PortalColors.gold.withAlpha(140)
+                                    : Colors.white24,
                               ),
-                              const SizedBox(width: 5),
-                              Text(
-                                _nfcSupportedAndEnabled
-                                    ? 'QR + NFC Ready'
-                                    : 'QR Ready (NFC Off)',
-                                style: PortalTheme.sans(
-                                  size: 11,
-                                  weight: FontWeight.w700,
-                                  color: Colors.white,
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  Icons.nfc_rounded,
+                                  size: 15,
+                                  color: _hwStatus.isNfcReady
+                                      ? PortalColors.gold
+                                      : Colors.amberAccent,
                                 ),
-                              ),
-                            ],
+                                const SizedBox(width: 5),
+                                Text(
+                                  _hwStatus.isNfcReady
+                                      ? 'QR + NFC Active'
+                                      : (_hwStatus.nfcSupported
+                                          ? 'Enable NFC →'
+                                          : 'QR Active'),
+                                  style: PortalTheme.sans(
+                                    size: 11,
+                                    weight: FontWeight.w700,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
                         ),
                         const Spacer(),
@@ -1231,7 +1658,7 @@ class _TeacherScannerScreenState extends State<TeacherScannerScreen> {
                               setState(() => _cameraEnabled = !_cameraEnabled),
                         ),
                         const SizedBox(width: 6),
-                        if (_cameraEnabled) ...[
+                        if (_cameraEnabled && _hwStatus.cameraGranted) ...[
                           _scannerOverlayIconBtn(
                             icon: Icons.flashlight_on_rounded,
                             tooltip: 'Toggle Torch',
@@ -1355,12 +1782,16 @@ class _TeacherScannerScreenState extends State<TeacherScannerScreen> {
                     Expanded(
                       child: _recentScans.isEmpty
                           ? Center(
-                              child: Text(
-                                'Point camera at QR code or tap student NFC card to begin.',
-                                textAlign: TextAlign.center,
-                                style: PortalTheme.sans(
-                                  size: 12.5,
-                                  color: PortalColors.ink3,
+                              child: Padding(
+                                padding:
+                                    const EdgeInsets.symmetric(horizontal: 24),
+                                child: Text(
+                                  'Point camera at QR pass or tap student NFC card (2.5s anti-burst protection active).',
+                                  textAlign: TextAlign.center,
+                                  style: PortalTheme.sans(
+                                    size: 12.5,
+                                    color: PortalColors.ink3,
+                                  ),
                                 ),
                               ),
                             )
@@ -1493,7 +1924,7 @@ class _TeacherScannerScreenState extends State<TeacherScannerScreen> {
       onTap: () => setState(() => _selectedMode = mode),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 180),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
         decoration: BoxDecoration(
           color: active ? PortalColors.forest : PortalColors.parchment,
           borderRadius: BorderRadius.circular(14),
@@ -1517,7 +1948,7 @@ class _TeacherScannerScreenState extends State<TeacherScannerScreen> {
                   Text(
                     title,
                     style: PortalTheme.sans(
-                      size: 13.5,
+                      size: 13,
                       weight: FontWeight.w800,
                       color: active ? Colors.white : PortalColors.forest,
                     ),
@@ -1552,6 +1983,288 @@ class _TeacherScannerScreenState extends State<TeacherScannerScreen> {
         visualDensity: VisualDensity.compact,
         icon: Icon(icon, color: Colors.white, size: 19),
         onPressed: onTap,
+      ),
+    );
+  }
+}
+
+/// Interactive Camera & Hardware NFC Permission Setup Bottom Sheet.
+class _ScannerPermissionsSetupSheet extends StatefulWidget {
+  final HardwareStatus initialStatus;
+  final Future<void> Function() onRefreshRequested;
+
+  const _ScannerPermissionsSetupSheet({
+    required this.initialStatus,
+    required this.onRefreshRequested,
+  });
+
+  @override
+  State<_ScannerPermissionsSetupSheet> createState() =>
+      _ScannerPermissionsSetupSheetState();
+}
+
+class _ScannerPermissionsSetupSheetState
+    extends State<_ScannerPermissionsSetupSheet> with WidgetsBindingObserver {
+  late HardwareStatus _status = widget.initialStatus;
+  StreamSubscription<HardwareStatus>? _sub;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _sub = DeviceBridgeService.instance.hardwareStatusStream.listen((s) {
+      if (mounted) setState(() => _status = s);
+    });
+    _refreshStatus();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _refreshStatus();
+    }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _sub?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _refreshStatus() async {
+    await widget.onRefreshRequested();
+    final latest = await DeviceBridgeService.instance.getHardwareStatus();
+    if (mounted) setState(() => _status = latest);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(22, 18, 22, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                const Icon(
+                  Icons.security_update_good_rounded,
+                  color: PortalColors.forest,
+                  size: 26,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Scanner Permissions & NFC Setup',
+                    style: PortalTheme.serif(size: 23),
+                  ),
+                ),
+                IconButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  icon: const Icon(Icons.close_rounded),
+                ),
+              ],
+            ),
+            Text(
+              'Configure your phone hardware once for seamless QR & NFC scanning.',
+              style: PortalTheme.sans(size: 12.5, color: PortalColors.ink3),
+            ),
+            const SizedBox(height: 16),
+
+            // 1. Camera QR Permission Card
+            _permissionTile(
+              icon: Icons.qr_code_scanner_rounded,
+              title: 'Camera Access (QR Scanner)',
+              statusLabel: _status.cameraGranted ? 'GRANTED' : 'REQUIRED',
+              statusOk: _status.cameraGranted,
+              description: _status.cameraGranted
+                  ? 'Camera permission is active for QR & barcode student passes.'
+                  : 'Allow camera access so the scanner can read student QR codes.',
+              actionButton: _status.cameraGranted
+                  ? null
+                  : ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: PortalColors.forest,
+                        foregroundColor: Colors.white,
+                      ),
+                      onPressed: () async {
+                        final ok = await DeviceBridgeService.instance
+                            .requestCameraPermission();
+                        if (!ok) {
+                          await DeviceBridgeService.instance.openAppSettings();
+                        }
+                        await _refreshStatus();
+                      },
+                      child: const Text('Grant Camera'),
+                    ),
+            ),
+            const SizedBox(height: 12),
+
+            // 2. NFC Hardware Integration Card
+            _permissionTile(
+              icon: Icons.nfc_rounded,
+              title: 'NFC Reader (Student Smart Cards)',
+              statusLabel: !_status.nfcSupported
+                  ? 'NO NFC CHIP'
+                  : (_status.nfcEnabled ? 'ACTIVE' : 'TURNED OFF'),
+              statusOk: _status.isNfcReady,
+              description: !_status.nfcSupported
+                  ? 'This phone does not report built-in NFC hardware. QR & Manual ID scanning remain available.'
+                  : (_status.nfcEnabled
+                      ? 'Foreground NFC Reader Mode (NFC-A/B/F/V & NDEF/UID) is live! Hold cards near the back of your phone.'
+                      : 'NFC is currently switched off in your phone settings. Turn it on to scan NFC cards.'),
+              actionButton: !_status.nfcSupported
+                  ? null
+                  : (_status.nfcEnabled
+                      ? OutlinedButton(
+                          onPressed: _refreshStatus,
+                          child: const Text('Re-Sync'),
+                        )
+                      : ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: PortalColors.gold,
+                            foregroundColor: PortalColors.forest,
+                          ),
+                          onPressed: () async {
+                            await DeviceBridgeService.instance
+                                .openNfcSettings();
+                          },
+                          child: const Text('Turn On NFC'),
+                        )),
+            ),
+            const SizedBox(height: 14),
+
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: PortalColors.parchment,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: PortalColors.ruleMed),
+              ),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.timer_outlined,
+                    size: 18,
+                    color: PortalColors.forest,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      '2.5-Second Anti-Burst Protection is active on both NFC and QR scans to prevent accidental double reads.',
+                      style: PortalTheme.sans(
+                        size: 11.5,
+                        weight: FontWeight.w600,
+                        color: PortalColors.ink2,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () =>
+                        DeviceBridgeService.instance.openAppSettings(),
+                    icon: const Icon(Icons.settings_outlined, size: 17),
+                    label: const Text('Phone App Settings'),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: PortalColors.forest,
+                      foregroundColor: Colors.white,
+                    ),
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: const Text('Done'),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _permissionTile({
+    required IconData icon,
+    required String title,
+    required String statusLabel,
+    required bool statusOk,
+    required String description,
+    Widget? actionButton,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: statusOk ? PortalColors.emeraldBorder : PortalColors.ruleMed,
+          width: 1.5,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, color: PortalColors.forest, size: 22),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  title,
+                  style: PortalTheme.sans(
+                    size: 13.5,
+                    weight: FontWeight.w800,
+                    color: PortalColors.forest,
+                  ),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
+                decoration: BoxDecoration(
+                  color:
+                      statusOk ? PortalColors.emeraldBg : PortalColors.goldPale,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  statusLabel,
+                  style: PortalTheme.sans(
+                    size: 10,
+                    weight: FontWeight.w800,
+                    color: statusOk
+                        ? PortalColors.emerald
+                        : PortalColors.goldDark,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  description,
+                  style: PortalTheme.sans(size: 12, color: PortalColors.ink2),
+                ),
+              ),
+              if (actionButton != null) ...[
+                const SizedBox(width: 10),
+                actionButton,
+              ],
+            ],
+          ),
+        ],
       ),
     );
   }

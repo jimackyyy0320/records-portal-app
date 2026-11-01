@@ -102,74 +102,66 @@ class _PortalRootShellState extends State<PortalRootShell> {
 
   @override
   Widget build(BuildContext context) {
+    Widget activeScreen;
+
     if (_booting) {
-      return Scaffold(
-        backgroundColor: PortalColors.forest,
-        body: Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const CircularProgressIndicator(color: PortalColors.gold),
-              const SizedBox(height: 18),
-              Text(
-                'CONNECTING TO RECORDS PORTAL...',
-                style: PortalTheme.sans(
-                  size: 12,
-                  weight: FontWeight.w700,
-                  letterSpacing: 2.5,
-                  color: Colors.white70,
-                ),
-              ),
-            ],
+      activeScreen = const Scaffold(
+        key: ValueKey('portal_boot'),
+        backgroundColor: PortalColors.forestDark,
+        body: PortalLoadingView(
+          message: 'Connecting to Records Portal...',
+          subtitle: 'Syncing academic workspace & announcements',
+        ),
+      );
+    } else {
+      final announcements = _systemStatus?.announcements ?? const [];
+      final isMaintenance = _systemStatus?.isOfflineOrMaintenance == true;
+
+      // Show Retro TV Maintenance screen unless a Faculty member is logged in or signing in
+      if (isMaintenance &&
+          (_session == null || !_session!.isFaculty) &&
+          !_facultyLoginDuringMaintenance) {
+        activeScreen = ParchmentScaffold(
+          key: const ValueKey('portal_maintenance'),
+          topBanner: announcements.isNotEmpty
+              ? AnnouncementMarqueeBanner(announcements: announcements)
+              : null,
+          child: MaintenanceTvView(
+            onRetry: _bootstrapPortal,
+            onFacultyBypass: () =>
+                setState(() => _facultyLoginDuringMaintenance = true),
           ),
-        ),
-      );
-    }
-
-    final announcements = _systemStatus?.announcements ?? const [];
-    final isMaintenance = _systemStatus?.isOfflineOrMaintenance == true;
-
-    // Show Retro TV Maintenance screen unless a Faculty member is logged in or signing in
-    if (isMaintenance &&
-        (_session == null || !_session!.isFaculty) &&
-        !_facultyLoginDuringMaintenance) {
-      return ParchmentScaffold(
-        topBanner: announcements.isNotEmpty
-            ? AnnouncementMarqueeBanner(announcements: announcements)
-            : null,
-        child: MaintenanceTvView(
-          onRetry: _bootstrapPortal,
-          onFacultyBypass: () =>
-              setState(() => _facultyLoginDuringMaintenance = true),
-        ),
-      );
-    }
-
-    if (_session == null) {
-      return ParchmentScaffold(
-        topBanner: announcements.isNotEmpty
-            ? AnnouncementMarqueeBanner(announcements: announcements)
-            : null,
-        child: AuthScreen(
+        );
+      } else if (_session == null) {
+        activeScreen = AuthScreen(
+          key: const ValueKey('portal_auth'),
+          announcements: announcements,
           onAuthenticated: _handleAuthenticated,
           initialFacultyMode: _facultyLoginDuringMaintenance,
-        ),
-      );
+        );
+      } else if (_session!.isFaculty) {
+        activeScreen = FacultyDashboardScreen(
+          key: ValueKey('portal_fac_${_session!.id}'),
+          session: _session!,
+          announcements: announcements,
+          onLogout: _handleLogout,
+        );
+      } else {
+        activeScreen = StudentDashboardScreen(
+          key: ValueKey('portal_stu_${_session!.id}'),
+          session: _session!,
+          announcements: announcements,
+          onSessionUpdated: (updated) => setState(() => _session = updated),
+          onLogout: _handleLogout,
+        );
+      }
     }
 
-    if (_session!.isFaculty) {
-      return FacultyDashboardScreen(
-        session: _session!,
-        announcements: announcements,
-        onLogout: _handleLogout,
-      );
-    }
-
-    return StudentDashboardScreen(
-      session: _session!,
-      announcements: announcements,
-      onSessionUpdated: (updated) => setState(() => _session = updated),
-      onLogout: _handleLogout,
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 320),
+      switchInCurve: Curves.easeOutCubic,
+      switchOutCurve: Curves.easeInCubic,
+      child: activeScreen,
     );
   }
 }

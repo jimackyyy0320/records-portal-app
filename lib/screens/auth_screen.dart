@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+
 import '../models/portal_models.dart';
 import '../services/api_service.dart';
 import '../theme/portal_theme.dart';
@@ -9,11 +10,13 @@ enum _AuthMode { studentLogin, register, forgot, facultyLogin }
 
 class AuthScreen extends StatefulWidget {
   final ValueChanged<UserSession> onAuthenticated;
+  final List<AnnouncementItem> announcements;
   final bool initialFacultyMode;
 
   const AuthScreen({
     super.key,
     required this.onAuthenticated,
+    this.announcements = const [],
     this.initialFacultyMode = false,
   });
 
@@ -26,8 +29,15 @@ class _AuthScreenState extends State<AuthScreen> {
       ? _AuthMode.facultyLogin
       : _AuthMode.studentLogin;
   bool _loading = false;
+  String _loadingMessage = 'Authenticating...';
+  String? _loadingSubtitle;
   String? _message;
   bool _isSuccessMsg = false;
+
+  bool _obscureStudentPass = true;
+  bool _obscureRegPass = true;
+  bool _obscureForgotPass = true;
+  bool _obscureFacPass = true;
 
   // Student Login
   final _loginIdCtrl = TextEditingController();
@@ -63,6 +73,7 @@ class _AuthScreenState extends State<AuthScreen> {
   }
 
   void _switchMode(_AuthMode next) {
+    FocusScope.of(context).unfocus();
     setState(() {
       _mode = next;
       _message = null;
@@ -78,23 +89,40 @@ class _AuthScreenState extends State<AuthScreen> {
     });
   }
 
+  void _beginLoading(String title, [String? subtitle]) {
+    FocusScope.of(context).unfocus();
+    setState(() {
+      _loading = true;
+      _loadingMessage = title;
+      _loadingSubtitle = subtitle;
+      _message = null;
+    });
+  }
+
   Future<void> _handleStudentLogin() async {
     final id = _loginIdCtrl.text.trim();
     final pass = _loginPassCtrl.text;
     if (id.isEmpty || pass.isEmpty) {
-      _setFeedback('Required fields missing.');
+      _setFeedback('Please enter both your Student ID and Password.');
       return;
     }
 
-    setState(() {
-      _loading = true;
-      _message = null;
-    });
+    _beginLoading(
+      'Authenticating Student...',
+      'Loading your enrolled subjects & profile',
+    );
     try {
-      final res = await ApiService.instance.loginStudent(id: id, password: pass);
+      final res =
+          await ApiService.instance.loginStudent(id: id, password: pass);
       if (res['success'] != true) {
         _setFeedback(res['message']?.toString() ?? 'Invalid ID or Password.');
         return;
+      }
+      if (mounted) {
+        setState(() {
+          _loadingMessage = 'Preparing Student Workspace...';
+          _loadingSubtitle = 'Syncing profile photo & class schedule';
+        });
       }
       final avatar = await ApiService.instance.getStudentAvatar(id);
       final subjects = (res['subjects'] as List?)
@@ -105,7 +133,8 @@ class _AuthScreenState extends State<AuthScreen> {
       final schedule = (res['schedule'] as List?)
               ?.whereType<Map>()
               .map(
-                (e) => ClassScheduleItem.fromJson(Map<String, dynamic>.from(e)),
+                (e) =>
+                    ClassScheduleItem.fromJson(Map<String, dynamic>.from(e)),
               )
               .toList() ??
           const <ClassScheduleItem>[];
@@ -137,15 +166,15 @@ class _AuthScreenState extends State<AuthScreen> {
     final id = _regIdCtrl.text.trim();
     final pass = _regPassCtrl.text;
     if (id.isEmpty || _regBirthdate == null || pass.isEmpty) {
-      _setFeedback('Fill out all fields.');
+      _setFeedback('Fill out all fields including your Birthdate.');
       return;
     }
     final bdateStr = DateFormat('yyyy-MM-dd').format(_regBirthdate!);
 
-    setState(() {
-      _loading = true;
-      _message = null;
-    });
+    _beginLoading(
+      'Registering Account...',
+      'Verifying Student ID & locking credentials',
+    );
     try {
       final res = await ApiService.instance.registerStudent(
         id: id,
@@ -160,7 +189,7 @@ class _AuthScreenState extends State<AuthScreen> {
       _loginPassCtrl.clear();
       _switchMode(_AuthMode.studentLogin);
       _setFeedback(
-        res['message']?.toString() ?? 'Registration successful!',
+        res['message']?.toString() ?? 'Registration successful! Please log in.',
         success: true,
       );
     } catch (e) {
@@ -176,10 +205,10 @@ class _AuthScreenState extends State<AuthScreen> {
       _setFeedback('Please enter your Student ID.');
       return;
     }
-    setState(() {
-      _loading = true;
-      _message = null;
-    });
+    _beginLoading(
+      'Sending Security OTP...',
+      'Dispatching 6-digit code to your registered email',
+    );
     try {
       final res = await ApiService.instance.generateAndSendOTP(id);
       if (res['success'] == true) {
@@ -202,10 +231,10 @@ class _AuthScreenState extends State<AuthScreen> {
       _setFeedback('Please enter OTP and new password.');
       return;
     }
-    setState(() {
-      _loading = true;
-      _message = null;
-    });
+    _beginLoading(
+      'Updating Password...',
+      'Verifying OTP & saving new credentials',
+    );
     try {
       final res = await ApiService.instance.verifyOTPAndResetPassword(
         id: id,
@@ -232,15 +261,16 @@ class _AuthScreenState extends State<AuthScreen> {
     final id = _facIdCtrl.text.trim();
     final pass = _facPassCtrl.text;
     if (id.isEmpty || pass.isEmpty) {
-      _setFeedback('Required fields missing.');
+      _setFeedback('Please enter both your Faculty ID and Password.');
       return;
     }
-    setState(() {
-      _loading = true;
-      _message = null;
-    });
+    _beginLoading(
+      'Authenticating Faculty...',
+      'Verifying LMS credentials & scanner access',
+    );
     try {
-      final res = await ApiService.instance.loginFaculty(id: id, password: pass);
+      final res =
+          await ApiService.instance.loginFaculty(id: id, password: pass);
       if (res['success'] != true) {
         _setFeedback(
           res['message']?.toString() ?? 'Invalid Faculty Credentials.',
@@ -277,15 +307,20 @@ class _AuthScreenState extends State<AuthScreen> {
     required String hint,
     required String emoji,
     bool obscure = false,
+    VoidCallback? onToggleObscure,
+    TextInputAction textInputAction = TextInputAction.next,
+    VoidCallback? onSubmitted,
+    TextInputType? keyboardType,
   }) {
     return Container(
       margin: const EdgeInsets.only(bottom: 14),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: PortalColors.rule),
         boxShadow: const [
           BoxShadow(
-            color: Color(0x161A3A2A),
+            color: Color(0x141A3A2A),
             blurRadius: 10,
             offset: Offset(0, 3),
           ),
@@ -295,16 +330,32 @@ class _AuthScreenState extends State<AuthScreen> {
         controller: controller,
         obscureText: obscure,
         autocorrect: false,
-        enableSuggestions: !obscure,
+        keyboardType: keyboardType,
+        textInputAction: textInputAction,
+        onSubmitted: onSubmitted != null ? (_) => onSubmitted() : null,
+        enableSuggestions: !obscure && onToggleObscure == null,
         style: PortalTheme.sans(size: 15, weight: FontWeight.w500),
         decoration: InputDecoration(
           hintText: hint,
-          hintStyle: PortalTheme.sans(size: 15, color: PortalColors.ink3),
+          hintStyle: PortalTheme.sans(size: 14.5, color: PortalColors.ink3),
           prefixIcon: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 14),
             child: Text(emoji, style: const TextStyle(fontSize: 18)),
           ),
           prefixIconConstraints: const BoxConstraints(minWidth: 48),
+          suffixIcon: onToggleObscure != null
+              ? IconButton(
+                  tooltip: obscure ? 'Show Password' : 'Hide Password',
+                  onPressed: onToggleObscure,
+                  icon: Icon(
+                    obscure
+                        ? Icons.visibility_outlined
+                        : Icons.visibility_off_outlined,
+                    size: 19,
+                    color: PortalColors.ink3,
+                  ),
+                )
+              : null,
           border: OutlineInputBorder(
             borderRadius: BorderRadius.circular(20),
             borderSide: BorderSide.none,
@@ -322,6 +373,7 @@ class _AuthScreenState extends State<AuthScreen> {
     required String label,
     required VoidCallback onPressed,
     Color background = PortalColors.forest,
+    IconData? icon,
   }) {
     return SizedBox(
       width: double.infinity,
@@ -336,14 +388,23 @@ class _AuthScreenState extends State<AuthScreen> {
           elevation: 4,
         ),
         onPressed: _loading ? null : onPressed,
-        child: Text(
-          _loading ? 'PLEASE WAIT…' : label.toUpperCase(),
-          style: PortalTheme.sans(
-            size: 14,
-            weight: FontWeight.w700,
-            letterSpacing: 0.6,
-            color: Colors.white,
-          ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            if (icon != null) ...[
+              Icon(icon, size: 18, color: PortalColors.gold),
+              const SizedBox(width: 8),
+            ],
+            Text(
+              _loading ? 'PLEASE WAIT…' : label.toUpperCase(),
+              style: PortalTheme.sans(
+                size: 14,
+                weight: FontWeight.w700,
+                letterSpacing: 0.7,
+                color: Colors.white,
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -354,102 +415,143 @@ class _AuthScreenState extends State<AuthScreen> {
     final showToggle =
         _mode == _AuthMode.studentLogin || _mode == _AuthMode.facultyLogin;
 
-    return Center(
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(18, 8, 18, 40),
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 520),
-          child: Column(
-            children: [
-              PortalHeader(
-                onOpenSettings: () {
-                  showDialog<bool>(
-                    context: context,
-                    builder: (_) => const BackendConfigDialog(),
-                  );
-                },
-              ),
-              Container(
-                padding: const EdgeInsets.fromLTRB(22, 24, 22, 26),
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    begin: Alignment.bottomCenter,
-                    end: Alignment.topCenter,
-                    colors: [Colors.white, PortalColors.parchment],
-                  ),
-                  borderRadius: BorderRadius.circular(28),
-                  border: Border.all(color: Colors.white, width: 4),
-                  boxShadow: const [
-                    BoxShadow(
-                      color: Color(0x261A3A2A),
-                      blurRadius: 36,
-                      offset: Offset(0, 16),
+    return ParchmentScaffold(
+      isLoading: _loading,
+      loadingMessage: _loadingMessage,
+      loadingSubtitle: _loadingSubtitle,
+      topBanner: widget.announcements.isNotEmpty
+          ? AnnouncementMarqueeBanner(announcements: widget.announcements)
+          : null,
+      child: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(18, 8, 18, 40),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 500),
+            child: Column(
+              children: [
+                // Endpoint configuration button intentionally omitted on Home screen
+                // so students cannot inspect or modify the Apps Script backend URL.
+                const PortalHeader(),
+                Container(
+                  padding: const EdgeInsets.fromLTRB(22, 24, 22, 26),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      begin: Alignment.bottomCenter,
+                      end: Alignment.topCenter,
+                      colors: [Colors.white, PortalColors.parchment],
                     ),
-                  ],
-                ),
-                child: Column(
-                  children: [
-                    if (showToggle) ...[
-                      Container(
-                        decoration: const BoxDecoration(
-                          border: Border(
-                            bottom: BorderSide(
-                              color: PortalColors.rule,
-                              width: 2,
-                            ),
+                    borderRadius: BorderRadius.circular(28),
+                    border: Border.all(color: Colors.white, width: 4),
+                    boxShadow: const [
+                      BoxShadow(
+                        color: Color(0x261A3A2A),
+                        blurRadius: 36,
+                        offset: Offset(0, 16),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    children: [
+                      if (showToggle) ...[
+                        Container(
+                          padding: const EdgeInsets.all(4),
+                          decoration: BoxDecoration(
+                            color: PortalColors.forestFaint,
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: _toggleTab(
+                                  label: '🎓 Student',
+                                  active: _mode == _AuthMode.studentLogin,
+                                  onTap: () =>
+                                      _switchMode(_AuthMode.studentLogin),
+                                ),
+                              ),
+                              Expanded(
+                                child: _toggleTab(
+                                  label: '🏫 Faculty',
+                                  active: _mode == _AuthMode.facultyLogin,
+                                  onTap: () =>
+                                      _switchMode(_AuthMode.facultyLogin),
+                                ),
+                              ),
+                            ],
                           ),
                         ),
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: _toggleTab(
-                                label: 'Student',
-                                active: _mode == _AuthMode.studentLogin,
-                                onTap: () =>
-                                    _switchMode(_AuthMode.studentLogin),
-                              ),
-                            ),
-                            Expanded(
-                              child: _toggleTab(
-                                label: 'Faculty',
-                                active: _mode == _AuthMode.facultyLogin,
-                                onTap: () =>
-                                    _switchMode(_AuthMode.facultyLogin),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 20),
-                    ],
-                    if (_message != null) ...[
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 14),
-                        child: Text(
-                          '${_isSuccessMsg ? "✅" : "⚠️"} $_message',
-                          textAlign: TextAlign.center,
-                          style: PortalTheme.sans(
-                            size: 13,
-                            weight: FontWeight.w600,
+                        const SizedBox(height: 22),
+                      ],
+                      if (_message != null) ...[
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 11,
+                          ),
+                          margin: const EdgeInsets.only(bottom: 16),
+                          decoration: BoxDecoration(
                             color: _isSuccessMsg
-                                ? PortalColors.forest
-                                : PortalColors.burg,
+                                ? PortalColors.emeraldBg
+                                : PortalColors.burgBg,
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(
+                              color: _isSuccessMsg
+                                  ? PortalColors.emeraldBorder
+                                  : PortalColors.burgBorder,
+                            ),
+                          ),
+                          child: Text(
+                            '${_isSuccessMsg ? "✅" : "⚠️"} $_message',
+                            textAlign: TextAlign.center,
+                            style: PortalTheme.sans(
+                              size: 12.5,
+                              weight: FontWeight.w700,
+                              color: _isSuccessMsg
+                                  ? PortalColors.emerald
+                                  : PortalColors.burg,
+                            ),
                           ),
                         ),
+                      ],
+                      AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 220),
+                        child: _buildActiveForm(),
                       ),
                     ],
-                    if (_mode == _AuthMode.studentLogin) _buildStudentLogin(),
-                    if (_mode == _AuthMode.register) _buildRegister(),
-                    if (_mode == _AuthMode.forgot) _buildForgot(),
-                    if (_mode == _AuthMode.facultyLogin) _buildFacultyLogin(),
-                  ],
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
     );
+  }
+
+  Widget _buildActiveForm() {
+    switch (_mode) {
+      case _AuthMode.studentLogin:
+        return KeyedSubtree(
+          key: const ValueKey('form_student'),
+          child: _buildStudentLogin(),
+        );
+      case _AuthMode.register:
+        return KeyedSubtree(
+          key: const ValueKey('form_register'),
+          child: _buildRegister(),
+        );
+      case _AuthMode.forgot:
+        return KeyedSubtree(
+          key: const ValueKey('form_forgot'),
+          child: _buildForgot(),
+        );
+      case _AuthMode.facultyLogin:
+        return KeyedSubtree(
+          key: const ValueKey('form_faculty'),
+          child: _buildFacultyLogin(),
+        );
+    }
   }
 
   Widget _toggleTab({
@@ -458,30 +560,33 @@ class _AuthScreenState extends State<AuthScreen> {
     required VoidCallback onTap,
   }) {
     return InkWell(
+      borderRadius: BorderRadius.circular(13),
       onTap: onTap,
-      child: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            child: Text(
-              label,
-              style: PortalTheme.sans(
-                size: 16,
-                weight: FontWeight.w700,
-                color: active ? PortalColors.forest : PortalColors.ink3,
-              ),
-            ),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(vertical: 11),
+        decoration: BoxDecoration(
+          color: active ? PortalColors.forest : Colors.transparent,
+          borderRadius: BorderRadius.circular(13),
+          boxShadow: active
+              ? const [
+                  BoxShadow(
+                    color: Color(0x221A3A2A),
+                    blurRadius: 8,
+                    offset: Offset(0, 2),
+                  ),
+                ]
+              : null,
+        ),
+        child: Text(
+          label,
+          textAlign: TextAlign.center,
+          style: PortalTheme.sans(
+            size: 14,
+            weight: FontWeight.w700,
+            color: active ? PortalColors.gold : PortalColors.ink3,
           ),
-          AnimatedContainer(
-            duration: const Duration(milliseconds: 200),
-            height: 3,
-            width: active ? 90 : 0,
-            decoration: BoxDecoration(
-              color: PortalColors.gold,
-              borderRadius: BorderRadius.circular(3),
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -498,10 +603,18 @@ class _AuthScreenState extends State<AuthScreen> {
           controller: _loginPassCtrl,
           hint: 'Password',
           emoji: '🔒',
-          obscure: true,
+          obscure: _obscureStudentPass,
+          onToggleObscure: () =>
+              setState(() => _obscureStudentPass = !_obscureStudentPass),
+          textInputAction: TextInputAction.done,
+          onSubmitted: _handleStudentLogin,
         ),
         const SizedBox(height: 8),
-        _primaryButton(label: 'Log In', onPressed: _handleStudentLogin),
+        _primaryButton(
+          label: 'Sign In to Portal',
+          icon: Icons.login_rounded,
+          onPressed: _handleStudentLogin,
+        ),
         const SizedBox(height: 12),
         TextButton(
           onPressed: () => _switchMode(_AuthMode.forgot),
@@ -527,7 +640,7 @@ class _AuthScreenState extends State<AuthScreen> {
                 'Register here',
                 style: PortalTheme.sans(
                   size: 13.5,
-                  weight: FontWeight.w700,
+                  weight: FontWeight.w800,
                   color: PortalColors.forest,
                 ),
               ),
@@ -545,18 +658,18 @@ class _AuthScreenState extends State<AuthScreen> {
 
     return Column(
       children: [
-        Text('Student Registration', style: PortalTheme.serif(size: 24)),
+        Text('Student Registration', style: PortalTheme.serif(size: 25)),
         const SizedBox(height: 12),
         Container(
           padding: const EdgeInsets.all(12),
           margin: const EdgeInsets.only(bottom: 14),
           decoration: BoxDecoration(
             color: PortalColors.burgBg,
-            borderRadius: BorderRadius.circular(10),
+            borderRadius: BorderRadius.circular(12),
             border: Border.all(color: PortalColors.burgBorder),
           ),
           child: Text(
-            '⚠️ Your Birthdate and Password will be permanently locked to your ID. Ensure your details are correct.',
+            '⚠️ Your Birthdate and Password will be permanently locked to your ID. Ensure your details are accurate.',
             style: PortalTheme.sans(
               size: 12,
               weight: FontWeight.w600,
@@ -586,9 +699,10 @@ class _AuthScreenState extends State<AuthScreen> {
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: PortalColors.rule),
               boxShadow: const [
                 BoxShadow(
-                  color: Color(0x161A3A2A),
+                  color: Color(0x141A3A2A),
                   blurRadius: 10,
                   offset: Offset(0, 3),
                 ),
@@ -598,14 +712,21 @@ class _AuthScreenState extends State<AuthScreen> {
               children: [
                 const Text('📅', style: TextStyle(fontSize: 18)),
                 const SizedBox(width: 14),
-                Text(
-                  bdateText,
-                  style: PortalTheme.sans(
-                    size: 15,
-                    color: _regBirthdate == null
-                        ? PortalColors.ink3
-                        : PortalColors.ink,
+                Expanded(
+                  child: Text(
+                    bdateText,
+                    style: PortalTheme.sans(
+                      size: 14.5,
+                      color: _regBirthdate == null
+                          ? PortalColors.ink3
+                          : PortalColors.ink,
+                    ),
                   ),
+                ),
+                const Icon(
+                  Icons.calendar_month_rounded,
+                  size: 18,
+                  color: PortalColors.ink3,
                 ),
               ],
             ),
@@ -615,14 +736,22 @@ class _AuthScreenState extends State<AuthScreen> {
           controller: _regPassCtrl,
           hint: 'Create Password',
           emoji: '🔒',
-          obscure: true,
+          obscure: _obscureRegPass,
+          onToggleObscure: () =>
+              setState(() => _obscureRegPass = !_obscureRegPass),
+          textInputAction: TextInputAction.done,
+          onSubmitted: _handleRegister,
         ),
         const SizedBox(height: 8),
-        _primaryButton(label: 'Register Account', onPressed: _handleRegister),
+        _primaryButton(
+          label: 'Register Account',
+          icon: Icons.how_to_reg_rounded,
+          onPressed: _handleRegister,
+        ),
         const SizedBox(height: 14),
         TextButton(
           onPressed: () => _switchMode(_AuthMode.studentLogin),
-          child: const Text('← Already registered? Log in here'),
+          child: const Text('← Already registered? Sign in here'),
         ),
       ],
     );
@@ -631,27 +760,33 @@ class _AuthScreenState extends State<AuthScreen> {
   Widget _buildForgot() {
     return Column(
       children: [
-        Text('Reset Password', style: PortalTheme.serif(size: 24)),
+        Text('Reset Password', style: PortalTheme.serif(size: 25)),
         const SizedBox(height: 14),
         if (_forgotStep == 1) ...[
           _neumorphicInput(
             controller: _forgotIdCtrl,
             hint: 'Student ID',
             emoji: '🎓',
+            textInputAction: TextInputAction.done,
+            onSubmitted: _handleForgotSendOtp,
           ),
           const SizedBox(height: 6),
-          _primaryButton(label: 'Send OTP', onPressed: _handleForgotSendOtp),
+          _primaryButton(
+            label: 'Send 6-Digit OTP',
+            icon: Icons.mark_email_read_outlined,
+            onPressed: _handleForgotSendOtp,
+          ),
         ] else ...[
           Container(
             padding: const EdgeInsets.all(12),
             margin: const EdgeInsets.only(bottom: 14),
             decoration: BoxDecoration(
               color: PortalColors.emeraldBg,
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: BorderRadius.circular(12),
               border: Border.all(color: PortalColors.emeraldBorder),
             ),
             child: Text(
-              '✅ OTP sent to your registered email.',
+              '✅ OTP sent to your registered email address.',
               style: PortalTheme.sans(
                 size: 12.5,
                 weight: FontWeight.w600,
@@ -663,23 +798,29 @@ class _AuthScreenState extends State<AuthScreen> {
             controller: _forgotOtpCtrl,
             hint: 'Enter 6-digit OTP',
             emoji: '🔢',
+            keyboardType: TextInputType.number,
           ),
           _neumorphicInput(
             controller: _forgotNewPassCtrl,
             hint: 'New Password',
             emoji: '🔒',
-            obscure: true,
+            obscure: _obscureForgotPass,
+            onToggleObscure: () =>
+                setState(() => _obscureForgotPass = !_obscureForgotPass),
+            textInputAction: TextInputAction.done,
+            onSubmitted: _handleForgotReset,
           ),
           const SizedBox(height: 6),
           _primaryButton(
             label: 'Reset Password',
+            icon: Icons.lock_reset_rounded,
             onPressed: _handleForgotReset,
           ),
         ],
         const SizedBox(height: 14),
         TextButton(
           onPressed: () => _switchMode(_AuthMode.studentLogin),
-          child: const Text('← Back to Login'),
+          child: const Text('← Back to Sign In'),
         ),
       ],
     );
@@ -697,12 +838,17 @@ class _AuthScreenState extends State<AuthScreen> {
           controller: _facPassCtrl,
           hint: 'Password',
           emoji: '🔑',
-          obscure: true,
+          obscure: _obscureFacPass,
+          onToggleObscure: () =>
+              setState(() => _obscureFacPass = !_obscureFacPass),
+          textInputAction: TextInputAction.done,
+          onSubmitted: _handleFacultyLogin,
         ),
         const SizedBox(height: 8),
         _primaryButton(
-          label: 'Log In to LMS',
+          label: 'Sign In to Faculty LMS',
           background: PortalColors.burg,
+          icon: Icons.verified_user_outlined,
           onPressed: _handleFacultyLogin,
         ),
         const SizedBox(height: 14),
@@ -716,14 +862,14 @@ class _AuthScreenState extends State<AuthScreen> {
           child: Row(
             children: [
               const Icon(
-                Icons.verified_user_rounded,
+                Icons.qr_code_scanner_rounded,
                 size: 18,
                 color: PortalColors.forest,
               ),
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
-                  'Attendance & Recitation QR/NFC scanning is restricted to authenticated Faculty accounts (stays unlocked offline while signed in).',
+                  'Attendance & Recitation QR/NFC scanning is exclusive to Faculty accounts and stays unlocked offline while signed in.',
                   style: PortalTheme.sans(size: 12, color: PortalColors.ink2),
                 ),
               ),

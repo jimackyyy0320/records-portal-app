@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
@@ -10,14 +12,19 @@ import 'package:webview_flutter/webview_flutter.dart';
 
 import '../models/portal_models.dart';
 import '../services/api_service.dart';
+import '../services/device_bridge_service.dart';
 import '../services/session_service.dart';
 import '../theme/portal_theme.dart';
+import '../utils/reviewer_outline_extractor.dart';
 import '../widgets/common_widgets.dart';
 import 'profile_modal.dart';
 
 /// Full Student Dashboard + Faculty Read-Only Student Drill-Down View
 /// replicating `#subject-screen`, `#dashboard-screen`, and `#html-streamer`
-/// from `index.html`.
+/// from `index.html`, enhanced with:
+/// - Smooth page sequencing & Android Back navigation (`PopScope`)
+/// - Full-screen branded loading transitions (`PortalLoadingOverlay`)
+/// - App-only `.txt` Study Outline Extractor for HTML Reviewers
 class StudentDashboardScreen extends StatefulWidget {
   final UserSession session;
   final List<AnnouncementItem> announcements;
@@ -49,6 +56,8 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
   SubjectDashboardData? _dashData;
   List<ReviewerFile> _reviewers = const [];
   bool _loadingSubject = false;
+  String _loadingMessage = 'Opening Subject Workspace...';
+  String? _loadingSubtitle;
   bool _loadingReviewers = false;
   String? _facultyViewedAvatar;
 
@@ -62,6 +71,12 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
 
   String get _targetStudentId =>
       widget.facultyViewedStudentId ?? widget.session.id;
+
+  bool get _canNavigateBackInsideScreen =>
+      (_isFacultyViewing && widget.onFacultyBackToRoster != null) ||
+      (!_isFacultyViewing &&
+          _activeSubjectCode != null &&
+          widget.session.subjects.length > 1);
 
   @override
   void initState() {
@@ -84,7 +99,11 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
           .then((pic) {
         if (mounted) setState(() => _facultyViewedAvatar = pic);
       });
-      await _loadSubjectDashboard(widget.facultyFixedSubjectCode!);
+      await _loadSubjectDashboard(
+        widget.facultyFixedSubjectCode!,
+        customLoaderTitle: 'Loading Student Record...',
+        customLoaderSub: 'Fetching attendance, grades & relative standing',
+      );
       return;
     }
 
@@ -132,13 +151,23 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
     });
   }
 
-  Future<void> _loadSubjectDashboard(String code) async {
+  Future<void> _loadSubjectDashboard(
+    String code, {
+    String customLoaderTitle = 'Opening Subject Workspace...',
+    String? customLoaderSub,
+    bool preserveTab = false,
+  }) async {
     setState(() {
       _loadingSubject = true;
+      _loadingMessage = customLoaderTitle;
+      _loadingSubtitle =
+          customLoaderSub ?? 'Loading $code attendance, scores & reviewers';
       _activeSubjectCode = code;
-      _selectedTabIndex = 0;
-      _selectedMonth = 'all';
-      _selectedWeek = 'all';
+      if (!preserveTab) {
+        _selectedTabIndex = 0;
+        _selectedMonth = 'all';
+        _selectedWeek = 'all';
+      }
     });
 
     try {
@@ -166,12 +195,47 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
       if (!mounted) return;
       setState(() {
         _loadingSubject = false;
-        _activeSubjectCode = null;
+        if (!preserveTab) {
+          _activeSubjectCode = null;
+        }
       });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Error loading records: $e')),
       );
     }
+  }
+
+  Future<void> _returnToSubjectHub() async {
+    _autoRefreshTimer?.cancel();
+    setState(() {
+      _loadingSubject = true;
+      _loadingMessage = 'Returning to Subject Hub...';
+      _loadingSubtitle = null;
+    });
+    await Future<void>.delayed(const Duration(milliseconds: 220));
+    if (!mounted) return;
+    setState(() {
+      _activeSubjectCode = null;
+      _dashData = null;
+      _reviewers = const [];
+      _loadingSubject = false;
+    });
+  }
+
+  void _openStudentProfileModal() {
+    showDialog<void>(
+      context: context,
+      builder: (_) => StudentProfileSheet(
+        studentId: widget.session.id,
+        initialProfile: widget.session.profile,
+        mandatoryCompletion: false,
+        onProfileSaved: (updatedProfile) async {
+          final next = widget.session.copyWith(profile: updatedProfile);
+          await SessionService.instance.saveSession(next);
+          widget.onSessionUpdated(next);
+        },
+      ),
+    );
   }
 
   Future<void> _openAvatarMenu() async {
@@ -238,9 +302,11 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
       if (picked == null) return;
       final bytes = await picked.readAsBytes();
       if (bytes.lengthInBytes > 3000000) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Image too large (Max 3MB).')),
-        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Image too large (Max 3MB).')),
+          );
+        }
         return;
       }
       if (!mounted) return;
@@ -248,12 +314,17 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
         context: context,
         builder: (_) => AvatarCropDialog(imageBytes: bytes),
       );
-      if (croppedDataUrl == null) return;
+      if (croppedDataUrl == null || !mounted) return;
 
       try {
-        final res = await ApiService.instance.uploadStudentAvatar(
-          id: widget.session.id,
-          dataUrl: croppedDataUrl,
+        final res = await PortalLoadingOverlay.run(
+          context,
+          message: 'Uploading Profile Photo...',
+          subtitle: 'Saving cropped avatar to your portal profile',
+          task: () => ApiService.instance.uploadStudentAvatar(
+            id: widget.session.id,
+            dataUrl: croppedDataUrl,
+          ),
         );
         if (res['success'] == true) {
           final updated =
@@ -262,14 +333,21 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
           widget.onSessionUpdated(updated);
         }
       } catch (e) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Upload failed: $e')),
-        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Upload failed: $e')),
+          );
+        }
       }
     } else if (action == 'remove') {
+      if (!mounted) return;
       try {
-        final res =
-            await ApiService.instance.removeStudentAvatar(widget.session.id);
+        final res = await PortalLoadingOverlay.run(
+          context,
+          message: 'Removing Photo...',
+          task: () =>
+              ApiService.instance.removeStudentAvatar(widget.session.id),
+        );
         if (res['success'] == true) {
           final updated = widget.session.copyWith(clearAvatar: true);
           await SessionService.instance.saveSession(updated);
@@ -281,9 +359,16 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
 
   Future<void> _downloadStudentQr() async {
     try {
-      final dataUrl =
-          await ApiService.instance.getStudentQRCode(widget.session.id);
-      final bytes = decodeDataUrlBytes(dataUrl);
+      final bytes = await PortalLoadingOverlay.run<Uint8List?>(
+        context,
+        message: 'Generating QR Pass...',
+        subtitle: 'Retrieving official Student ID QR pass',
+        task: () async {
+          final dataUrl =
+              await ApiService.instance.getStudentQRCode(widget.session.id);
+          return decodeDataUrlBytes(dataUrl);
+        },
+      );
       if (bytes == null) {
         throw const ApiException('Contact your Teacher immediately');
       }
@@ -353,155 +438,508 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
         ),
       );
     } catch (_) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Contact your Teacher immediately')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Contact your Teacher immediately')),
+        );
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final isInSubjectWorkspace =
+        _activeSubjectCode != null && _dashData != null;
+
     Widget content;
-    if (_loadingSubject) {
-      content = Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
+    if (isInSubjectWorkspace) {
+      content = KeyedSubtree(
+        key: ValueKey('subj_workspace_${_activeSubjectCode!}'),
+        child: _buildSubjectDashboardView(_dashData!),
+      );
+    } else if (_loadingSubject) {
+      content = const SizedBox.expand(key: ValueKey('subj_loading_placeholder'));
+    } else {
+      content = KeyedSubtree(
+        key: const ValueKey('subj_hub'),
+        child: _buildSubjectSelectionView(),
+      );
+    }
+
+    final animatedBody = AnimatedSwitcher(
+      duration: const Duration(milliseconds: 260),
+      switchInCurve: Curves.easeOutCubic,
+      switchOutCurve: Curves.easeInCubic,
+      child: content,
+    );
+
+    final bodyWithSchedule = _isFacultyViewing
+        ? animatedBody
+        : StudentScheduleOverlay(
+            schedule: widget.session.schedule,
+            child: animatedBody,
+          );
+
+    return PopScope(
+      canPop: !_canNavigateBackInsideScreen,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) return;
+        if (_isFacultyViewing && widget.onFacultyBackToRoster != null) {
+          widget.onFacultyBackToRoster!();
+        } else if (_activeSubjectCode != null &&
+            widget.session.subjects.length > 1) {
+          _returnToSubjectHub();
+        }
+      },
+      child: ParchmentScaffold(
+        isLoading: _loadingSubject,
+        loadingMessage: _loadingMessage,
+        loadingSubtitle: _loadingSubtitle,
+        topBanner: widget.announcements.isNotEmpty
+            ? AnnouncementMarqueeBanner(announcements: widget.announcements)
+            : null,
+        topNavigationBar: _buildTopNavigationBar(isInSubjectWorkspace),
+        child: bodyWithSchedule,
+      ),
+    );
+  }
+
+  Widget _buildTopNavigationBar(bool inSubjectWorkspace) {
+    if (_isFacultyViewing) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: const BoxDecoration(
+          color: PortalColors.forest,
+          boxShadow: [
+            BoxShadow(
+              color: Color(0x220D1F16),
+              blurRadius: 8,
+              offset: Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Row(
           children: [
-            const CircularProgressIndicator(color: PortalColors.forest),
-            const SizedBox(height: 14),
-            Text(
-              'LOADING ACADEMIC RECORDS...',
-              style: PortalTheme.sans(
-                size: 12,
-                weight: FontWeight.w700,
-                letterSpacing: 1.6,
-                color: PortalColors.forest,
+            TextButton.icon(
+              style: TextButton.styleFrom(
+                foregroundColor: PortalColors.gold,
+                visualDensity: VisualDensity.compact,
+              ),
+              onPressed: widget.onFacultyBackToRoster,
+              icon: const Icon(Icons.arrow_back_rounded, size: 18),
+              label: const Text('Back to Roster'),
+            ),
+            const Spacer(),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                color: Colors.white.withAlpha(28),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Text(
+                'STUDENT RECORD VIEW',
+                style: PortalTheme.sans(
+                  size: 10.5,
+                  weight: FontWeight.w800,
+                  letterSpacing: 0.9,
+                  color: Colors.white,
+                ),
               ),
             ),
           ],
         ),
       );
-    } else if (_activeSubjectCode == null || _dashData == null) {
-      content = _buildSubjectSelectionView();
-    } else {
-      content = _buildSubjectDashboardView(_dashData!);
     }
 
-    final bodyWithSchedule = _isFacultyViewing
-        ? content
-        : StudentScheduleOverlay(
-            schedule: widget.session.schedule,
-            child: content,
-          );
-
-    return ParchmentScaffold(
-      topBanner: widget.announcements.isNotEmpty
-          ? AnnouncementMarqueeBanner(announcements: widget.announcements)
-          : null,
-      floatingActionButton: _isFacultyViewing
-          ? null
-          : FloatingActionButton(
-              tooltip: 'Logout',
-              backgroundColor: PortalColors.burg,
-              foregroundColor: Colors.white,
-              onPressed: widget.onLogout,
-              child: const Icon(Icons.logout_rounded),
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        border: Border(bottom: BorderSide(color: PortalColors.rule)),
+      ),
+      child: Row(
+        children: [
+          if (inSubjectWorkspace && widget.session.subjects.length > 1)
+            InkWell(
+              borderRadius: BorderRadius.circular(20),
+              onTap: _returnToSubjectHub,
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 6,
+                ),
+                decoration: BoxDecoration(
+                  color: PortalColors.parchment,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: PortalColors.ruleMed),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(
+                      Icons.arrow_back_rounded,
+                      size: 16,
+                      color: PortalColors.forest,
+                    ),
+                    const SizedBox(width: 5),
+                    Text(
+                      'Subjects',
+                      style: PortalTheme.sans(
+                        size: 12,
+                        weight: FontWeight.w800,
+                        color: PortalColors.forest,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            )
+          else
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 28,
+                  height: 28,
+                  decoration: const BoxDecoration(
+                    color: PortalColors.forest,
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.layers_outlined,
+                    size: 16,
+                    color: PortalColors.gold,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  'Student Portal',
+                  style: PortalTheme.serif(size: 19, weight: FontWeight.w700),
+                ),
+              ],
             ),
-      child: bodyWithSchedule,
+          const Spacer(),
+          if (inSubjectWorkspace && _activeSubjectCode != null) ...[
+            IconButton(
+              tooltip: 'Refresh Subject Records',
+              visualDensity: VisualDensity.compact,
+              onPressed: () => _loadSubjectDashboard(
+                _activeSubjectCode!,
+                customLoaderTitle: 'Refreshing Records...',
+                preserveTab: true,
+              ),
+              icon: const Icon(
+                Icons.refresh_rounded,
+                size: 20,
+                color: PortalColors.forest,
+              ),
+            ),
+          ],
+          IconButton(
+            tooltip: 'My QR Pass',
+            visualDensity: VisualDensity.compact,
+            onPressed: _downloadStudentQr,
+            icon: const Icon(
+              Icons.qr_code_2_rounded,
+              size: 21,
+              color: PortalColors.forest,
+            ),
+          ),
+          IconButton(
+            tooltip: 'Sign Out',
+            visualDensity: VisualDensity.compact,
+            onPressed: () => confirmAndLogout(context, widget.onLogout),
+            icon: const Icon(
+              Icons.logout_rounded,
+              size: 20,
+              color: PortalColors.burg,
+            ),
+          ),
+        ],
+      ),
     );
   }
 
   Widget _buildSubjectSelectionView() {
+    final avatarBytes = decodeDataUrlBytes(widget.session.avatarDataUrl);
+
     return Center(
       child: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(18, 8, 18, 90),
+        padding: const EdgeInsets.fromLTRB(18, 16, 18, 48),
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 620),
+          constraints: const BoxConstraints(maxWidth: 640),
           child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const PortalHeader(),
+              // Student Welcome Hero Card
               Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 24,
-                  vertical: 34,
-                ),
+                padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(22),
-                  border: Border.all(color: PortalColors.rule),
+                  gradient: const LinearGradient(
+                    colors: [PortalColors.forest, PortalColors.forestDark],
+                  ),
+                  borderRadius: BorderRadius.circular(24),
                   boxShadow: const [
                     BoxShadow(
-                      color: Color(0x1F1A3A2A),
-                      blurRadius: 24,
+                      color: Color(0x261A3A2A),
+                      blurRadius: 22,
                       offset: Offset(0, 8),
                     ),
                   ],
                 ),
                 child: Column(
                   children: [
-                    Text(
-                      'Select Subject',
-                      style: PortalTheme.serif(size: 26, italic: true),
-                    ),
-                    const SizedBox(height: 8),
-                    RichText(
-                      textAlign: TextAlign.center,
-                      text: TextSpan(
-                        style: PortalTheme.sans(
-                          size: 13.5,
-                          weight: FontWeight.w600,
-                          color: PortalColors.ink3,
+                    Row(
+                      children: [
+                        GestureDetector(
+                          onTap: _openAvatarMenu,
+                          child: Container(
+                            padding: const EdgeInsets.all(3),
+                            decoration: const BoxDecoration(
+                              color: PortalColors.gold,
+                              shape: BoxShape.circle,
+                            ),
+                            child: CircleAvatar(
+                              radius: 30,
+                              backgroundColor: PortalColors.parchment,
+                              backgroundImage: avatarBytes != null
+                                  ? MemoryImage(avatarBytes)
+                                  : null,
+                              child: avatarBytes == null
+                                  ? const Text(
+                                      '🎓',
+                                      style: TextStyle(fontSize: 26),
+                                    )
+                                  : null,
+                            ),
+                          ),
                         ),
-                        children: [
-                          const TextSpan(text: 'Welcome back, '),
-                          TextSpan(
-                            text: widget.session.name,
-                            style: PortalTheme.sans(
-                              size: 13.5,
-                              weight: FontWeight.w800,
-                              color: PortalColors.forest,
-                            ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'WELCOME BACK',
+                                style: PortalTheme.sans(
+                                  size: 10,
+                                  weight: FontWeight.w800,
+                                  letterSpacing: 1.4,
+                                  color: PortalColors.gold,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                widget.session.name,
+                                style: PortalTheme.serif(
+                                  size: 24,
+                                  color: Colors.white,
+                                ),
+                              ),
+                              Text(
+                                'Student ID: ${widget.session.id}',
+                                style: PortalTheme.sans(
+                                  size: 12,
+                                  color: Colors.white70,
+                                ),
+                              ),
+                            ],
                           ),
-                          const TextSpan(text: '.'),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
-                    const SizedBox(height: 24),
-                    Wrap(
-                      spacing: 10,
-                      runSpacing: 10,
-                      alignment: WrapAlignment.center,
-                      children: widget.session.subjects.map((subj) {
-                        return ActionChip(
-                          backgroundColor: PortalColors.parchment,
-                          side: const BorderSide(
-                            color: PortalColors.ruleMed,
-                            width: 1.8,
-                          ),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(50),
-                          ),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 18,
-                            vertical: 11,
-                          ),
-                          label: Text(
-                            subj.code.toUpperCase(),
-                            style: PortalTheme.sans(
-                              size: 13,
-                              weight: FontWeight.w800,
-                              letterSpacing: 1.5,
-                              color: PortalColors.forest,
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: Colors.white,
+                              side: const BorderSide(color: Colors.white38),
+                              padding: const EdgeInsets.symmetric(vertical: 11),
                             ),
+                            onPressed: _openStudentProfileModal,
+                            icon: const Icon(
+                              Icons.badge_outlined,
+                              size: 17,
+                              color: PortalColors.gold,
+                            ),
+                            label: const Text('My Profile'),
                           ),
-                          onPressed: () => _loadSubjectDashboard(subj.code),
-                        );
-                      }).toList(),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: PortalColors.gold,
+                              foregroundColor: PortalColors.forest,
+                              padding: const EdgeInsets.symmetric(vertical: 11),
+                            ),
+                            onPressed: _downloadStudentQr,
+                            icon: const Icon(Icons.qr_code_2_rounded, size: 18),
+                            label: const Text('QR Pass'),
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
               ),
+              const SizedBox(height: 22),
+
+              // Section Title: Enrolled Subjects
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                child: Row(
+                  children: [
+                    Text(
+                      'My Enrolled Subjects',
+                      style: PortalTheme.serif(size: 25, italic: true),
+                    ),
+                    const Spacer(),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: PortalColors.forestFaint,
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(
+                        '${widget.session.subjects.length} SUBJECT${widget.session.subjects.length == 1 ? "" : "S"}',
+                        style: PortalTheme.sans(
+                          size: 10.5,
+                          weight: FontWeight.w800,
+                          color: PortalColors.forest,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 10),
+
+              if (widget.session.subjects.isEmpty)
+                Container(
+                  padding: const EdgeInsets.all(28),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: PortalColors.rule),
+                  ),
+                  child: Text(
+                    'No released subjects are currently assigned to your Student ID.',
+                    textAlign: TextAlign.center,
+                    style: PortalTheme.sans(color: PortalColors.ink3),
+                  ),
+                )
+              else
+                ...widget.session.subjects.map((subj) {
+                  final matchingSched = widget.session.schedule
+                      .where(
+                        (s) =>
+                            s.subjectCode.toUpperCase() ==
+                            subj.code.toUpperCase(),
+                      )
+                      .toList();
+                  final schedText = matchingSched.isEmpty
+                      ? 'Tap to view attendance, progress & reviewers'
+                      : matchingSched
+                          .map((s) => '${s.day} (${s.timeIn} – ${s.timeOut})')
+                          .join(' • ');
+
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: PortalColors.ruleMed),
+                      boxShadow: const [
+                        BoxShadow(
+                          color: Color(0x141A3A2A),
+                          blurRadius: 14,
+                          offset: Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(20),
+                        onTap: () => _loadSubjectDashboard(subj.code),
+                        child: Padding(
+                          padding: const EdgeInsets.all(18),
+                          child: Row(
+                            children: [
+                              Container(
+                                width: 54,
+                                height: 54,
+                                alignment: Alignment.center,
+                                decoration: BoxDecoration(
+                                  color: PortalColors.parchment,
+                                  borderRadius: BorderRadius.circular(15),
+                                  border:
+                                      Border.all(color: PortalColors.ruleMed),
+                                ),
+                                child: Text(
+                                  subj.code.length > 5
+                                      ? subj.code.substring(0, 5).toUpperCase()
+                                      : subj.code.toUpperCase(),
+                                  style: PortalTheme.sans(
+                                    size: 12,
+                                    weight: FontWeight.w800,
+                                    color: PortalColors.forest,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 14),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      subj.name.isNotEmpty
+                                          ? subj.name
+                                          : subj.code,
+                                      style: PortalTheme.serif(size: 21),
+                                    ),
+                                    const SizedBox(height: 3),
+                                    Text(
+                                      schedText,
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: PortalTheme.sans(
+                                        size: 11.5,
+                                        color: PortalColors.ink3,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Container(
+                                width: 34,
+                                height: 34,
+                                decoration: const BoxDecoration(
+                                  color: PortalColors.forest,
+                                  shape: BoxShape.circle,
+                                ),
+                                child: const Icon(
+                                  Icons.arrow_forward_rounded,
+                                  size: 17,
+                                  color: PortalColors.gold,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
+                }),
             ],
           ),
         ),
@@ -526,279 +964,292 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
       if (_isFacultyViewing) ('📈 Evaluation', 4),
     ];
 
-    return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 95),
-      child: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 660),
-          child: Column(
-            children: [
-              PortalHeader(compact: _isFacultyViewing),
-              // Student Profile Card (.dash-profile-card)
-              Container(
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(26),
-                  border: Border.all(color: PortalColors.rule),
-                  boxShadow: const [
-                    BoxShadow(
-                      color: Color(0x1F1A3A2A),
-                      blurRadius: 22,
-                      offset: Offset(0, 8),
-                    ),
-                  ],
-                ),
-                child: Column(
-                  children: [
-                    Stack(
-                      clipBehavior: Clip.none,
-                      alignment: Alignment.center,
-                      children: [
-                        Container(
-                          height: _isFacultyViewing ? 68 : 112,
-                          width: double.infinity,
-                          decoration: const BoxDecoration(
-                            gradient: LinearGradient(
-                              colors: [
-                                PortalColors.forest,
-                                PortalColors.forestDark,
-                              ],
-                            ),
-                            borderRadius: BorderRadius.vertical(
-                              top: Radius.circular(25),
-                            ),
-                          ),
-                        ),
-                        Positioned(
-                          bottom: _isFacultyViewing ? -30 : -46,
-                          child: GestureDetector(
-                            onTap: _isFacultyViewing ? null : _openAvatarMenu,
-                            child: Container(
-                              padding: const EdgeInsets.all(5),
-                              decoration: const BoxDecoration(
-                                color: Colors.white,
-                                shape: BoxShape.circle,
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Color(0x221A3A2A),
-                                    blurRadius: 10,
-                                  ),
+    return RefreshIndicator(
+      color: PortalColors.forest,
+      onRefresh: () async {
+        if (_activeSubjectCode != null) {
+          await _loadSubjectDashboard(
+            _activeSubjectCode!,
+            customLoaderTitle: 'Refreshing Records...',
+            preserveTab: true,
+          );
+        }
+      },
+      child: SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 48),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 660),
+            child: Column(
+              children: [
+                // Student Profile Card (.dash-profile-card)
+                Container(
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(26),
+                    border: Border.all(color: PortalColors.rule),
+                    boxShadow: const [
+                      BoxShadow(
+                        color: Color(0x1F1A3A2A),
+                        blurRadius: 22,
+                        offset: Offset(0, 8),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    children: [
+                      Stack(
+                        clipBehavior: Clip.none,
+                        alignment: Alignment.center,
+                        children: [
+                          Container(
+                            height: _isFacultyViewing ? 64 : 96,
+                            width: double.infinity,
+                            decoration: const BoxDecoration(
+                              gradient: LinearGradient(
+                                colors: [
+                                  PortalColors.forest,
+                                  PortalColors.forestDark,
                                 ],
                               ),
-                              child: CircleAvatar(
-                                radius: _isFacultyViewing ? 30 : 46,
-                                backgroundColor: PortalColors.parchmentDk,
-                                backgroundImage: avatarBytes != null
-                                    ? MemoryImage(avatarBytes)
-                                    : null,
-                                child: avatarBytes == null
-                                    ? Text(
-                                        '👤',
-                                        style: TextStyle(
-                                          fontSize:
-                                              _isFacultyViewing ? 22 : 34,
-                                        ),
-                                      )
-                                    : null,
+                              borderRadius: BorderRadius.vertical(
+                                top: Radius.circular(25),
                               ),
                             ),
                           ),
-                        ),
-                      ],
-                    ),
-                    SizedBox(height: _isFacultyViewing ? 38 : 54),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      child: Text(
-                        greeting,
-                        textAlign: TextAlign.center,
-                        style: PortalTheme.serif(
-                          size: _isFacultyViewing ? 22 : 28,
-                          italic: true,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 6,
-                      ),
-                      decoration: BoxDecoration(
-                        color: PortalColors.parchment,
-                        borderRadius: BorderRadius.circular(50),
-                        border: Border.all(color: PortalColors.ruleMed),
-                      ),
-                      child: Text(
-                        data.subjectName.toUpperCase(),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: PortalTheme.sans(
-                          size: 10.5,
-                          weight: FontWeight.w700,
-                          letterSpacing: 1.2,
-                          color: PortalColors.ink2,
-                        ),
-                      ),
-                    ),
-                    if (!_isFacultyViewing) ...[
-                      const SizedBox(height: 12),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        alignment: WrapAlignment.center,
-                        children: [
-                          ElevatedButton(
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: PortalColors.forest,
-                              foregroundColor: Colors.white,
-                              visualDensity: VisualDensity.compact,
-                            ),
-                            onPressed: () {
-                              showDialog<void>(
-                                context: context,
-                                builder: (_) => StudentProfileSheet(
-                                  studentId: widget.session.id,
-                                  initialProfile: widget.session.profile,
-                                  mandatoryCompletion: false,
-                                  onProfileSaved: (updatedProfile) async {
-                                    final next = widget.session
-                                        .copyWith(profile: updatedProfile);
-                                    await SessionService.instance
-                                        .saveSession(next);
-                                    widget.onSessionUpdated(next);
-                                  },
+                          Positioned(
+                            bottom: _isFacultyViewing ? -28 : -42,
+                            child: GestureDetector(
+                              onTap: _isFacultyViewing ? null : _openAvatarMenu,
+                              child: Container(
+                                padding: const EdgeInsets.all(4),
+                                decoration: const BoxDecoration(
+                                  color: Colors.white,
+                                  shape: BoxShape.circle,
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Color(0x221A3A2A),
+                                      blurRadius: 10,
+                                    ),
+                                  ],
                                 ),
-                              );
-                            },
-                            child: Text(
-                              'VIEW PROFILE',
-                              style: PortalTheme.sans(
-                                size: 11,
-                                weight: FontWeight.w700,
-                                color: Colors.white,
-                              ),
-                            ),
-                          ),
-                          ElevatedButton(
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: PortalColors.gold,
-                              foregroundColor: PortalColors.forest,
-                              visualDensity: VisualDensity.compact,
-                            ),
-                            onPressed: _downloadStudentQr,
-                            child: Text(
-                              'DOWNLOAD QR',
-                              style: PortalTheme.sans(
-                                size: 11,
-                                weight: FontWeight.w800,
-                                color: PortalColors.forest,
+                                child: CircleAvatar(
+                                  radius: _isFacultyViewing ? 28 : 42,
+                                  backgroundColor: PortalColors.parchmentDk,
+                                  backgroundImage: avatarBytes != null
+                                      ? MemoryImage(avatarBytes)
+                                      : null,
+                                  child: avatarBytes == null
+                                      ? Text(
+                                          '👤',
+                                          style: TextStyle(
+                                            fontSize:
+                                                _isFacultyViewing ? 22 : 30,
+                                          ),
+                                        )
+                                      : null,
+                                ),
                               ),
                             ),
                           ),
                         ],
                       ),
-                    ],
-                    const SizedBox(height: 18),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 18),
-
-              // Module Tab Navigation (.tab-nav)
-              Container(
-                padding: const EdgeInsets.all(6),
-                decoration: BoxDecoration(
-                  color: PortalColors.forestFaint,
-                  borderRadius: BorderRadius.circular(18),
-                ),
-                child: Wrap(
-                  spacing: 6,
-                  runSpacing: 6,
-                  alignment: WrapAlignment.center,
-                  children: tabs.map((t) {
-                    final active = _selectedTabIndex == t.$2;
-                    return InkWell(
-                      borderRadius: BorderRadius.circular(12),
-                      onTap: () => setState(() => _selectedTabIndex = t.$2),
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 200),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 13,
-                          vertical: 10,
-                        ),
-                        decoration: BoxDecoration(
-                          color: active
-                              ? PortalColors.forest
-                              : Colors.transparent,
-                          borderRadius: BorderRadius.circular(12),
-                        ),
+                      SizedBox(height: _isFacultyViewing ? 36 : 48),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
                         child: Text(
-                          t.$1.toUpperCase(),
-                          style: PortalTheme.sans(
-                            size: 11,
-                            weight: FontWeight.w700,
-                            color: active
-                                ? PortalColors.gold
-                                : PortalColors.ink3,
+                          greeting,
+                          textAlign: TextAlign.center,
+                          style: PortalTheme.serif(
+                            size: _isFacultyViewing ? 22 : 27,
+                            italic: true,
                           ),
                         ),
                       ),
-                    );
-                  }).toList(),
-                ),
-              ),
-              const SizedBox(height: 18),
-
-              // Active Module Card (.module-container)
-              Container(
-                width: double.infinity,
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(24),
-                  border: Border.all(color: PortalColors.rule),
-                  boxShadow: const [
-                    BoxShadow(
-                      color: Color(0x1F1A3A2A),
-                      blurRadius: 20,
-                      offset: Offset(0, 6),
-                    ),
-                  ],
-                ),
-                clipBehavior: Clip.antiAlias,
-                child: _buildActiveModuleContent(data),
-              ),
-
-              const SizedBox(height: 18),
-              if (_isFacultyViewing && widget.onFacultyBackToRoster != null)
-                SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton(
-                    style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                    ),
-                    onPressed: widget.onFacultyBackToRoster,
-                    child: const Text('← Back to Roster'),
+                      const SizedBox(height: 6),
+                      Container(
+                        margin: const EdgeInsets.symmetric(horizontal: 16),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: PortalColors.parchment,
+                          borderRadius: BorderRadius.circular(50),
+                          border: Border.all(color: PortalColors.ruleMed),
+                        ),
+                        child: Text(
+                          data.subjectName.toUpperCase(),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: PortalTheme.sans(
+                            size: 10.5,
+                            weight: FontWeight.w800,
+                            letterSpacing: 1.2,
+                            color: PortalColors.forest,
+                          ),
+                        ),
+                      ),
+                      if (!_isFacultyViewing) ...[
+                        const SizedBox(height: 12),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          alignment: WrapAlignment.center,
+                          children: [
+                            ElevatedButton.icon(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: PortalColors.forest,
+                                foregroundColor: Colors.white,
+                                visualDensity: VisualDensity.compact,
+                              ),
+                              onPressed: _openStudentProfileModal,
+                              icon: const Icon(
+                                Icons.person_outline_rounded,
+                                size: 15,
+                                color: PortalColors.gold,
+                              ),
+                              label: Text(
+                                'VIEW PROFILE',
+                                style: PortalTheme.sans(
+                                  size: 11,
+                                  weight: FontWeight.w700,
+                                  color: Colors.white,
+                                ),
+                              ),
+                            ),
+                            ElevatedButton.icon(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: PortalColors.gold,
+                                foregroundColor: PortalColors.forest,
+                                visualDensity: VisualDensity.compact,
+                              ),
+                              onPressed: _downloadStudentQr,
+                              icon: const Icon(
+                                Icons.qr_code_2_rounded,
+                                size: 16,
+                              ),
+                              label: Text(
+                                'DOWNLOAD QR',
+                                style: PortalTheme.sans(
+                                  size: 11,
+                                  weight: FontWeight.w800,
+                                  color: PortalColors.forest,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                      const SizedBox(height: 18),
+                    ],
                   ),
-                )
-              else if (widget.session.subjects.length > 1)
-                SizedBox(
+                ),
+                const SizedBox(height: 16),
+
+                // Horizontal Scrollable Module Tab Bar (.tab-nav)
+                Container(
                   width: double.infinity,
-                  child: OutlinedButton(
-                    style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 14),
+                  padding: const EdgeInsets.all(5),
+                  decoration: BoxDecoration(
+                    color: PortalColors.forestFaint,
+                    borderRadius: BorderRadius.circular(18),
+                  ),
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: tabs.map((t) {
+                        final active = _selectedTabIndex == t.$2;
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 3),
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(13),
+                            onTap: () =>
+                                setState(() => _selectedTabIndex = t.$2),
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 200),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 14,
+                                vertical: 10,
+                              ),
+                              decoration: BoxDecoration(
+                                color: active
+                                    ? PortalColors.forest
+                                    : Colors.transparent,
+                                borderRadius: BorderRadius.circular(13),
+                              ),
+                              child: Text(
+                                t.$1.toUpperCase(),
+                                style: PortalTheme.sans(
+                                  size: 11,
+                                  weight: FontWeight.w700,
+                                  color: active
+                                      ? PortalColors.gold
+                                      : PortalColors.ink3,
+                                ),
+                              ),
+                            ),
+                          ),
+                        );
+                      }).toList(),
                     ),
-                    onPressed: () {
-                      _autoRefreshTimer?.cancel();
-                      setState(() {
-                        _activeSubjectCode = null;
-                        _dashData = null;
-                      });
-                    },
-                    child: const Text('← Back to Subjects'),
                   ),
                 ),
-            ],
+                const SizedBox(height: 16),
+
+                // Active Module Card (.module-container) with smooth transition
+                Container(
+                  width: double.infinity,
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(24),
+                    border: Border.all(color: PortalColors.rule),
+                    boxShadow: const [
+                      BoxShadow(
+                        color: Color(0x1F1A3A2A),
+                        blurRadius: 20,
+                        offset: Offset(0, 6),
+                      ),
+                    ],
+                  ),
+                  clipBehavior: Clip.antiAlias,
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 220),
+                    child: KeyedSubtree(
+                      key: ValueKey('module_tab_$_selectedTabIndex'),
+                      child: _buildActiveModuleContent(data),
+                    ),
+                  ),
+                ),
+
+                const SizedBox(height: 18),
+                if (_isFacultyViewing && widget.onFacultyBackToRoster != null)
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                      ),
+                      onPressed: widget.onFacultyBackToRoster,
+                      icon: const Icon(Icons.arrow_back_rounded, size: 18),
+                      label: const Text('Back to Class Roster'),
+                    ),
+                  )
+                else if (widget.session.subjects.length > 1)
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                      ),
+                      onPressed: _returnToSubjectHub,
+                      icon: const Icon(Icons.grid_view_rounded, size: 18),
+                      label: const Text('All Enrolled Subjects'),
+                    ),
+                  ),
+              ],
+            ),
           ),
         ),
       ),
@@ -1116,13 +1567,15 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
                                   return;
                                 }
                               }
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text(
-                                    'Activity is not yet available',
+                              if (context.mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text(
+                                      'Activity is not yet available',
+                                    ),
                                   ),
-                                ),
-                              );
+                                );
+                              }
                             }
                           : null,
                       child: _scoreTile(
@@ -1253,9 +1706,23 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
       return Column(
         children: [
           _moduleHeader('Reviewers'),
-          const Padding(
-            padding: EdgeInsets.all(36),
-            child: CircularProgressIndicator(color: PortalColors.forest),
+          Padding(
+            padding: const EdgeInsets.all(36),
+            child: Column(
+              children: [
+                const CircularProgressIndicator(color: PortalColors.forest),
+                const SizedBox(height: 12),
+                Text(
+                  'LOADING REVIEWER MATERIALS...',
+                  style: PortalTheme.sans(
+                    size: 11.5,
+                    weight: FontWeight.w700,
+                    letterSpacing: 1.2,
+                    color: PortalColors.ink3,
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
       );
@@ -1294,7 +1761,7 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _moduleHeader('Reviewers'),
+        _moduleHeader('Reviewers & Study Outlines'),
         Padding(
           padding: const EdgeInsets.all(18),
           child: Column(
@@ -1347,11 +1814,15 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
                           ),
                         ),
                         subtitle: Text(
-                          '${file.shortTypeLabel} FILE',
+                          file.isHtml
+                              ? 'STREAM DECK  •  .TXT STUDY OUTLINE'
+                              : '${file.shortTypeLabel} FILE',
                           style: PortalTheme.sans(
-                            size: 11,
-                            weight: FontWeight.w600,
-                            color: PortalColors.ink3,
+                            size: 10.5,
+                            weight: FontWeight.w700,
+                            color: file.isHtml
+                                ? PortalColors.goldDark
+                                : PortalColors.ink3,
                           ),
                         ),
                         trailing: const Icon(
@@ -1384,50 +1855,160 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
       context: context,
       backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       builder: (ctx) => SafeArea(
         child: Padding(
-          padding: const EdgeInsets.all(24),
+          padding: const EdgeInsets.fromLTRB(22, 20, 22, 24),
           child: Column(
             mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text(
-                file.name,
-                textAlign: TextAlign.center,
-                style: PortalTheme.sans(
-                  size: 15,
-                  weight: FontWeight.w800,
-                  color: PortalColors.forest,
-                ),
-              ),
-              const SizedBox(height: 18),
               Row(
                 children: [
-                  Expanded(
-                    child: ElevatedButton.icon(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: PortalColors.forest,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 13),
-                      ),
-                      onPressed: () => Navigator.of(ctx).pop('view'),
-                      icon: const Icon(Icons.slideshow_rounded),
-                      label: const Text('Stream Deck'),
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: PortalColors.parchment,
+                      borderRadius: BorderRadius.circular(12),
                     ),
+                    child: const Text('📚', style: TextStyle(fontSize: 22)),
                   ),
-                  const SizedBox(width: 10),
+                  const SizedBox(width: 12),
                   Expanded(
-                    child: OutlinedButton.icon(
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 13),
-                      ),
-                      onPressed: () => Navigator.of(ctx).pop('download'),
-                      icon: const Icon(Icons.download_rounded),
-                      label: const Text('Download HTML'),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'STUDY REVIEWER OPTIONS',
+                          style: PortalTheme.sans(
+                            size: 10,
+                            weight: FontWeight.w800,
+                            letterSpacing: 1.2,
+                            color: PortalColors.goldDark,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          file.name,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: PortalTheme.sans(
+                            size: 14.5,
+                            weight: FontWeight.w800,
+                            color: PortalColors.forest,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ],
+              ),
+              const SizedBox(height: 18),
+
+              // Option 1: Stream Interactive Presentation Deck
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: PortalColors.forest,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 14,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                ),
+                onPressed: () => Navigator.of(ctx).pop('stream'),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.slideshow_rounded,
+                      color: PortalColors.gold,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Stream Interactive Deck',
+                            style: PortalTheme.sans(
+                              size: 14,
+                              weight: FontWeight.w800,
+                              color: Colors.white,
+                            ),
+                          ),
+                          Text(
+                            'Open the full interactive presentation viewer',
+                            style: PortalTheme.sans(
+                              size: 11.5,
+                              color: Colors.white70,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const Icon(
+                      Icons.arrow_forward_ios_rounded,
+                      size: 14,
+                      color: PortalColors.gold,
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 10),
+
+              // Option 2: Extract & Download Clean .txt Discussion Outline (App-Only!)
+              OutlinedButton(
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: PortalColors.forest,
+                  side: const BorderSide(color: PortalColors.forest, width: 1.6),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 14,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                ),
+                onPressed: () => Navigator.of(ctx).pop('extract_txt'),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.article_outlined,
+                      color: PortalColors.forest,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Download .TXT Study Outline',
+                            style: PortalTheme.sans(
+                              size: 14,
+                              weight: FontWeight.w800,
+                              color: PortalColors.forest,
+                            ),
+                          ),
+                          Text(
+                            'Extracts pure discussion outline only (removes all HTML/code)',
+                            style: PortalTheme.sans(
+                              size: 11.5,
+                              color: PortalColors.ink3,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const Icon(
+                      Icons.download_rounded,
+                      size: 18,
+                      color: PortalColors.goldDark,
+                    ),
+                  ],
+                ),
               ),
             ],
           ),
@@ -1435,17 +2016,59 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
       ),
     );
 
-    if (choice == 'download') {
-      final uri = Uri.tryParse(file.url);
-      if (uri != null) {
-        await launchUrl(uri, mode: LaunchMode.externalApplication);
-      }
-    } else if (choice == 'view') {
-      if (!mounted) return;
+    if (!mounted || choice == null) return;
+
+    if (choice == 'stream') {
       Navigator.of(context).push(
-        MaterialPageRoute(
+        PortalPageRoute(
           builder: (_) => _HtmlDeckStreamerScreen(file: file),
         ),
+      );
+      return;
+    }
+
+    if (choice == 'extract_txt') {
+      await _extractAndDownloadReviewerTxt(file);
+    }
+  }
+
+  Future<void> _extractAndDownloadReviewerTxt(ReviewerFile file) async {
+    try {
+      final result = await PortalLoadingOverlay.run<
+          ({String outlineText, SavedTextFileResult saved})>(
+        context,
+        message: 'Extracting Study Outline...',
+        subtitle: 'Stripping HTML code & formatting discussion notes',
+        task: () async {
+          final rawHtml = await ApiService.instance.fetchRawHtmlContent(file.id);
+          final outlineText = ReviewerOutlineExtractor.extractOutline(
+            rawHtml: rawHtml,
+            reviewerTitle: file.name,
+            subjectName: _dashData?.subjectName ?? _activeSubjectCode,
+          );
+          final txtFileName = ReviewerOutlineExtractor.buildTxtFileName(file.name);
+          final saved = await DeviceBridgeService.instance.saveTextToDownloads(
+            fileName: txtFileName,
+            content: outlineText,
+          );
+          return (outlineText: outlineText, saved: saved);
+        },
+      );
+
+      if (!mounted) return;
+      Navigator.of(context).push(
+        PortalPageRoute(
+          builder: (_) => _ReviewerOutlineReaderScreen(
+            reviewerTitle: file.name,
+            outlineText: result.outlineText,
+            savedResult: result.saved,
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to extract study outline: $e')),
       );
     }
   }
@@ -1500,6 +2123,192 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
   }
 }
 
+/// Distraction-free `.txt` Study Outline Reader & Downloader Screen.
+class _ReviewerOutlineReaderScreen extends StatefulWidget {
+  final String reviewerTitle;
+  final String outlineText;
+  final SavedTextFileResult savedResult;
+
+  const _ReviewerOutlineReaderScreen({
+    required this.reviewerTitle,
+    required this.outlineText,
+    required this.savedResult,
+  });
+
+  @override
+  State<_ReviewerOutlineReaderScreen> createState() =>
+      _ReviewerOutlineReaderScreenState();
+}
+
+class _ReviewerOutlineReaderScreenState
+    extends State<_ReviewerOutlineReaderScreen> {
+  late SavedTextFileResult _saved = widget.savedResult;
+  bool _savingAgain = false;
+
+  Future<void> _saveAgain() async {
+    setState(() => _savingAgain = true);
+    try {
+      final next = await DeviceBridgeService.instance.saveTextToDownloads(
+        fileName: _saved.fileName,
+        content: widget.outlineText,
+      );
+      if (!mounted) return;
+      setState(() => _saved = next);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('✅ Saved to ${next.displayPath}')),
+      );
+    } finally {
+      if (mounted) setState(() => _savingAgain = false);
+    }
+  }
+
+  Future<void> _shareTxtFile() async {
+    await Share.shareXFiles(
+      [XFile(_saved.tempShareFile.path, mimeType: 'text/plain')],
+      subject: _saved.fileName,
+    );
+  }
+
+  Future<void> _copyOutline() async {
+    await Clipboard.setData(ClipboardData(text: widget.outlineText));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('📋 Study outline copied to clipboard!')),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: PortalColors.parchment,
+      appBar: AppBar(
+        backgroundColor: PortalColors.forest,
+        foregroundColor: Colors.white,
+        title: Text(
+          'Study Outline (.TXT)',
+          style: PortalTheme.serif(size: 22, color: Colors.white),
+        ),
+        actions: [
+          IconButton(
+            tooltip: 'Copy Outline Text',
+            onPressed: _copyOutline,
+            icon: const Icon(Icons.copy_rounded, size: 20),
+          ),
+          IconButton(
+            tooltip: 'Share / Open .TXT File',
+            onPressed: _shareTxtFile,
+            icon: const Icon(Icons.ios_share_rounded, size: 20),
+          ),
+        ],
+      ),
+      body: SafeArea(
+        child: Column(
+          children: [
+            // Saved confirmation banner
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              color: PortalColors.emeraldBg,
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.check_circle_rounded,
+                    size: 18,
+                    color: PortalColors.emerald,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Saved clean discussion outline to ${_saved.displayPath}',
+                      style: PortalTheme.sans(
+                        size: 12,
+                        weight: FontWeight.w700,
+                        color: PortalColors.emerald,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            // Scrollable Plain-Text Discussion Outline
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(16),
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 720),
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(20),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: PortalColors.ruleMed),
+                        boxShadow: const [
+                          BoxShadow(
+                            color: Color(0x141A3A2A),
+                            blurRadius: 16,
+                            offset: Offset(0, 6),
+                          ),
+                        ],
+                      ),
+                      child: SelectableText(
+                        widget.outlineText,
+                        style: PortalTheme.sans(
+                          size: 13.5,
+                          height: 1.55,
+                          color: PortalColors.ink,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+
+            // Bottom Action Bar
+            Container(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 14),
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                border: Border(top: BorderSide(color: PortalColors.ruleMed)),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: _savingAgain ? null : _saveAgain,
+                      icon: const Icon(Icons.download_done_rounded, size: 18),
+                      label: Text(_savingAgain ? 'Saving...' : 'Save .TXT Again'),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: PortalColors.forest,
+                        foregroundColor: Colors.white,
+                      ),
+                      onPressed: _shareTxtFile,
+                      icon: const Icon(
+                        Icons.open_in_new_rounded,
+                        size: 17,
+                        color: PortalColors.gold,
+                      ),
+                      label: const Text('Share / Open .TXT'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _HtmlDeckStreamerScreen extends StatefulWidget {
   final ReviewerFile file;
 
@@ -1547,7 +2356,7 @@ class _HtmlDeckStreamerScreenState extends State<_HtmlDeckStreamerScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: PortalColors.forestDark,
       appBar: AppBar(
         backgroundColor: Colors.black,
         foregroundColor: Colors.white,
@@ -1561,8 +2370,9 @@ class _HtmlDeckStreamerScreenState extends State<_HtmlDeckStreamerScreen> {
         ),
       ),
       body: _loading
-          ? const Center(
-              child: CircularProgressIndicator(color: PortalColors.gold),
+          ? const PortalLoadingView(
+              message: 'Loading Presentation Deck...',
+              subtitle: 'Preparing interactive slides for streaming',
             )
           : _error != null
               ? Center(

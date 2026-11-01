@@ -25,32 +25,47 @@ Uint8List? decodeDataUrlBytes(String? dataUrl) {
   }
 }
 
-/// Ruled parchment background replicating `body` CSS in `index.html`.
+/// Ruled parchment background replicating `body` CSS in `index.html`,
+/// with built-in support for full-screen loading transitions.
 class ParchmentScaffold extends StatelessWidget {
   final Widget child;
   final Widget? topBanner;
+  final Widget? topNavigationBar;
   final Widget? floatingActionButton;
+  final bool isLoading;
+  final String loadingMessage;
+  final String? loadingSubtitle;
 
   const ParchmentScaffold({
     super.key,
     required this.child,
     this.topBanner,
+    this.topNavigationBar,
     this.floatingActionButton,
+    this.isLoading = false,
+    this.loadingMessage = 'LOADING RECORDS...',
+    this.loadingSubtitle,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: PortalColors.parchment,
-      floatingActionButton: floatingActionButton,
-      body: CustomPaint(
-        painter: _ParchmentLinesPainter(),
-        child: SafeArea(
-          child: Column(
-            children: [
-              if (topBanner != null) topBanner!,
-              Expanded(child: child),
-            ],
+    return PortalLoadingOverlay(
+      visible: isLoading,
+      message: loadingMessage,
+      subtitle: loadingSubtitle,
+      child: Scaffold(
+        backgroundColor: PortalColors.parchment,
+        floatingActionButton: floatingActionButton,
+        body: CustomPaint(
+          painter: _ParchmentLinesPainter(),
+          child: SafeArea(
+            child: Column(
+              children: [
+                if (topBanner != null) topBanner!,
+                if (topNavigationBar != null) topNavigationBar!,
+                Expanded(child: child),
+              ],
+            ),
           ),
         ),
       ),
@@ -1212,6 +1227,25 @@ class _BackendConfigDialogState extends State<BackendConfigDialog> {
               ),
             ],
             const SizedBox(height: 18),
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton.icon(
+                onPressed: _testing
+                    ? null
+                    : () async {
+                        await AppConfig.resetScriptUrlToDefault();
+                        if (!mounted) return;
+                        setState(() {
+                          _urlCtrl.text = AppConfig.defaultScriptUrl;
+                          _statusOk = true;
+                          _statusMsg = 'Restored default Apps Script endpoint.';
+                        });
+                      },
+                icon: const Icon(Icons.restore_rounded, size: 16),
+                label: const Text('Restore Default Endpoint'),
+              ),
+            ),
+            const SizedBox(height: 6),
             Row(
               children: [
                 Expanded(
@@ -1238,4 +1272,310 @@ class _BackendConfigDialogState extends State<BackendConfigDialog> {
       ),
     );
   }
+}
+
+/// Smooth scholarly page transition (fade + subtle upward slide).
+class PortalPageRoute<T> extends PageRouteBuilder<T> {
+  PortalPageRoute({required WidgetBuilder builder, super.settings})
+      : super(
+          transitionDuration: const Duration(milliseconds: 300),
+          reverseTransitionDuration: const Duration(milliseconds: 240),
+          pageBuilder: (context, animation, secondaryAnimation) =>
+              builder(context),
+          transitionsBuilder: (context, animation, secondaryAnimation, child) {
+            final curved = CurvedAnimation(
+              parent: animation,
+              curve: Curves.easeOutCubic,
+              reverseCurve: Curves.easeInCubic,
+            );
+            return FadeTransition(
+              opacity: curved,
+              child: SlideTransition(
+                position: Tween<Offset>(
+                  begin: const Offset(0, 0.035),
+                  end: Offset.zero,
+                ).animate(curved),
+                child: child,
+              ),
+            );
+          },
+        );
+}
+
+/// Animated Forest & Antique Gold crest loading indicator used across login
+/// and page-to-page transitions.
+class PortalLoadingView extends StatefulWidget {
+  final String message;
+  final String? subtitle;
+  final bool darkBackdrop;
+
+  const PortalLoadingView({
+    super.key,
+    required this.message,
+    this.subtitle,
+    this.darkBackdrop = true,
+  });
+
+  @override
+  State<PortalLoadingView> createState() => _PortalLoadingViewState();
+}
+
+class _PortalLoadingViewState extends State<PortalLoadingView>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _orbitCtrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _orbitCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 8),
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _orbitCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final fgPrimary = widget.darkBackdrop ? Colors.white : PortalColors.forest;
+    final fgSecondary =
+        widget.darkBackdrop ? Colors.white70 : PortalColors.ink3;
+
+    return Center(
+      child: Container(
+        constraints: const BoxConstraints(maxWidth: 310),
+        margin: const EdgeInsets.symmetric(horizontal: 28),
+        padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 30),
+        decoration: BoxDecoration(
+          color: widget.darkBackdrop
+              ? PortalColors.forestDark.withAlpha(242)
+              : Colors.white,
+          borderRadius: BorderRadius.circular(26),
+          border: Border.all(
+            color: PortalColors.gold.withAlpha(widget.darkBackdrop ? 130 : 180),
+            width: 1.8,
+          ),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x4009150E),
+              blurRadius: 32,
+              offset: Offset(0, 14),
+            ),
+          ],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              width: 76,
+              height: 76,
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  RotationTransition(
+                    turns: _orbitCtrl,
+                    child: CustomPaint(
+                      size: const Size(76, 76),
+                      painter: _DashedOrbitPainter(),
+                    ),
+                  ),
+                  Container(
+                    width: 56,
+                    height: 56,
+                    decoration: BoxDecoration(
+                      color: PortalColors.forest,
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: PortalColors.goldPale,
+                        width: 3,
+                      ),
+                    ),
+                    child: const Icon(
+                      Icons.layers_outlined,
+                      color: PortalColors.gold,
+                      size: 28,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 18),
+            Text(
+              'Records Portal',
+              style: PortalTheme.serif(
+                size: 24,
+                italic: true,
+                color: fgPrimary,
+              ),
+            ),
+            const SizedBox(height: 12),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(6),
+              child: const SizedBox(
+                width: 150,
+                height: 4,
+                child: LinearProgressIndicator(
+                  color: PortalColors.gold,
+                  backgroundColor: Color(0x33C9A84C),
+                ),
+              ),
+            ),
+            const SizedBox(height: 14),
+            Text(
+              widget.message.toUpperCase(),
+              textAlign: TextAlign.center,
+              style: PortalTheme.sans(
+                size: 11.5,
+                weight: FontWeight.w800,
+                letterSpacing: 1.4,
+                color: PortalColors.gold,
+              ),
+            ),
+            if (widget.subtitle != null &&
+                widget.subtitle!.trim().isNotEmpty) ...[
+              const SizedBox(height: 5),
+              Text(
+                widget.subtitle!,
+                textAlign: TextAlign.center,
+                style: PortalTheme.sans(
+                  size: 12,
+                  color: fgSecondary,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Full-screen modal loading overlay + imperative helper `PortalLoadingOverlay.run(...)`.
+class PortalLoadingOverlay extends StatelessWidget {
+  final bool visible;
+  final String message;
+  final String? subtitle;
+  final Widget child;
+
+  const PortalLoadingOverlay({
+    super.key,
+    required this.visible,
+    required this.message,
+    this.subtitle,
+    required this.child,
+  });
+
+  /// Shows a non-dismissible full-screen loading dialog while [task] executes.
+  static Future<T> run<T>(
+    BuildContext context, {
+    required String message,
+    String? subtitle,
+    required Future<T> Function() task,
+  }) async {
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      barrierColor: const Color(0xB80D1F16),
+      builder: (_) => PopScope(
+        canPop: false,
+        child: BackdropFilter(
+          filter: ui.ImageFilter.blur(sigmaX: 5, sigmaY: 5),
+          child: Material(
+            type: MaterialType.transparency,
+            child: PortalLoadingView(
+              message: message,
+              subtitle: subtitle,
+            ),
+          ),
+        ),
+      ),
+    );
+    try {
+      return await task();
+    } finally {
+      if (context.mounted) {
+        Navigator.of(context, rootNavigator: true).pop();
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      children: [
+        child,
+        if (visible)
+          Positioned.fill(
+            child: AbsorbPointer(
+              child: BackdropFilter(
+                filter: ui.ImageFilter.blur(sigmaX: 5, sigmaY: 5),
+                child: Container(
+                  color: const Color(0xB80D1F16),
+                  child: Material(
+                    type: MaterialType.transparency,
+                    child: PortalLoadingView(
+                      message: message,
+                      subtitle: subtitle,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+/// Shared logout confirmation modal with smooth transition feedback.
+Future<void> confirmAndLogout(
+  BuildContext context,
+  FutureOr<void> Function() onLogout,
+) async {
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      backgroundColor: Colors.white,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+      title: Text(
+        'Sign Out of Portal?',
+        style: PortalTheme.serif(size: 24, color: PortalColors.forest),
+      ),
+      content: Text(
+        'You will be returned to the login screen. Any queued offline scans remain safely stored on this device.',
+        style: PortalTheme.sans(size: 13.5, color: PortalColors.ink2),
+      ),
+      actions: [
+        OutlinedButton(
+          onPressed: () => Navigator.of(ctx).pop(false),
+          child: const Text('Stay Signed In'),
+        ),
+        ElevatedButton.icon(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: PortalColors.burg,
+            foregroundColor: Colors.white,
+          ),
+          onPressed: () => Navigator.of(ctx).pop(true),
+          icon: const Icon(Icons.logout_rounded, size: 16),
+          label: const Text('Sign Out'),
+        ),
+      ],
+    ),
+  );
+
+  if (confirmed != true || !context.mounted) return;
+
+  await PortalLoadingOverlay.run(
+    context,
+    message: 'Signing Out...',
+    subtitle: 'Closing your active portal session',
+    task: () async {
+      await Future<void>.delayed(const Duration(milliseconds: 280));
+      await onLogout();
+    },
+  );
 }

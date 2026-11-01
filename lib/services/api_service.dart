@@ -30,7 +30,7 @@ class ApiService {
     final scriptUrl = await AppConfig.getScriptUrl();
     if (!AppConfig.isConfiguredUrl(scriptUrl)) {
       throw const ApiException(
-        'Backend URL not configured. Tap the ⚙️ icon on the Login screen to set your Apps Script /exec URL.',
+        'Portal backend endpoint is unavailable. Please contact your instructor.',
       );
     }
 

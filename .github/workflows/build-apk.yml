@@ -62,12 +62,16 @@ jobs:
               print("Pre-configured Apps Script URL into AppConfig.")
           PY
 
-      - name: Generate Version-Matched Android Gradle Wrapper & Apply Manifest
+      - name: Generate Version-Matched Android Gradle Wrapper & Apply Native Bridge
         run: |
           cp android/app/src/main/AndroidManifest.xml /tmp/PortalAndroidManifest.xml
+          cp android/app/src/main/kotlin/com/recordsportal/student_portal_app/MainActivity.kt /tmp/PortalMainActivity.kt
           rm -rf android
           flutter create --platforms=android --org com.recordsportal --project-name student_portal_app .
           cp /tmp/PortalAndroidManifest.xml android/app/src/main/AndroidManifest.xml
+          mkdir -p android/app/src/main/kotlin/com/recordsportal/student_portal_app
+          cp /tmp/PortalMainActivity.kt android/app/src/main/kotlin/com/recordsportal/student_portal_app/MainActivity.kt
+          rm -f android/app/src/main/java/com/recordsportal/student_portal_app/MainActivity.java
           python3 - <<'PY'
           import pathlib, re
 

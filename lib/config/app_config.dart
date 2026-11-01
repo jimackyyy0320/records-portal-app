@@ -3,8 +3,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 class AppConfig {
   AppConfig._();
 
-  /// Replace with your deployed Google Apps Script Web App (/exec) URL,
-  /// or configure it directly inside the app via the gear icon on the Login screen.
+  /// Deployed Google Apps Script Web App (/exec) URL.
+  /// Endpoint editing is hidden from students and restricted to Faculty LMS settings.
   static const String defaultScriptUrl =
       'https://script.google.com/macros/s/AKfycbzDkxouKdcWBjHwCw5ljcBzAa_l_hI1aK4P7sQ5Ujt8sjsSgRsBfPJ6Hx6LpdIwXF8EYA/exec';
 
@@ -26,7 +26,7 @@ class AppConfig {
   static Future<String> getScriptUrl() async {
     final prefs = await SharedPreferences.getInstance();
     final saved = prefs.getString(prefScriptUrlKey)?.trim();
-    if (saved != null && saved.isNotEmpty) {
+    if (saved != null && saved.isNotEmpty && isConfiguredUrl(saved)) {
       return saved;
     }
     return defaultScriptUrl;
@@ -35,6 +35,11 @@ class AppConfig {
   static Future<void> setScriptUrl(String url) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(prefScriptUrlKey, url.trim());
+  }
+
+  static Future<void> resetScriptUrlToDefault() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(prefScriptUrlKey);
   }
 
   static bool isConfiguredUrl(String url) {
