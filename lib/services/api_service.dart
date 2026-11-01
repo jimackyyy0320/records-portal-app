@@ -277,18 +277,6 @@ class ApiService {
     return res['content']?.toString() ?? '';
   }
 
-  Future<Map<String, dynamic>> fetchDailyAttendanceReport(String dateStr) async {
-    final res = await postAction('fetchDailyAttendanceReport', {
-      'dateStr': dateStr,
-    });
-    if (res['success'] != true || res['data'] is! Map) {
-      throw ApiException(
-        res['message']?.toString() ?? 'Failed to compile attendance report.',
-      );
-    }
-    return Map<String, dynamic>.from(res['data'] as Map);
-  }
-
   Future<String?> getStudentAvatar(String id) async {
     try {
       final res = await postAction('getStudentAvatar', {'id': id});
@@ -324,16 +312,6 @@ class ApiService {
 
   Future<Map<String, dynamic>> removeStudentAvatar(String id) {
     return postAction('removeStudentAvatar', {'id': id});
-  }
-
-  Future<String> getStudentQRCode(String id) async {
-    final res = await postAction('getStudentQRCode', {'id': id});
-    if (res['success'] != true || res['data'] == null) {
-      throw ApiException(
-        res['message']?.toString() ?? 'Contact your Teacher immediately',
-      );
-    }
-    return res['data'].toString();
   }
 
   // ─────────────────────────────────────────────────────────────

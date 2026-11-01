@@ -1,12 +1,6 @@
 import 'dart:async';
-import 'dart:io';
-import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart';
-import 'package:intl/intl.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:share_plus/share_plus.dart';
 
 import '../models/portal_models.dart';
 import '../services/api_service.dart';
@@ -17,8 +11,7 @@ import 'student_dashboard_screen.dart';
 import 'teacher_scanner_screen.dart';
 
 /// Full Faculty LMS Dashboard replicating `#subject-screen`, `#faculty-dashboard`,
-/// `#fac-utilities` (Morning/Afternoon Attendance PNG Generator), `#edit-modal`,
-/// and individual student drill-down from `index.html`, enhanced with:
+/// `#edit-modal`, and individual student drill-down from `index.html`, enhanced with:
 /// - Smooth 3-level page sequencing & Android Back navigation (`PopScope`)
 /// - Full-screen branded loading overlays (`PortalLoadingOverlay`)
 /// - Live student roster search & Faculty-only Apps Script endpoint settings
@@ -50,9 +43,6 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> {
   String? _viewedStudentId;
   final TextEditingController _rosterSearchCtrl = TextEditingController();
   String _rosterSearchQuery = '';
-
-  DateTime _amReportDate = DateTime.now();
-  DateTime _pmReportDate = DateTime.now();
 
   Timer? _autoRefreshTimer;
 
@@ -275,52 +265,6 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> {
     }
   }
 
-  Future<void> _generateAttendancePng({required bool isMorning}) async {
-    final date = isMorning ? _amReportDate : _pmReportDate;
-    final dateStr = DateFormat('yyyy-MM-dd').format(date);
-
-    try {
-      final report = await PortalLoadingOverlay.run(
-        context,
-        message:
-            'Compiling ${isMorning ? "Morning" : "Afternoon"} Report...',
-        subtitle: 'Aggregating attendance logs for $dateStr',
-        task: () => ApiService.instance.fetchDailyAttendanceReport(dateStr),
-      );
-
-      final targetBlock = (isMorning ? report['morning'] : report['afternoon']);
-      final blockMap = targetBlock is Map
-          ? Map<String, dynamic>.from(targetBlock)
-          : <String, dynamic>{};
-      final presentList = (blockMap['present'] as List?)
-              ?.map((e) => e.toString())
-              .toList() ??
-          const <String>[];
-      final absentList = (blockMap['absent'] as List?)
-              ?.map((e) => e.toString())
-              .toList() ??
-          const <String>[];
-
-      if (!mounted) return;
-      await showDialog<void>(
-        context: context,
-        builder: (_) => _AttendanceReportPreviewDialog(
-          isMorning: isMorning,
-          date: date,
-          dateStr: dateStr,
-          present: presentList,
-          absent: absentList,
-        ),
-      );
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error generating report: $e')),
-        );
-      }
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     // Level 3: Drill-down view for an individual student (with Evaluation Z-Score tab!)
@@ -427,18 +371,18 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> {
             Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(
-                  Icons.school_rounded,
-                  color: PortalColors.gold,
-                  size: 22,
+                const SchoolLogoBadge(
+                  size: 32,
+                  borderWidth: 1.5,
+                  showShadow: false,
                 ),
                 const SizedBox(width: 8),
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Faculty LMS',
-                      style: PortalTheme.serif(size: 19, color: Colors.white),
+                      'MIS-SHS Faculty',
+                      style: PortalTheme.serif(size: 18, color: Colors.white),
                     ),
                     Text(
                       'Prof. ${widget.session.name}',
@@ -553,7 +497,7 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> {
                         Text(
                           sm.pendingCount > 0
                               ? '${sm.pendingCount} offline scan(s) queued for automatic sync'
-                              : 'Attendance & Recitation (+1 Pt) • 2.5s anti-burst protection',
+                              : 'Attendance & Recitation (+1 Pt) • 1.5s anti-burst protection',
                           style: PortalTheme.sans(
                             size: 12,
                             color: Colors.white.withAlpha(215),
@@ -709,20 +653,17 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> {
                                   color: PortalColors.forest,
                                 ),
                               ),
-                              const Icon(
-                                Icons.chevron_right_rounded,
-                                color: PortalColors.goldDark,
-                              ),
-                            ],
+                                const Icon(
+                                  Icons.chevron_right_rounded,
+                                  color: PortalColors.goldDark,
+                                ),
+                              ],
+                            ),
                           ),
                         ),
                       ),
-                    ),
-                  );
-                }),
-
-              const SizedBox(height: 12),
-              _buildReportGeneratorCard(),
+                    );
+                  }),
             ],
           ),
         ),
@@ -868,9 +809,6 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> {
                           child: _buildStudentCardsList(),
                         ),
                 ),
-
-                const SizedBox(height: 18),
-                _buildReportGeneratorCard(),
               ],
             ),
           ),
@@ -907,127 +845,6 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> {
             color: active ? PortalColors.gold : PortalColors.ink3,
           ),
         ),
-      ),
-    );
-  }
-
-  Widget _buildReportGeneratorCard() {
-    Widget sessionRow({
-      required String label,
-      required DateTime selectedDate,
-      required VoidCallback onPickDate,
-      required VoidCallback onGenerate,
-      required bool goldStyle,
-    }) {
-      return Row(
-        children: [
-          Expanded(
-            child: InkWell(
-              borderRadius: BorderRadius.circular(12),
-              onTap: onPickDate,
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 10,
-                ),
-                decoration: BoxDecoration(
-                  color: PortalColors.parchment,
-                  border: Border.all(color: PortalColors.ruleMed, width: 1.4),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      label.toUpperCase(),
-                      style: PortalTheme.sans(
-                        size: 10,
-                        weight: FontWeight.w800,
-                        color: PortalColors.ink3,
-                      ),
-                    ),
-                    Text(
-                      DateFormat('yyyy-MM-dd').format(selectedDate),
-                      style: PortalTheme.sans(
-                        size: 14,
-                        weight: FontWeight.w700,
-                        color: PortalColors.forest,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(width: 10),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor:
-                  goldStyle ? PortalColors.gold : PortalColors.forest,
-              foregroundColor: goldStyle ? PortalColors.forest : Colors.white,
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-            ),
-            onPressed: onGenerate,
-            child: Text(
-              goldStyle ? '📥 Afternoon PNG' : '📥 Morning PNG',
-              style: PortalTheme.sans(
-                size: 12,
-                weight: FontWeight.w800,
-                color: goldStyle ? PortalColors.forest : Colors.white,
-              ),
-            ),
-          ),
-        ],
-      );
-    }
-
-    return Container(
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: PortalColors.rule),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Daily Attendance PNG Reports',
-            style: PortalTheme.serif(size: 22, italic: true),
-          ),
-          const SizedBox(height: 12),
-          sessionRow(
-            label: 'Morning Session (PKLP)',
-            selectedDate: _amReportDate,
-            onPickDate: () async {
-              final d = await showDatePicker(
-                context: context,
-                initialDate: _amReportDate,
-                firstDate: DateTime(2023),
-                lastDate: DateTime(2035),
-              );
-              if (d != null) setState(() => _amReportDate = d);
-            },
-            onGenerate: () => _generateAttendancePng(isMorning: true),
-            goldStyle: false,
-          ),
-          const SizedBox(height: 10),
-          sessionRow(
-            label: 'Afternoon Session (PGP)',
-            selectedDate: _pmReportDate,
-            onPickDate: () async {
-              final d = await showDatePicker(
-                context: context,
-                initialDate: _pmReportDate,
-                firstDate: DateTime(2023),
-                lastDate: DateTime(2035),
-              );
-              if (d != null) setState(() => _pmReportDate = d);
-            },
-            onGenerate: () => _generateAttendancePng(isMorning: false),
-            goldStyle: true,
-          ),
-        ],
       ),
     );
   }
@@ -1223,216 +1040,6 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> {
           ),
         );
       }).toList(),
-    );
-  }
-}
-
-class _AttendanceReportPreviewDialog extends StatefulWidget {
-  final bool isMorning;
-  final DateTime date;
-  final String dateStr;
-  final List<String> present;
-  final List<String> absent;
-
-  const _AttendanceReportPreviewDialog({
-    required this.isMorning,
-    required this.date,
-    required this.dateStr,
-    required this.present,
-    required this.absent,
-  });
-
-  @override
-  State<_AttendanceReportPreviewDialog> createState() =>
-      _AttendanceReportPreviewDialogState();
-}
-
-class _AttendanceReportPreviewDialogState
-    extends State<_AttendanceReportPreviewDialog> {
-  final GlobalKey _canvasKey = GlobalKey();
-  bool _saving = false;
-
-  Future<void> _exportPng() async {
-    setState(() => _saving = true);
-    try {
-      final boundary = _canvasKey.currentContext?.findRenderObject()
-          as RenderRepaintBoundary?;
-      if (boundary == null) return;
-      final ui.Image image = await boundary.toImage(pixelRatio: 2.5);
-      final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
-      if (byteData == null) return;
-      final bytes = byteData.buffer.asUint8List();
-
-      final dir = await getTemporaryDirectory();
-      final sessionLabel = widget.isMorning ? 'Morning' : 'Afternoon';
-      final file = File(
-        '${dir.path}/Grade11_${sessionLabel}_Attendance_${widget.dateStr}.png',
-      );
-      await file.writeAsBytes(bytes);
-      await Share.shareXFiles([XFile(file.path)]);
-    } finally {
-      if (mounted) setState(() => _saving = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final fullDate = DateFormat('EEEE, MMMM d, yyyy').format(widget.date);
-
-    return Dialog(
-      insetPadding: const EdgeInsets.all(16),
-      backgroundColor: Colors.white,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 680),
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              RepaintBoundary(
-                key: _canvasKey,
-                child: Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(24),
-                  decoration: BoxDecoration(
-                    color: PortalColors.parchment,
-                    border: Border.all(color: PortalColors.forest, width: 10),
-                  ),
-                  child: Column(
-                    children: [
-                      Text(
-                        'GRADE 11 Daily Attendance Report',
-                        textAlign: TextAlign.center,
-                        style: PortalTheme.serif(size: 28),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        widget.isMorning
-                            ? 'MORNING SESSION'
-                            : 'AFTERNOON SESSION',
-                        style: PortalTheme.sans(
-                          size: 15,
-                          weight: FontWeight.w800,
-                          letterSpacing: 1.5,
-                          color: PortalColors.forest,
-                        ),
-                      ),
-                      Text(
-                        fullDate.toUpperCase(),
-                        style: PortalTheme.sans(
-                          size: 12,
-                          weight: FontWeight.w700,
-                          letterSpacing: 1.4,
-                          color: PortalColors.goldDark,
-                        ),
-                      ),
-                      const Divider(height: 24),
-                      Container(
-                        padding: const EdgeInsets.all(14),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: PortalColors.rule),
-                        ),
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Expanded(
-                              child: _reportColumn(
-                                header: 'PRESENT (${widget.present.length})',
-                                bg: PortalColors.emeraldBg,
-                                fg: PortalColors.emerald,
-                                items: widget.present,
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: _reportColumn(
-                                header: 'ABSENT (${widget.absent.length})',
-                                bg: PortalColors.burgBg,
-                                fg: PortalColors.burg,
-                                items: widget.absent,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 14),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: () => Navigator.of(context).pop(),
-                      child: const Text('Close'),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: ElevatedButton.icon(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: PortalColors.forest,
-                        foregroundColor: Colors.white,
-                      ),
-                      onPressed: _saving ? null : _exportPng,
-                      icon: const Icon(Icons.download_rounded, size: 18),
-                      label:
-                          Text(_saving ? 'Rendering...' : 'Save / Share PNG'),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _reportColumn({
-    required String header,
-    required Color bg,
-    required Color fg,
-    required List<String> items,
-  }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Container(
-          padding: const EdgeInsets.symmetric(vertical: 6),
-          decoration: BoxDecoration(
-            color: bg,
-            borderRadius: BorderRadius.circular(6),
-          ),
-          alignment: Alignment.center,
-          child: Text(
-            header,
-            style: PortalTheme.sans(
-              size: 11.5,
-              weight: FontWeight.w800,
-              color: fg,
-            ),
-          ),
-        ),
-        const SizedBox(height: 8),
-        if (items.isEmpty)
-          Text(
-            'None recorded',
-            textAlign: TextAlign.center,
-            style: PortalTheme.sans(size: 12, color: PortalColors.ink3),
-          )
-        else
-          ...items.map(
-            (n) => Padding(
-              padding: const EdgeInsets.symmetric(vertical: 3),
-              child: Text(n, style: PortalTheme.sans(size: 12.5)),
-            ),
-          ),
-      ],
     );
   }
 }

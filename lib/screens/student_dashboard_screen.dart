@@ -1,14 +1,13 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
+import '../config/app_config.dart';
 import '../models/portal_models.dart';
 import '../services/api_service.dart';
 import '../services/device_bridge_service.dart';
@@ -16,6 +15,7 @@ import '../services/session_service.dart';
 import '../theme/portal_theme.dart';
 import '../utils/reviewer_outline_extractor.dart';
 import '../widgets/common_widgets.dart';
+import '../widgets/student_qr_generator.dart';
 import 'profile_modal.dart';
 
 /// Full Student Dashboard + Faculty Read-Only Student Drill-Down View
@@ -356,93 +356,17 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
     }
   }
 
-  Future<void> _downloadStudentQr() async {
-    try {
-      final bytes = await PortalLoadingOverlay.run<Uint8List?>(
-        context,
-        message: 'Generating QR Pass...',
-        subtitle: 'Retrieving official Student ID QR pass',
-        task: () async {
-          final dataUrl =
-              await ApiService.instance.getStudentQRCode(widget.session.id);
-          return decodeDataUrlBytes(dataUrl);
-        },
-      );
-      if (bytes == null) {
-        throw const ApiException('Contact your Teacher immediately');
-      }
-      if (!mounted) return;
-      await showDialog<void>(
-        context: context,
-        builder: (ctx) => Dialog(
-          backgroundColor: Colors.white,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(22),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text('Student QR Pass', style: PortalTheme.serif(size: 24)),
-                const SizedBox(height: 6),
-                Text(
-                  'ID: ${widget.session.id}',
-                  style: PortalTheme.sans(
-                    size: 12.5,
-                    weight: FontWeight.w700,
-                    color: PortalColors.ink3,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(12),
-                  child: Image.memory(bytes, width: 220, height: 220),
-                ),
-                const SizedBox(height: 18),
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton(
-                        onPressed: () => Navigator.of(ctx).pop(),
-                        child: const Text('Close'),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: PortalColors.gold,
-                          foregroundColor: PortalColors.forest,
-                        ),
-                        onPressed: () async {
-                          final dir = await getTemporaryDirectory();
-                          final file =
-                              File('${dir.path}/QR_${widget.session.id}.png');
-                          await file.writeAsBytes(bytes);
-                          await Share.shareXFiles(
-                            [XFile(file.path)],
-                            text: 'QR Code - ${widget.session.id}',
-                          );
-                        },
-                        icon: const Icon(Icons.download_rounded, size: 18),
-                        label: const Text('Save / Share'),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ),
-      );
-    } catch (_) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Contact your Teacher immediately')),
-        );
-      }
-    }
+  Future<void> _openStudentQrGenerator() async {
+    final targetId = _targetStudentId.trim();
+    if (targetId.isEmpty) return;
+    final targetName = _isFacultyViewing
+        ? _dashData?.studentName
+        : widget.session.name;
+    await StudentQrPassDialog.show(
+      context,
+      studentId: targetId,
+      studentName: targetName,
+    );
   }
 
   @override
@@ -530,6 +454,17 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
               label: const Text('Back to Roster'),
             ),
             const Spacer(),
+            IconButton(
+              tooltip: 'Generate Student QR Pass',
+              visualDensity: VisualDensity.compact,
+              onPressed: _openStudentQrGenerator,
+              icon: const Icon(
+                Icons.qr_code_2_rounded,
+                size: 20,
+                color: PortalColors.gold,
+              ),
+            ),
+            const SizedBox(width: 4),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
               decoration: BoxDecoration(
@@ -596,28 +531,26 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
               ),
             )
           else
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 28,
-                  height: 28,
-                  decoration: const BoxDecoration(
-                    color: PortalColors.forest,
-                    shape: BoxShape.circle,
+            Flexible(
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const SchoolLogoBadge(
+                    size: 30,
+                    borderWidth: 1.5,
+                    showShadow: false,
                   ),
-                  child: const Icon(
-                    Icons.layers_outlined,
-                    size: 16,
-                    color: PortalColors.gold,
+                  const SizedBox(width: 8),
+                  Flexible(
+                    child: Text(
+                      AppConfig.appName,
+                      overflow: TextOverflow.ellipsis,
+                      style:
+                          PortalTheme.serif(size: 18, weight: FontWeight.w700),
+                    ),
                   ),
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  'Student Portal',
-                  style: PortalTheme.serif(size: 19, weight: FontWeight.w700),
-                ),
-              ],
+                ],
+              ),
             ),
           const Spacer(),
           if (inSubjectWorkspace && _activeSubjectCode != null) ...[
@@ -639,7 +572,7 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
           IconButton(
             tooltip: 'My QR Pass',
             visualDensity: VisualDensity.compact,
-            onPressed: _downloadStudentQr,
+            onPressed: _openStudentQrGenerator,
             icon: const Icon(
               Icons.qr_code_2_rounded,
               size: 21,
@@ -776,7 +709,7 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
                               foregroundColor: PortalColors.forest,
                               padding: const EdgeInsets.symmetric(vertical: 11),
                             ),
-                            onPressed: _downloadStudentQr,
+                            onPressed: _openStudentQrGenerator,
                             icon: const Icon(Icons.qr_code_2_rounded, size: 18),
                             label: const Text('QR Pass'),
                           ),

@@ -1,4 +1,4 @@
-name: Build Records Portal Android APK
+name: Build MIS-SHS Learner App Android APK
 
 on:
   push:
@@ -62,16 +62,26 @@ jobs:
               print("Pre-configured Apps Script URL into AppConfig.")
           PY
 
-      - name: Generate Version-Matched Android Gradle Wrapper & Apply Native Bridge
+      - name: Generate Version-Matched Android Gradle Wrapper & Apply Native Bridge + App Logo
         run: |
           cp android/app/src/main/AndroidManifest.xml /tmp/PortalAndroidManifest.xml
           cp android/app/src/main/kotlin/com/recordsportal/student_portal_app/MainActivity.kt /tmp/PortalMainActivity.kt
+          rm -rf /tmp/PortalResBackup && mkdir -p /tmp/PortalResBackup
+          cp -r android/app/src/main/res/mipmap-* /tmp/PortalResBackup/
+          cp android/app/src/main/res/values/ic_launcher_background.xml /tmp/PortalResBackup/ic_launcher_background.xml
+
           rm -rf android
           flutter create --platforms=android --org com.recordsportal --project-name student_portal_app .
+
           cp /tmp/PortalAndroidManifest.xml android/app/src/main/AndroidManifest.xml
           mkdir -p android/app/src/main/kotlin/com/recordsportal/student_portal_app
           cp /tmp/PortalMainActivity.kt android/app/src/main/kotlin/com/recordsportal/student_portal_app/MainActivity.kt
           rm -f android/app/src/main/java/com/recordsportal/student_portal_app/MainActivity.java
+
+          rm -rf android/app/src/main/res/mipmap-*
+          cp -r /tmp/PortalResBackup/mipmap-* android/app/src/main/res/
+          cp /tmp/PortalResBackup/ic_launcher_background.xml android/app/src/main/res/values/ic_launcher_background.xml
+
           python3 - <<'PY'
           import pathlib, re
 
@@ -115,13 +125,13 @@ jobs:
       - name: Build Release APK
         run: |
           flutter build apk --release
-          cp build/app/outputs/flutter-apk/app-release.apk build/app/outputs/flutter-apk/records-portal.apk
+          cp build/app/outputs/flutter-apk/app-release.apk build/app/outputs/flutter-apk/mis-shs-learner-app.apk
 
       - name: Upload APK to Actions Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: Records-Portal-Android-APK
-          path: build/app/outputs/flutter-apk/records-portal.apk
+          name: MIS-SHS-Learner-App-Android-APK
+          path: build/app/outputs/flutter-apk/mis-shs-learner-app.apk
           if-no-files-found: error
 
       - name: Publish Direct-Download APK to GitHub Releases
@@ -129,6 +139,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v1.0.${{ github.run_number }}
-          name: "Records Portal Android v1.0.${{ github.run_number }}"
-          body: "Tap `records-portal.apk` below on your Android phone to download and install."
-          files: build/app/outputs/flutter-apk/records-portal.apk
+          name: "MIS-SHS Learner App Android v1.0.${{ github.run_number }}"
+          body: "Tap `mis-shs-learner-app.apk` below on your Android phone to download and install the MIS-SHS Learner App."
+          files: build/app/outputs/flutter-apk/mis-shs-learner-app.apk

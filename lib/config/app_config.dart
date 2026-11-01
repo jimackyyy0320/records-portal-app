@@ -12,8 +12,13 @@ class AppConfig {
   static const String scanLogSheetId =
       '12DvradQOqCeswwKMtdx7jaIKDRjMUuxWRRD_p1WBCQQ';
 
+  static const String appName = 'MIS-SHS Learner App';
+  static const String schoolLogoAsset = 'assets/images/mis_logo.png';
+
   static const String prefScriptUrlKey = 'portal_gas_exec_url';
   static const String prefSessionKey = 'portal_user_session_v1';
+  static const String prefStaySignedInKey = 'portal_stay_signed_in_v1';
+  static const String prefLastStudentIdKey = 'portal_last_student_id_v1';
 
   /// Workmanager task identifiers
   static const String wmOneOffSyncUniqueName = 'portal_oneoff_batch_sync';

@@ -25,9 +25,12 @@ import '../theme/portal_theme.dart';
 /// 3. Editable Timestamp bar right above the scanner (ticks live by default, tap to pin/edit custom date & time)
 ///
 /// Includes:
-/// - Global 2.5-second (2500ms) anti-burst lag time for both NFC and QR scans
+/// - Global 1.5-second (1500ms) anti-burst lag time for both NFC and QR scans
 /// - Native Android lifecycle-safe NFC Reader Mode + Camera/NFC Permission Setup
 class TeacherScannerScreen extends StatefulWidget {
+  /// 1.5-second (1500ms) anti-burst lag time across both QR and NFC scans.
+  static const int scanLagDurationMs = 1500;
+
   final UserSession session;
   final List<SubjectItem> facultySubjects;
   final String? initialSubjectCode;
@@ -45,8 +48,8 @@ class TeacherScannerScreen extends StatefulWidget {
 
 class _TeacherScannerScreenState extends State<TeacherScannerScreen>
     with WidgetsBindingObserver {
-  /// 2.5-second (2500ms) anti-burst lag time across both QR and NFC scans.
-  static const int _scanLagDurationMs = 2500;
+  static const int _scanLagDurationMs =
+      TeacherScannerScreen.scanLagDurationMs;
 
   // Step 1: Select Attendance or Recitation first
   ScanMode _selectedMode = ScanMode.attendance;
@@ -79,7 +82,7 @@ class _TeacherScannerScreenState extends State<TeacherScannerScreen>
   bool _iosNfcSessionActive = false;
   String _nfcStatusHint = 'Checking NFC hardware...';
 
-  // 2.5s Anti-Burst Cooldown state
+  // 1.5s Anti-Burst Cooldown state
   int _cooldownUntilEpochMs = 0;
   int _cooldownRemainingMs = 0;
   Timer? _cooldownTickTimer;
@@ -354,7 +357,7 @@ class _TeacherScannerScreenState extends State<TeacherScannerScreen>
   }
 
   // ─────────────────────────────────────────────────────────────
-  //  2.5-SECOND ANTI-BURST LAG TIMER (QR + NFC)
+  //  1.5-SECOND ANTI-BURST LAG TIMER (QR + NFC)
   // ─────────────────────────────────────────────────────────────
 
   void _startScanLagCooldown() {
@@ -539,7 +542,7 @@ class _TeacherScannerScreenState extends State<TeacherScannerScreen>
   }) async {
     if (!_hasFacultyAccess || _duplicateDialogOpen) return;
 
-    // Enforce global 2.5-second anti-burst lag time for QR and NFC scans
+    // Enforce global 1.5-second anti-burst lag time for QR and NFC scans
     final nowMs = DateTime.now().millisecondsSinceEpoch;
     if ((sourceLabel == 'QR' || sourceLabel == 'NFC') &&
         nowMs < _cooldownUntilEpochMs) {
@@ -595,7 +598,7 @@ class _TeacherScannerScreenState extends State<TeacherScannerScreen>
           }
         } finally {
           _duplicateDialogOpen = false;
-          // Start a fresh 2.5s lag window after closing the duplicate dialog
+          // Start a fresh 1.5s lag window after closing the duplicate dialog
           _startScanLagCooldown();
         }
 
@@ -1493,7 +1496,7 @@ class _TeacherScannerScreenState extends State<TeacherScannerScreen>
                       ),
                     ),
 
-                  // QR Reticle Frame (pulses Gold during 2.5s cooldown)
+                  // QR Reticle Frame (pulses Gold during 1.5s cooldown)
                   if (_cameraEnabled && _hwStatus.cameraGranted)
                     IgnorePointer(
                       child: Center(
@@ -1567,7 +1570,7 @@ class _TeacherScannerScreenState extends State<TeacherScannerScreen>
                       ),
                     ),
 
-                  // 2.5s Cooldown indicator when Camera is paused (NFC-only mode)
+                  // 1.5s Cooldown indicator when Camera is paused (NFC-only mode)
                   if ((!_cameraEnabled || !_hwStatus.cameraGranted) &&
                       _isCoolingDown)
                     Positioned(
@@ -1786,7 +1789,7 @@ class _TeacherScannerScreenState extends State<TeacherScannerScreen>
                                 padding:
                                     const EdgeInsets.symmetric(horizontal: 24),
                                 child: Text(
-                                  'Point camera at QR pass or tap student NFC card (2.5s anti-burst protection active).',
+                                  'Point camera at QR pass or tap student NFC card (1.5s anti-burst protection active).',
                                   textAlign: TextAlign.center,
                                   style: PortalTheme.sans(
                                     size: 12.5,
@@ -2153,7 +2156,7 @@ class _ScannerPermissionsSetupSheetState
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text(
-                      '2.5-Second Anti-Burst Protection is active on both NFC and QR scans to prevent accidental double reads.',
+                      '1.5-Second Anti-Burst Protection is active on both NFC and QR scans to prevent accidental double reads.',
                       style: PortalTheme.sans(
                         size: 11.5,
                         weight: FontWeight.w600,

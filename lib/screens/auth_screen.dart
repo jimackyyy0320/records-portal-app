@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 
 import '../models/portal_models.dart';
 import '../services/api_service.dart';
+import '../services/session_service.dart';
 import '../theme/portal_theme.dart';
 import '../widgets/common_widgets.dart';
 
@@ -38,6 +39,7 @@ class _AuthScreenState extends State<AuthScreen> {
   bool _obscureRegPass = true;
   bool _obscureForgotPass = true;
   bool _obscureFacPass = true;
+  bool _staySignedIn = true;
 
   // Student Login
   final _loginIdCtrl = TextEditingController();
@@ -57,6 +59,24 @@ class _AuthScreenState extends State<AuthScreen> {
   // Faculty Login
   final _facIdCtrl = TextEditingController();
   final _facPassCtrl = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSavedAuthPrefs();
+  }
+
+  Future<void> _loadSavedAuthPrefs() async {
+    final stay = await SessionService.instance.getStaySignedInPreference();
+    final lastId = await SessionService.instance.getLastStudentId();
+    if (!mounted) return;
+    setState(() {
+      _staySignedIn = stay;
+      if (_loginIdCtrl.text.isEmpty && lastId != null) {
+        _loginIdCtrl.text = lastId;
+      }
+    });
+  }
 
   @override
   void dispose() {
@@ -144,17 +164,21 @@ class _AuthScreenState extends State<AuthScreen> {
             : null,
       );
 
-      widget.onAuthenticated(
-        UserSession(
-          id: id,
-          name: res['studentName']?.toString() ?? id,
-          isFaculty: false,
-          subjects: subjects,
-          schedule: schedule,
-          profile: profile,
-          avatarDataUrl: avatar,
-        ),
+      final studentSession = UserSession(
+        id: id,
+        name: res['studentName']?.toString() ?? id,
+        isFaculty: false,
+        subjects: subjects,
+        schedule: schedule,
+        profile: profile,
+        avatarDataUrl: avatar,
       );
+
+      await SessionService.instance.saveSession(
+        studentSession,
+        staySignedIn: _staySignedIn,
+      );
+      widget.onAuthenticated(studentSession);
     } catch (e) {
       _setFeedback(e.toString());
     } finally {
@@ -289,6 +313,11 @@ class _AuthScreenState extends State<AuthScreen> {
         isFaculty: true,
         subjects: subjects,
         scannerAuthToken: res['scannerAuthToken']?.toString(),
+      );
+
+      await SessionService.instance.saveSession(
+        facSession,
+        staySignedIn: _staySignedIn,
       );
 
       // Pre-warm offline scanner Reference Column C cache upon Faculty login
@@ -594,6 +623,56 @@ class _AuthScreenState extends State<AuthScreen> {
     );
   }
 
+  Widget _buildStaySignedInRow() {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () async {
+          final next = !_staySignedIn;
+          setState(() => _staySignedIn = next);
+          await SessionService.instance.setStaySignedInPreference(next);
+        },
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+          child: Row(
+            children: [
+              SizedBox(
+                width: 24,
+                height: 24,
+                child: Checkbox(
+                  value: _staySignedIn,
+                  activeColor: PortalColors.forest,
+                  checkColor: PortalColors.gold,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  onChanged: (val) async {
+                    final next = val ?? true;
+                    setState(() => _staySignedIn = next);
+                    await SessionService.instance
+                        .setStaySignedInPreference(next);
+                  },
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Stay signed in on this device',
+                  style: PortalTheme.sans(
+                    size: 13,
+                    weight: FontWeight.w600,
+                    color: PortalColors.ink2,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildStudentLogin() {
     return Column(
       children: [
@@ -612,7 +691,8 @@ class _AuthScreenState extends State<AuthScreen> {
           textInputAction: TextInputAction.done,
           onSubmitted: _handleStudentLogin,
         ),
-        const SizedBox(height: 8),
+        _buildStaySignedInRow(),
+        const SizedBox(height: 4),
         _primaryButton(
           label: 'Sign In to Portal',
           icon: Icons.login_rounded,
@@ -848,7 +928,8 @@ class _AuthScreenState extends State<AuthScreen> {
           textInputAction: TextInputAction.done,
           onSubmitted: _handleFacultyLogin,
         ),
-        const SizedBox(height: 8),
+        _buildStaySignedInRow(),
+        const SizedBox(height: 4),
         _primaryButton(
           label: 'Sign In to Faculty LMS',
           background: PortalColors.burg,

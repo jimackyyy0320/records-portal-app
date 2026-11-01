@@ -165,6 +165,65 @@ class _AnnouncementMarqueeBannerState extends State<AnnouncementMarqueeBanner>
   }
 }
 
+/// Official Magtanggol Integrated School circular logo badge.
+class SchoolLogoBadge extends StatelessWidget {
+  final double size;
+  final double borderWidth;
+  final Color borderColor;
+  final bool showShadow;
+
+  const SchoolLogoBadge({
+    super.key,
+    this.size = 72,
+    this.borderWidth = 3,
+    this.borderColor = PortalColors.goldPale,
+    this.showShadow = true,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        shape: BoxShape.circle,
+        border: Border.all(
+          color: borderColor,
+          width: borderWidth,
+        ),
+        boxShadow: showShadow
+            ? const [
+                BoxShadow(
+                  color: Color(0x281A3A2A),
+                  blurRadius: 16,
+                  offset: Offset(0, 6),
+                ),
+              ]
+            : null,
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Padding(
+        padding: EdgeInsets.all(size * 0.025),
+        child: Image.asset(
+          AppConfig.schoolLogoAsset,
+          fit: BoxFit.contain,
+          filterQuality: FilterQuality.high,
+          errorBuilder: (_, __, ___) => Container(
+            color: PortalColors.forest,
+            alignment: Alignment.center,
+            child: Icon(
+              Icons.school_rounded,
+              color: PortalColors.gold,
+              size: size * 0.48,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// Portal Crest + Live Clock Header matching `.portal-header` in `index.html`.
 class PortalHeader extends StatefulWidget {
   final VoidCallback? onOpenSettings;
@@ -259,41 +318,21 @@ class _PortalHeaderState extends State<PortalHeader>
           if (!widget.compact) ...[
             const SizedBox(height: 6),
             SizedBox(
-              width: 86,
-              height: 86,
+              width: 98,
+              height: 98,
               child: Stack(
                 alignment: Alignment.center,
                 children: [
                   RotationTransition(
                     turns: _orbitController,
                     child: CustomPaint(
-                      size: const Size(86, 86),
+                      size: const Size(98, 98),
                       painter: _DashedOrbitPainter(),
                     ),
                   ),
-                  Container(
-                    width: 70,
-                    height: 70,
-                    decoration: BoxDecoration(
-                      color: PortalColors.forest,
-                      shape: BoxShape.circle,
-                      border: Border.all(
-                        color: PortalColors.goldPale,
-                        width: 4,
-                      ),
-                      boxShadow: const [
-                        BoxShadow(
-                          color: Color(0x261A3A2A),
-                          blurRadius: 18,
-                          offset: Offset(0, 6),
-                        ),
-                      ],
-                    ),
-                    child: const Icon(
-                      Icons.layers_outlined,
-                      color: PortalColors.gold,
-                      size: 34,
-                    ),
+                  const SchoolLogoBadge(
+                    size: 80,
+                    borderWidth: 3.5,
                   ),
                 ],
               ),
@@ -302,13 +341,13 @@ class _PortalHeaderState extends State<PortalHeader>
             RichText(
               textAlign: TextAlign.center,
               text: TextSpan(
-                style: PortalTheme.serif(size: 36, weight: FontWeight.w700),
+                style: PortalTheme.serif(size: 33, weight: FontWeight.w700),
                 children: [
-                  const TextSpan(text: 'Records '),
+                  const TextSpan(text: 'MIS-SHS '),
                   TextSpan(
-                    text: 'Portal',
+                    text: 'Learner App',
                     style: PortalTheme.serif(
-                      size: 36,
+                      size: 33,
                       weight: FontWeight.w700,
                       italic: true,
                     ),
@@ -316,12 +355,13 @@ class _PortalHeaderState extends State<PortalHeader>
                 ],
               ),
             ),
-            const SizedBox(height: 2),
+            const SizedBox(height: 3),
             Text(
-              'Academic Performance Tracker',
+              'Magtanggol Integrated School • Science City of Muñoz',
+              textAlign: TextAlign.center,
               style: PortalTheme.sans(
-                size: 13,
-                weight: FontWeight.w500,
+                size: 12.5,
+                weight: FontWeight.w600,
                 color: PortalColors.ink3,
               ),
             ),
@@ -1371,43 +1411,32 @@ class _PortalLoadingViewState extends State<PortalLoadingView>
           mainAxisSize: MainAxisSize.min,
           children: [
             SizedBox(
-              width: 76,
-              height: 76,
+              width: 84,
+              height: 84,
               child: Stack(
                 alignment: Alignment.center,
                 children: [
                   RotationTransition(
                     turns: _orbitCtrl,
                     child: CustomPaint(
-                      size: const Size(76, 76),
+                      size: const Size(84, 84),
                       painter: _DashedOrbitPainter(),
                     ),
                   ),
-                  Container(
-                    width: 56,
-                    height: 56,
-                    decoration: BoxDecoration(
-                      color: PortalColors.forest,
-                      shape: BoxShape.circle,
-                      border: Border.all(
-                        color: PortalColors.goldPale,
-                        width: 3,
-                      ),
-                    ),
-                    child: const Icon(
-                      Icons.layers_outlined,
-                      color: PortalColors.gold,
-                      size: 28,
-                    ),
+                  const SchoolLogoBadge(
+                    size: 66,
+                    borderWidth: 3,
+                    showShadow: false,
                   ),
                 ],
               ),
             ),
-            const SizedBox(height: 18),
+            const SizedBox(height: 16),
             Text(
-              'Records Portal',
+              AppConfig.appName,
+              textAlign: TextAlign.center,
               style: PortalTheme.serif(
-                size: 24,
+                size: 22,
                 italic: true,
                 color: fgPrimary,
               ),

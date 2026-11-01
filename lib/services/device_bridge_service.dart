@@ -235,4 +235,44 @@ class DeviceBridgeService {
       tempShareFile: tempFile,
     );
   }
+
+  Future<SavedTextFileResult> saveBytesToDownloads({
+    required String fileName,
+    required Uint8List bytes,
+    String mimeType = 'image/png',
+  }) async {
+    final safeName =
+        fileName.replaceAll(RegExp(r'[^A-Za-z0-9._ -]'), '_').trim();
+    final normalizedName = safeName.isEmpty ? 'MIS_QR_Pass.png' : safeName;
+
+    final tempDir = await getTemporaryDirectory();
+    final tempFile = File('${tempDir.path}/$normalizedName');
+    await tempFile.writeAsBytes(bytes, flush: true);
+
+    if (isAndroidNativeSupported) {
+      try {
+        final res = await _channel.invokeMapMethod<dynamic, dynamic>(
+          'saveBytesToDownloads',
+          {
+            'fileName': normalizedName,
+            'mimeType': mimeType,
+            'bytes': bytes,
+          },
+        );
+        final displayPath =
+            res?['displayPath']?.toString() ?? 'Downloads/$normalizedName';
+        return SavedTextFileResult(
+          fileName: normalizedName,
+          displayPath: displayPath,
+          tempShareFile: tempFile,
+        );
+      } catch (_) {}
+    }
+
+    return SavedTextFileResult(
+      fileName: normalizedName,
+      displayPath: tempFile.path,
+      tempShareFile: tempFile,
+    );
+  }
 }

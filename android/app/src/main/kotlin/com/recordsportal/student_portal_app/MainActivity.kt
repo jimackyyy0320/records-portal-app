@@ -127,6 +127,21 @@ class MainActivity : FlutterActivity() {
                         result.error("SAVE_FAILED", e.message ?: "Unable to save text file", null)
                     }
                 }
+                "saveBytesToDownloads" -> {
+                    val fileName = call.argument<String>("fileName") ?: "MIS_QR_Pass.png"
+                    val mimeType = call.argument<String>("mimeType") ?: "image/png"
+                    val bytes = call.argument<ByteArray>("bytes")
+                    if (bytes == null || bytes.isEmpty()) {
+                        result.error("INVALID_ARGS", "File bytes cannot be empty", null)
+                    } else {
+                        try {
+                            val savedInfo = saveBinaryFileToDownloads(fileName, mimeType, bytes)
+                            result.success(savedInfo)
+                        } catch (e: Throwable) {
+                            result.error("SAVE_FAILED", e.message ?: "Unable to save file", null)
+                        }
+                    }
+                }
                 else -> result.notImplemented()
             }
         }
@@ -355,12 +370,27 @@ class MainActivity : FlutterActivity() {
             .let { if (it.isBlank()) "Reviewer_Outline.txt" else it }
             .let { if (it.lowercase().endsWith(".txt")) it else "$it.txt" }
 
-        val bytes = content.toByteArray(Charsets.UTF_8)
+        return saveBinaryFileToDownloads(
+            cleaned,
+            "text/plain; charset=utf-8",
+            content.toByteArray(Charsets.UTF_8)
+        )
+    }
+
+    private fun saveBinaryFileToDownloads(
+        rawFileName: String,
+        mimeType: String,
+        bytes: ByteArray
+    ): Map<String, Any> {
+        val cleaned = rawFileName
+            .replace(Regex("[^A-Za-z0-9._ -]"), "_")
+            .trim()
+            .let { if (it.isBlank()) "MIS_SHS_File" else it }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val values = ContentValues().apply {
                 put(MediaStore.Downloads.DISPLAY_NAME, cleaned)
-                put(MediaStore.Downloads.MIME_TYPE, "text/plain; charset=utf-8")
+                put(MediaStore.Downloads.MIME_TYPE, mimeType)
                 put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
                 put(MediaStore.Downloads.IS_PENDING, 1)
             }

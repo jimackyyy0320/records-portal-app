@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'config/app_config.dart';
 import 'models/portal_models.dart';
 import 'screens/auth_screen.dart';
 import 'screens/faculty_dashboard_screen.dart';
@@ -18,16 +19,16 @@ Future<void> main() async {
   await LocalDatabase.instance.database;
   await SyncManager.instance.initialize();
 
-  runApp(const RecordsPortalApp());
+  runApp(const MisShsLearnerApp());
 }
 
-class RecordsPortalApp extends StatelessWidget {
-  const RecordsPortalApp({super.key});
+class MisShsLearnerApp extends StatelessWidget {
+  const MisShsLearnerApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Records Portal',
+      title: AppConfig.appName,
       debugShowCheckedModeBanner: false,
       theme: PortalTheme.buildTheme(),
       home: const PortalRootShell(),
@@ -57,10 +58,38 @@ class _PortalRootShellState extends State<PortalRootShell> {
   Future<void> _bootstrapPortal() async {
     setState(() => _booting = true);
 
-    // 1. Restore saved Student or Faculty session immediately (works 100% offline)
+    // 1. Restore saved Student or Faculty session immediately when "Stay Signed In" is active
     final savedSession = await SessionService.instance.restoreSession();
 
-    // 2. Fetch portal status & announcements (falls back to SQLite cache when offline)
+    if (savedSession != null) {
+      // Load cached announcements instantly so returning learners enter their dashboard
+      // without waiting on slow mobile data, then refresh system status in the background.
+      final cachedRaw = await LocalDatabase.instance.getCache('system_status');
+      final initialStatus = cachedRaw != null
+          ? SystemStatus.fromJson(cachedRaw)
+          : const SystemStatus(
+              status: 'OPEN',
+              releasedSubjects: [],
+              announcements: [],
+            );
+
+      if (!mounted) return;
+      setState(() {
+        _session = savedSession;
+        _systemStatus = initialStatus;
+        _booting = false;
+      });
+
+      // Background refresh of portal status & announcements
+      ApiService.instance.getSystemStatus().then((freshStatus) {
+        if (mounted) {
+          setState(() => _systemStatus = freshStatus);
+        }
+      }).catchError((_) {});
+      return;
+    }
+
+    // 2. Unauthenticated launch: fetch portal status & announcements (falls back to SQLite cache)
     SystemStatus? sysStatus;
     try {
       sysStatus = await ApiService.instance.getSystemStatus();
@@ -74,7 +103,7 @@ class _PortalRootShellState extends State<PortalRootShell> {
 
     if (!mounted) return;
     setState(() {
-      _session = savedSession;
+      _session = null;
       _systemStatus = sysStatus;
       _booting = false;
     });
@@ -109,7 +138,7 @@ class _PortalRootShellState extends State<PortalRootShell> {
         key: ValueKey('portal_boot'),
         backgroundColor: PortalColors.forestDark,
         body: PortalLoadingView(
-          message: 'Connecting to Records Portal...',
+          message: 'Opening MIS-SHS Learner App...',
           subtitle: 'Syncing academic workspace & announcements',
         ),
       );

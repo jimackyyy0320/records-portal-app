@@ -252,7 +252,7 @@ class ReviewerOutlineExtractor {
 
     final out = StringBuffer();
     out.writeln('============================================================');
-    out.writeln('RECORDS PORTAL — STUDY REVIEWER OUTLINE');
+    out.writeln('MIS-SHS LEARNER APP — STUDY REVIEWER OUTLINE');
     if (subjectName != null && subjectName.trim().isNotEmpty) {
       out.writeln('Subject  : ${subjectName.trim()}');
     }
