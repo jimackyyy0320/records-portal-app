@@ -1057,13 +1057,13 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
                                 foregroundColor: PortalColors.forest,
                                 visualDensity: VisualDensity.compact,
                               ),
-                              onPressed: _downloadStudentQr,
+                              onPressed: _openStudentQrGenerator,
                               icon: const Icon(
                                 Icons.qr_code_2_rounded,
                                 size: 16,
                               ),
                               label: Text(
-                                'DOWNLOAD QR',
+                                'MY QR PASS',
                                 style: PortalTheme.sans(
                                   size: 11,
                                   weight: FontWeight.w800,
