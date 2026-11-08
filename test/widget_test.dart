@@ -10,6 +10,10 @@ import 'package:student_portal_app/screens/teacher_scanner_screen.dart';
 import 'package:student_portal_app/services/session_service.dart';
 import 'package:student_portal_app/utils/reviewer_outline_extractor.dart';
 import 'package:student_portal_app/widgets/student_qr_generator.dart';
+import 'package:student_portal_app/school_lobby/lobby_data_service.dart';
+import 'package:student_portal_app/school_lobby/school_lobby_avatar.dart';
+import 'package:student_portal_app/school_lobby/school_lobby_config.dart';
+import 'package:student_portal_app/school_lobby/school_lobby_engine.dart';
 
 void main() {
   setUpAll(() {
@@ -217,6 +221,93 @@ void main() {
       expect(find.byType(QrImageView), findsOneWidget);
       expect(find.text('STUDENT ID: 2024-00142'), findsOneWidget);
       expect(find.text('Maria Clara'), findsOneWidget);
+    },
+  );
+
+  test(
+    'School Lobby Phase 1 & 2: Avatar looks, A* NavGrid, Quest Counter badges, Subject Chests & Small Mystery Chests',
+    () async {
+      // 1. Avatar Look String serialization & frame index
+      const customLook = LobbyAvatarLook(
+        isPreset: false,
+        body: '3',
+        eyes: '2',
+        outfit: '10-2',
+        hair: '17-4',
+        glasses: '15-1',
+        hat: 'none',
+        bag: '3-6',
+      );
+      final encoded = customLook.toLookString();
+      expect(encoded, 'body.3/eyes.2/outfit.10-2/hair.17-4/glasses.15-1/bag.3-6');
+      final parsed = LobbyAvatarLook.fromLookString(encoded);
+      expect(parsed.isPreset, isFalse);
+      expect(parsed.outfit, '10-2');
+      expect(parsed.glasses, '15-1');
+      expect(
+        computeCharacterFrameIndex(
+          facing: AvatarFacing.down,
+          isWalking: true,
+          stepFrame: 0,
+        ),
+        42,
+      );
+
+      // 2. LobbyDataService initialization & seed data
+      final service = LobbyDataService.instance;
+      await service.init('2024-00142');
+      expect(service.isInitialized, isTrue);
+      expect(service.subjectNames, containsAll(['UCSP', 'PPG', 'PHILO', 'KASAYSAYAN']));
+      expect(service.allReviewerQuestions.length, greaterThanOrEqualTo(8));
+
+      // 3. Teacher posts an activity -> Student launches & marks as done -> Badge & XP unlocked
+      final posted = await service.postActivity(
+        title: 'Unit 3 Constitutional Rights Analysis',
+        subject: 'PPG',
+        activityUrl: 'https://example.com/ppg-unit3',
+        xpReward: 150,
+        badgeName: 'Quiz Conqueror',
+        badgeIcon: '👑',
+        postedBy: 'Sir Jim Mark',
+      );
+      await service.markActivityLaunched(posted.id);
+      expect(service.progress.launchedActivityIds.contains(posted.id), isTrue);
+
+      final earnedBadge = await service.completeActivity(posted);
+      expect(earnedBadge, isNotNull);
+      expect(earnedBadge!.badgeName, 'Quiz Conqueror');
+      expect(service.progress.xp, 150);
+      expect(service.progress.equippedBadge?.badgeIcon, '👑');
+
+      // 4. Small Mystery Chest Pop-Quiz: +20 XP, 2-minute cooldown, and 5-question Treasure Hunter badge
+      final q = service.drawRandomMysteryQuestion();
+      expect(q, isNotNull);
+      for (var i = 1; i <= 5; i++) {
+        final chestId = 'small_chest_${((i - 1) % 4) + 1}';
+        final badge = await service.recordSmallChestSuccess(
+          smallChestId: chestId,
+          question: q!,
+        );
+        expect(service.isSmallChestOnCooldown(chestId), isTrue);
+        if (i == 5) {
+          expect(badge, isNotNull);
+          expect(badge!.badgeName, 'Treasure Hunter');
+          expect(badge.badgeIcon, '🏆');
+        }
+      }
+
+      // 5. Interactive zones & A* pathfinding
+      final zones = buildActiveInteractiveZones(service.subjectChests);
+      expect(zones.any((z) => z.id == 'quest_counter'), isTrue);
+      expect(zones.any((z) => z.id == 'small_chest_1'), isTrue);
+
+      final nav = LobbyNavGrid(
+        cols: kLobbyCols,
+        rows: kLobbyRows,
+        solids: buildLobbySolids(service.subjectChests),
+      );
+      final path = nav.findPath(kPlayerSpawnPoint, const Offset(416, 162));
+      expect(path, isNotEmpty);
     },
   );
 }

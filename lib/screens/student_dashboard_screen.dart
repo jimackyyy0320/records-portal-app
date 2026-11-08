@@ -16,6 +16,7 @@ import '../theme/portal_theme.dart';
 import '../utils/reviewer_outline_extractor.dart';
 import '../widgets/common_widgets.dart';
 import '../widgets/student_qr_generator.dart';
+import '../school_lobby/school_lobby_screen.dart';
 import 'profile_modal.dart';
 
 /// Full Student Dashboard + Faculty Read-Only Student Drill-Down View
@@ -369,6 +370,14 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
     );
   }
 
+  void _openSchoolLobby() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => SchoolLobbyScreen(session: widget.session),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final isInSubjectWorkspace =
@@ -570,6 +579,16 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
             ),
           ],
           IconButton(
+            tooltip: 'Enter School Lobby',
+            visualDensity: VisualDensity.compact,
+            onPressed: _openSchoolLobby,
+            icon: const Icon(
+              Icons.sports_esports_rounded,
+              size: 21,
+              color: PortalColors.forest,
+            ),
+          ),
+          IconButton(
             tooltip: 'My QR Pass',
             visualDensity: VisualDensity.compact,
             onPressed: _openStudentQrGenerator,
@@ -715,6 +734,23 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
                           ),
                         ),
                       ],
+                    ),
+                    const SizedBox(height: 10),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF10B981),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                        ),
+                        onPressed: _openSchoolLobby,
+                        icon: const Icon(Icons.sports_esports_rounded, size: 19),
+                        label: const Text('🎮 Enter School Lobby (Quests & Reviewer Chests)'),
+                      ),
                     ),
                   ],
                 ),

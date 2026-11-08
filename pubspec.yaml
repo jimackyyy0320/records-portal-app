@@ -37,3 +37,12 @@ flutter:
   uses-material-design: true
   assets:
     - assets/images/mis_logo.png
+    - assets/school_lobby/catalog/
+    - assets/school_lobby/characters/presets/
+    - assets/school_lobby/characters/parts/body/
+    - assets/school_lobby/characters/parts/eyes/
+    - assets/school_lobby/characters/parts/outfit/
+    - assets/school_lobby/characters/parts/hair/
+    - assets/school_lobby/characters/parts/glasses/
+    - assets/school_lobby/characters/parts/hat/
+    - assets/school_lobby/characters/parts/bag/

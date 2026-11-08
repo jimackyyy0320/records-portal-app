@@ -1,0 +1,1196 @@
+{
+ "image": "catalog/floor-items.png?v=66d2b3e52b3d",
+ "sheet": "catalog/floor-sheet.png?v=2e4cb0611c59",
+ "width": 1024,
+ "height": 888,
+ "frames": {
+  "armchair": [
+   50,
+   572,
+   32,
+   64
+  ],
+  "art-abstract": [
+   380,
+   688,
+   32,
+   48
+  ],
+  "art-cork": [
+   414,
+   688,
+   32,
+   48
+  ],
+  "art-faces": [
+   0,
+   506,
+   64,
+   64
+  ],
+  "back-monitor": [
+   780,
+   788,
+   32,
+   32
+  ],
+  "back-monitor-light": [
+   814,
+   788,
+   32,
+   32
+  ],
+  "back-monitors": [
+   418,
+   788,
+   96,
+   32
+  ],
+  "bench-pale": [
+   934,
+   572,
+   64,
+   48
+  ],
+  "board-blank": [
+   66,
+   506,
+   64,
+   64
+  ],
+  "board-chart": [
+   132,
+   506,
+   64,
+   64
+  ],
+  "board-pie": [
+   198,
+   506,
+   64,
+   64
+  ],
+  "board-pins": [
+   0,
+   638,
+   64,
+   48
+  ],
+  "bookshelf": [
+   264,
+   506,
+   64,
+   64
+  ],
+  "bush": [
+   66,
+   638,
+   64,
+   48
+  ],
+  "certificate": [
+   448,
+   688,
+   32,
+   48
+  ],
+  "chair-black": [
+   84,
+   572,
+   32,
+   64
+  ],
+  "chair-black-back": [
+   482,
+   688,
+   32,
+   48
+  ],
+  "chair-black-mesh": [
+   118,
+   572,
+   32,
+   64
+  ],
+  "chair-black-mesh-back": [
+   516,
+   688,
+   32,
+   48
+  ],
+  "chair-tan": [
+   152,
+   572,
+   32,
+   64
+  ],
+  "chair-tan-back": [
+   550,
+   688,
+   32,
+   48
+  ],
+  "chair-tan-mesh": [
+   186,
+   572,
+   32,
+   64
+  ],
+  "chair-tan-mesh-back": [
+   584,
+   688,
+   32,
+   48
+  ],
+  "coffee-table": [
+   132,
+   638,
+   64,
+   48
+  ],
+  "copier": [
+   198,
+   638,
+   64,
+   48
+  ],
+  "desk-phone-a": [
+   848,
+   788,
+   32,
+   32
+  ],
+  "desk-phone-b": [
+   882,
+   788,
+   32,
+   32
+  ],
+  "desk-plant": [
+   220,
+   572,
+   32,
+   64
+  ],
+  "desks-back-maple-2": [
+   0,
+   788,
+   416,
+   32
+  ],
+  "desks-front-maple-2": [
+   98,
+   0,
+   416,
+   96
+  ],
+  "desks-single-beech-1-n4": [
+   0,
+   130,
+   160,
+   96
+  ],
+  "desks-single-graphite-1-n4": [
+   162,
+   130,
+   160,
+   96
+  ],
+  "desks-single-maple-1-n4": [
+   324,
+   130,
+   160,
+   96
+  ],
+  "desks-single-oak-1-n4": [
+   486,
+   130,
+   160,
+   96
+  ],
+  "desks-single-walnut-1-n4": [
+   648,
+   130,
+   160,
+   96
+  ],
+  "desks-single-white-1-n4": [
+   810,
+   130,
+   160,
+   96
+  ],
+  "egg-chair-coral": [
+   618,
+   688,
+   32,
+   48
+  ],
+  "egg-chair-coral-back": [
+   652,
+   688,
+   32,
+   48
+  ],
+  "egg-chair-lilac": [
+   686,
+   688,
+   32,
+   48
+  ],
+  "egg-chair-lilac-back": [
+   720,
+   688,
+   32,
+   48
+  ],
+  "egg-chair-mustard": [
+   754,
+   688,
+   32,
+   48
+  ],
+  "egg-chair-mustard-back": [
+   788,
+   688,
+   32,
+   48
+  ],
+  "egg-chair-teal": [
+   822,
+   688,
+   32,
+   48
+  ],
+  "egg-chair-teal-back": [
+   856,
+   688,
+   32,
+   48
+  ],
+  "flowers": [
+   916,
+   788,
+   32,
+   32
+  ],
+  "flowers-pink": [
+   950,
+   788,
+   32,
+   32
+  ],
+  "grass": [
+   984,
+   788,
+   32,
+   32
+  ],
+  "keyboard": [
+   188,
+   856,
+   32,
+   16
+  ],
+  "keyboard-dark": [
+   0,
+   822,
+   32,
+   32
+  ],
+  "lamp-black-left": [
+   254,
+   572,
+   32,
+   64
+  ],
+  "lamp-black-right": [
+   288,
+   572,
+   32,
+   64
+  ],
+  "lamp-blue": [
+   66,
+   424,
+   32,
+   80
+  ],
+  "lamp-grey-left": [
+   322,
+   572,
+   32,
+   64
+  ],
+  "lamp-red": [
+   100,
+   424,
+   32,
+   80
+  ],
+  "lamp-white-left": [
+   356,
+   572,
+   32,
+   64
+  ],
+  "lamp-white-right": [
+   390,
+   572,
+   32,
+   64
+  ],
+  "laptop-dark": [
+   890,
+   688,
+   32,
+   48
+  ],
+  "laptop-left": [
+   424,
+   572,
+   32,
+   64
+  ],
+  "laptop-open": [
+   924,
+   688,
+   32,
+   48
+  ],
+  "laptop-right": [
+   458,
+   572,
+   32,
+   64
+  ],
+  "meeting-table": [
+   516,
+   0,
+   224,
+   96
+  ],
+  "meeting-table-small": [
+   0,
+   228,
+   160,
+   96
+  ],
+  "microphone": [
+   170,
+   856,
+   16,
+   32
+  ],
+  "mini-fridge": [
+   330,
+   688,
+   48,
+   48
+  ],
+  "monitor-back-dark": [
+   34,
+   822,
+   32,
+   32
+  ],
+  "monitor-back-small": [
+   958,
+   688,
+   32,
+   48
+  ],
+  "monitor-back-small-white": [
+   992,
+   688,
+   32,
+   48
+  ],
+  "monitor-back-white": [
+   68,
+   822,
+   32,
+   32
+  ],
+  "monitor-blue": [
+   102,
+   822,
+   32,
+   32
+  ],
+  "monitor-blue-left": [
+   136,
+   822,
+   32,
+   32
+  ],
+  "monitor-blue-right": [
+   170,
+   822,
+   32,
+   32
+  ],
+  "monitor-wide": [
+   204,
+   822,
+   32,
+   32
+  ],
+  "monitors-dual": [
+   238,
+   822,
+   32,
+   32
+  ],
+  "monitors-dual-angled": [
+   272,
+   822,
+   32,
+   32
+  ],
+  "monitors-dual-dark": [
+   306,
+   822,
+   32,
+   32
+  ],
+  "notice-board": [
+   264,
+   638,
+   64,
+   48
+  ],
+  "ours-books": [
+   340,
+   822,
+   32,
+   32
+  ],
+  "ours-bottle": [
+   374,
+   822,
+   32,
+   32
+  ],
+  "ours-bush-clay": [
+   492,
+   572,
+   32,
+   64
+  ],
+  "ours-bush-desk-clay": [
+   0,
+   738,
+   32,
+   48
+  ],
+  "ours-bush-desk-lilac": [
+   34,
+   738,
+   32,
+   48
+  ],
+  "ours-bush-desk-white": [
+   68,
+   738,
+   32,
+   48
+  ],
+  "ours-bush-lilac": [
+   526,
+   572,
+   32,
+   64
+  ],
+  "ours-bush-sage": [
+   560,
+   572,
+   32,
+   64
+  ],
+  "ours-bush-slate": [
+   594,
+   572,
+   32,
+   64
+  ],
+  "ours-bush-small-clay": [
+   102,
+   738,
+   32,
+   48
+  ],
+  "ours-bush-small-white": [
+   136,
+   738,
+   32,
+   48
+  ],
+  "ours-bush-white": [
+   628,
+   572,
+   32,
+   64
+  ],
+  "ours-clock": [
+   408,
+   822,
+   32,
+   32
+  ],
+  "ours-frame-shapes": [
+   442,
+   822,
+   32,
+   32
+  ],
+  "ours-frame-sunset": [
+   476,
+   822,
+   32,
+   32
+  ],
+  "ours-globe": [
+   510,
+   822,
+   32,
+   32
+  ],
+  "ours-headphones": [
+   544,
+   822,
+   32,
+   32
+  ],
+  "ours-lamp-coral": [
+   170,
+   738,
+   32,
+   48
+  ],
+  "ours-lamp-mustard": [
+   204,
+   738,
+   32,
+   48
+  ],
+  "ours-lamp-teal": [
+   238,
+   738,
+   32,
+   48
+  ],
+  "ours-lamp-white": [
+   272,
+   738,
+   32,
+   48
+  ],
+  "ours-laptop-ash": [
+   330,
+   638,
+   64,
+   48
+  ],
+  "ours-laptop-silver": [
+   396,
+   638,
+   64,
+   48
+  ],
+  "ours-monitor-back": [
+   462,
+   638,
+   64,
+   48
+  ],
+  "ours-mug-coral": [
+   578,
+   822,
+   32,
+   32
+  ],
+  "ours-mug-mustard": [
+   612,
+   822,
+   32,
+   32
+  ],
+  "ours-mug-teal": [
+   646,
+   822,
+   32,
+   32
+  ],
+  "ours-notebook": [
+   680,
+   822,
+   32,
+   32
+  ],
+  "ours-pen-cup": [
+   714,
+   822,
+   32,
+   32
+  ],
+  "ours-radio": [
+   748,
+   822,
+   32,
+   32
+  ],
+  "ours-rug-lagoon": [
+   162,
+   228,
+   128,
+   96
+  ],
+  "ours-rug-plum": [
+   292,
+   228,
+   128,
+   96
+  ],
+  "ours-rug-small-lagoon": [
+   528,
+   638,
+   64,
+   48
+  ],
+  "ours-rug-small-plum": [
+   594,
+   638,
+   64,
+   48
+  ],
+  "ours-rug-small-sunset": [
+   660,
+   638,
+   64,
+   48
+  ],
+  "ours-rug-sunset": [
+   422,
+   228,
+   128,
+   96
+  ],
+  "ours-screen-ash": [
+   726,
+   638,
+   64,
+   48
+  ],
+  "ours-screen-pale": [
+   792,
+   638,
+   64,
+   48
+  ],
+  "ours-screen-silver": [
+   858,
+   638,
+   64,
+   48
+  ],
+  "ours-screen-teal": [
+   924,
+   638,
+   64,
+   48
+  ],
+  "ours-screens-pair": [
+   0,
+   688,
+   64,
+   48
+  ],
+  "ours-speaker": [
+   782,
+   822,
+   32,
+   32
+  ],
+  "painting-fields": [
+   306,
+   738,
+   32,
+   48
+  ],
+  "painting-flowers": [
+   340,
+   738,
+   32,
+   48
+  ],
+  "painting-map": [
+   374,
+   738,
+   32,
+   48
+  ],
+  "painting-sunset": [
+   408,
+   738,
+   32,
+   48
+  ],
+  "paper": [
+   816,
+   822,
+   32,
+   32
+  ],
+  "paper-stack": [
+   442,
+   738,
+   32,
+   48
+  ],
+  "papers": [
+   850,
+   822,
+   32,
+   32
+  ],
+  "partition": [
+   742,
+   0,
+   208,
+   96
+  ],
+  "phone-dark": [
+   884,
+   822,
+   32,
+   32
+  ],
+  "phone-desk": [
+   918,
+   822,
+   32,
+   32
+  ],
+  "phone-grey": [
+   476,
+   738,
+   32,
+   48
+  ],
+  "photo-frame-a": [
+   952,
+   822,
+   32,
+   32
+  ],
+  "photo-frame-b": [
+   986,
+   822,
+   32,
+   32
+  ],
+  "photo-frame-c": [
+   0,
+   856,
+   32,
+   32
+  ],
+  "photo-frame-d": [
+   34,
+   856,
+   32,
+   32
+  ],
+  "picture-forest": [
+   516,
+   788,
+   64,
+   32
+  ],
+  "picture-hills": [
+   582,
+   788,
+   64,
+   32
+  ],
+  "picture-small-a": [
+   68,
+   856,
+   32,
+   32
+  ],
+  "picture-small-b": [
+   102,
+   856,
+   32,
+   32
+  ],
+  "picture-small-c": [
+   510,
+   738,
+   32,
+   48
+  ],
+  "plant-small": [
+   544,
+   738,
+   32,
+   48
+  ],
+  "plant-snake": [
+   662,
+   572,
+   32,
+   64
+  ],
+  "plant-tall": [
+   696,
+   572,
+   32,
+   64
+  ],
+  "printer": [
+   578,
+   738,
+   32,
+   48
+  ],
+  "printer-small": [
+   730,
+   572,
+   32,
+   64
+  ],
+  "printer-white": [
+   764,
+   572,
+   32,
+   64
+  ],
+  "rocks": [
+   648,
+   788,
+   64,
+   32
+  ],
+  "rocks-small": [
+   136,
+   856,
+   32,
+   32
+  ],
+  "rug-blue": [
+   552,
+   228,
+   128,
+   96
+  ],
+  "rug-grey": [
+   134,
+   424,
+   96,
+   64
+  ],
+  "rug-red": [
+   682,
+   228,
+   128,
+   96
+  ],
+  "rug-small-blue": [
+   66,
+   688,
+   64,
+   48
+  ],
+  "rug-small-green": [
+   132,
+   688,
+   64,
+   48
+  ],
+  "rug-small-red": [
+   198,
+   688,
+   64,
+   48
+  ],
+  "server": [
+   294,
+   326,
+   64,
+   96
+  ],
+  "setup-laptop": [
+   232,
+   424,
+   96,
+   64
+  ],
+  "setup-laptop-b": [
+   330,
+   424,
+   96,
+   64
+  ],
+  "setup-monitors": [
+   428,
+   424,
+   96,
+   64
+  ],
+  "setup-monitors-b": [
+   526,
+   424,
+   96,
+   64
+  ],
+  "setup-printer": [
+   624,
+   424,
+   96,
+   64
+  ],
+  "setup-printer-b": [
+   722,
+   424,
+   96,
+   64
+  ],
+  "shelving": [
+   330,
+   506,
+   64,
+   64
+  ],
+  "side-table": [
+   0,
+   572,
+   48,
+   64
+  ],
+  "sofa-corner": [
+   0,
+   326,
+   96,
+   96
+  ],
+  "sofa-corner-b": [
+   98,
+   326,
+   96,
+   96
+  ],
+  "sofa-three": [
+   396,
+   506,
+   64,
+   64
+  ],
+  "sofa-two": [
+   462,
+   506,
+   64,
+   64
+  ],
+  "stool": [
+   612,
+   738,
+   32,
+   48
+  ],
+  "tower-dark": [
+   646,
+   738,
+   32,
+   48
+  ],
+  "tower-light": [
+   680,
+   738,
+   32,
+   48
+  ],
+  "tree": [
+   0,
+   0,
+   96,
+   128
+  ],
+  "tree-small": [
+   360,
+   326,
+   64,
+   96
+  ],
+  "vending-drinks": [
+   924,
+   326,
+   64,
+   80
+  ],
+  "vending-snacks": [
+   0,
+   424,
+   64,
+   80
+  ],
+  "wall-art": [
+   798,
+   572,
+   32,
+   64
+  ],
+  "wall-bookcase": [
+   426,
+   326,
+   64,
+   96
+  ],
+  "wall-bookcase-pale": [
+   492,
+   326,
+   64,
+   96
+  ],
+  "wall-bookcase-red": [
+   558,
+   326,
+   64,
+   96
+  ],
+  "wall-cabinet": [
+   624,
+   326,
+   64,
+   96
+  ],
+  "wall-cert": [
+   832,
+   572,
+   32,
+   64
+  ],
+  "wall-charts": [
+   528,
+   506,
+   64,
+   64
+  ],
+  "wall-coffee-table": [
+   690,
+   326,
+   64,
+   96
+  ],
+  "wall-cooler": [
+   822,
+   326,
+   32,
+   96
+  ],
+  "wall-notice": [
+   594,
+   506,
+   64,
+   64
+  ],
+  "wall-painting": [
+   660,
+   506,
+   64,
+   64
+  ],
+  "wall-plant": [
+   856,
+   326,
+   32,
+   96
+  ],
+  "wall-plant2": [
+   890,
+   326,
+   32,
+   96
+  ],
+  "wall-poster": [
+   726,
+   506,
+   64,
+   64
+  ],
+  "wall-shelf": [
+   756,
+   326,
+   64,
+   96
+  ],
+  "wall-shelf-cooler": [
+   196,
+   326,
+   96,
+   96
+  ],
+  "wall-trophy": [
+   866,
+   572,
+   32,
+   64
+  ],
+  "wall-vending": [
+   812,
+   228,
+   128,
+   96
+  ],
+  "water-cooler": [
+   900,
+   572,
+   32,
+   64
+  ],
+  "window": [
+   792,
+   506,
+   64,
+   64
+  ],
+  "window-blinds-2": [
+   858,
+   506,
+   64,
+   64
+  ],
+  "window-blinds-3": [
+   820,
+   424,
+   96,
+   64
+  ],
+  "window-office-2": [
+   924,
+   506,
+   64,
+   64
+  ],
+  "window-office-3": [
+   918,
+   424,
+   96,
+   64
+  ],
+  "window-wide": [
+   714,
+   788,
+   64,
+   32
+  ],
+  "world-map": [
+   264,
+   688,
+   64,
+   48
+  ]
+ }
+}

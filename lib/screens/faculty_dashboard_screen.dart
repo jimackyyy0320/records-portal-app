@@ -7,6 +7,7 @@ import '../services/api_service.dart';
 import '../services/sync_manager.dart';
 import '../theme/portal_theme.dart';
 import '../widgets/common_widgets.dart';
+import '../school_lobby/school_lobby_screen.dart';
 import 'student_dashboard_screen.dart';
 import 'teacher_scanner_screen.dart';
 
@@ -71,6 +72,14 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> {
     showDialog<bool>(
       context: context,
       builder: (_) => const BackendConfigDialog(),
+    );
+  }
+
+  void _openSchoolLobby() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => SchoolLobbyScreen(session: widget.session),
+      ),
     );
   }
 
@@ -416,6 +425,16 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> {
             ),
           ),
           const SizedBox(width: 4),
+          IconButton(
+            tooltip: 'Enter School Lobby (Teacher Mode)',
+            visualDensity: VisualDensity.compact,
+            onPressed: _openSchoolLobby,
+            icon: const Icon(
+              Icons.sports_esports_rounded,
+              size: 20,
+              color: PortalColors.gold,
+            ),
+          ),
           // Faculty-Only Apps Script Endpoint configuration button
           IconButton(
             tooltip: 'Apps Script Endpoint (Faculty Admin)',
@@ -530,6 +549,35 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> {
                       weight: FontWeight.w800,
                       letterSpacing: 0.6,
                       color: PortalColors.forest,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.white,
+                    side: const BorderSide(color: PortalColors.gold, width: 1.4),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                  onPressed: _openSchoolLobby,
+                  icon: const Icon(
+                    Icons.sports_esports_rounded,
+                    size: 19,
+                    color: PortalColors.gold,
+                  ),
+                  label: Text(
+                    '🎮 ENTER SCHOOL LOBBY (POST QUESTS & REVIEWER CHESTS)',
+                    style: PortalTheme.sans(
+                      size: 11.5,
+                      weight: FontWeight.w800,
+                      letterSpacing: 0.5,
+                      color: Colors.white,
                     ),
                   ),
                 ),
