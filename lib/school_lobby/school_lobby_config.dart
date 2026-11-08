@@ -1,17 +1,17 @@
 import 'dart:ui';
 import 'lobby_data_service.dart';
 
-/// Core tile & world constants recycled from TinyFloor (`shell.ts` / `MovementManager.ts`).
+/// Core tile & expanded world constants (`48 x 34` tiles = `1536 x 1088` world pixels — ~4x larger!).
 const double kTileSize = 32.0;
-const int kLobbyCols = 26;
-const int kLobbyRows = 18;
-const double kLobbyWorldWidth = kLobbyCols * kTileSize; // 832 px
-const double kLobbyWorldHeight = kLobbyRows * kTileSize; // 576 px
+const int kLobbyCols = 48;
+const int kLobbyRows = 34;
+const double kLobbyWorldWidth = kLobbyCols * kTileSize; // 1536 px
+const double kLobbyWorldHeight = kLobbyRows * kTileSize; // 1088 px
 const double kPlayerHalfWidth = 10.0;
-const double kPlayerMoveSpeed = 195.0; // pixels per second
+const double kPlayerMoveSpeed = 235.0; // pixels per second across expanded campus
 
-/// Spawn point in the center Student Lounge & Study Tables open floor.
-const Offset kPlayerSpawnPoint = Offset(416.0, 308.0);
+/// Spawn point in the center Student Lounge & Study Commons open courtyard.
+const Offset kPlayerSpawnPoint = Offset(768.0, 544.0);
 
 /// Zone types for wiring interactive modals in the School Lobby.
 enum InteractiveZoneKind {
@@ -52,92 +52,130 @@ class InteractiveZone {
 }
 
 /// Base `INTERACTIVE_ZONES` configuration array for the 5 core School Lobby zones
-/// plus the 4 Small Mystery Chests.
+/// plus 8 Small Mystery Chests distributed across the `48 x 34` campus map.
 const List<InteractiveZone> INTERACTIVE_ZONES = [
-  // 1. Reception / Quest Counter Area (Top-Center desk area)
+  // 1. Reception / Quest Counter Area (North-Center Atrium)
   InteractiveZone(
     id: 'quest_counter',
     label: 'Reception / Quest Counter',
-    x: 416.0,
-    y: 162.0,
-    radius: 76.0,
+    x: 768.0,
+    y: 196.0,
+    radius: 95.0,
     kind: InteractiveZoneKind.questCounter,
     subtitle: 'View Quests, Claim Badges & Post Activities',
     accentColor: 0xFFF59E0B,
   ),
-  // 2. Teacher's Corner / Desk (Top-Right)
+  // 2. Teacher's Corner / Faculty Suite (North-East Wing)
   InteractiveZone(
     id: 'teacher_corner',
     label: "Teacher's Corner",
-    x: 696.0,
-    y: 168.0,
-    radius: 74.0,
+    x: 1248.0,
+    y: 196.0,
+    radius: 92.0,
     kind: InteractiveZoneKind.teacherCorner,
     subtitle: 'Faculty Advisory Desk & Subject Chest Manager',
     accentColor: 0xFFEAB308,
   ),
-  // 3. Bulletin Board Wall (Top-Left wall)
+  // 3. Bulletin Board Wall Gallery (North-West Wing)
   InteractiveZone(
     id: 'bulletin_board',
     label: 'Bulletin Board Wall',
-    x: 144.0,
-    y: 142.0,
-    radius: 74.0,
+    x: 268.0,
+    y: 182.0,
+    radius: 92.0,
     kind: InteractiveZoneKind.bulletinBoard,
     subtitle: 'MIS-SHS Announcements & Honor Leaderboard',
     accentColor: 0xFF38BDF8,
   ),
-  // 4. Student Lounge & Study Tables (Center / Bottom-Left open floor)
+  // 4. Student Lounge & Study Tables (Central & West Commons)
   InteractiveZone(
     id: 'student_lounge',
-    label: 'Student Lounge & Study Tables',
-    x: 240.0,
-    y: 368.0,
-    radius: 74.0,
+    label: 'Student Lounge & Study Commons',
+    x: 416.0,
+    y: 620.0,
+    radius: 96.0,
     kind: InteractiveZoneKind.studentLounge,
     subtitle: 'Peer Study Hub & Avatar Emote Lounge',
     accentColor: 0xFF10B981,
   ),
-  // 5. Small Mystery Chest #1 (Top-Left near Bulletin Reading Nook)
+
+  // 8 Small Mystery Chests (`small_chest_1` .. `small_chest_8`) across the campus
   InteractiveZone(
     id: 'small_chest_1',
     label: 'Small Mystery Chest #1',
-    x: 92.0,
-    y: 230.0,
-    radius: 52.0,
+    x: 112.0,
+    y: 288.0,
+    radius: 58.0,
     kind: InteractiveZoneKind.smallMysteryChest,
     subtitle: 'Pop-Quiz Challenge (+20 XP)',
     accentColor: 0xFFA855F7,
   ),
-  // 6. Small Mystery Chest #2 (Bottom-Left Lounge Corner)
   InteractiveZone(
     id: 'small_chest_2',
     label: 'Small Mystery Chest #2',
-    x: 92.0,
-    y: 492.0,
-    radius: 52.0,
+    x: 528.0,
+    y: 268.0,
+    radius: 58.0,
     kind: InteractiveZoneKind.smallMysteryChest,
     subtitle: 'Pop-Quiz Challenge (+20 XP)',
     accentColor: 0xFFA855F7,
   ),
-  // 7. Small Mystery Chest #3 (Center Study Table Side)
   InteractiveZone(
     id: 'small_chest_3',
     label: 'Small Mystery Chest #3',
-    x: 368.0,
-    y: 486.0,
-    radius: 52.0,
+    x: 1024.0,
+    y: 268.0,
+    radius: 58.0,
     kind: InteractiveZoneKind.smallMysteryChest,
     subtitle: 'Pop-Quiz Challenge (+20 XP)',
     accentColor: 0xFFA855F7,
   ),
-  // 8. Small Mystery Chest #4 (Upper-Right Hallway Alcove)
   InteractiveZone(
     id: 'small_chest_4',
     label: 'Small Mystery Chest #4',
-    x: 748.0,
-    y: 256.0,
-    radius: 52.0,
+    x: 1424.0,
+    y: 320.0,
+    radius: 58.0,
+    kind: InteractiveZoneKind.smallMysteryChest,
+    subtitle: 'Pop-Quiz Challenge (+20 XP)',
+    accentColor: 0xFFA855F7,
+  ),
+  InteractiveZone(
+    id: 'small_chest_5',
+    label: 'Small Mystery Chest #5',
+    x: 128.0,
+    y: 688.0,
+    radius: 58.0,
+    kind: InteractiveZoneKind.smallMysteryChest,
+    subtitle: 'Pop-Quiz Challenge (+20 XP)',
+    accentColor: 0xFFA855F7,
+  ),
+  InteractiveZone(
+    id: 'small_chest_6',
+    label: 'Small Mystery Chest #6',
+    x: 160.0,
+    y: 960.0,
+    radius: 58.0,
+    kind: InteractiveZoneKind.smallMysteryChest,
+    subtitle: 'Pop-Quiz Challenge (+20 XP)',
+    accentColor: 0xFFA855F7,
+  ),
+  InteractiveZone(
+    id: 'small_chest_7',
+    label: 'Small Mystery Chest #7',
+    x: 640.0,
+    y: 944.0,
+    radius: 58.0,
+    kind: InteractiveZoneKind.smallMysteryChest,
+    subtitle: 'Pop-Quiz Challenge (+20 XP)',
+    accentColor: 0xFFA855F7,
+  ),
+  InteractiveZone(
+    id: 'small_chest_8',
+    label: 'Small Mystery Chest #8',
+    x: 1424.0,
+    y: 960.0,
+    radius: 58.0,
     kind: InteractiveZoneKind.smallMysteryChest,
     subtitle: 'Pop-Quiz Challenge (+20 XP)',
     accentColor: 0xFFA855F7,
@@ -145,20 +183,19 @@ const List<InteractiveZone> INTERACTIVE_ZONES = [
 ];
 
 /// Computes the world position `(x, y)` for each Subject-Labeled Large Treasure Chest
-/// inside the Reviewer Treasure Corner (bottom-right sanctuary).
+/// inside the expanded Reviewer Treasure Vault Sanctuary (South-East Wing: x 940..1420, y 580..960).
 Offset subjectChestPosition(int index) {
-  // 2-column grid inside the Reviewer Treasure Corner (x: 540..736, y: 368..496)
   const cols = 2;
-  const startX = 566.0;
-  const spacingX = 148.0;
-  const startY = 382.0;
-  const spacingY = 98.0;
+  const startX = 1048.0;
+  const spacingX = 240.0;
+  const startY = 636.0;
+  const spacingY = 148.0;
 
   final col = index % cols;
   final row = index ~/ cols;
   return Offset(
     startX + col * spacingX,
-    (startY + row * spacingY).clamp(320.0, 518.0),
+    (startY + row * spacingY).clamp(560.0, 988.0),
   );
 }
 
@@ -175,7 +212,7 @@ List<InteractiveZone> buildActiveInteractiveZones(List<SubjectChest> chests) {
         label: '${chest.subjectName} Reviewer Chest',
         x: pos.dx,
         y: pos.dy,
-        radius: 56.0,
+        radius: 66.0,
         kind: InteractiveZoneKind.subjectChest,
         subtitle:
             '${chest.reviewers.length} Reviewer(s) • ${chest.totalQuestions} Quiz Qs',
@@ -184,8 +221,6 @@ List<InteractiveZone> buildActiveInteractiveZones(List<SubjectChest> chests) {
       ),
     );
   }
-  // Place subject chests and small mystery chests first so specific object proximity wins
-  // when standing right next to a chest.
   return [...dynamicChests, ...INTERACTIVE_ZONES];
 }
 
@@ -214,7 +249,7 @@ class LobbyFurniturePiece {
   }
 }
 
-/// Static NPCs stationed in the School Lobby (Anime Receptionist + Faculty Mentor).
+/// Static NPCs stationed in the School Lobby (Anime Receptionist + Faculty Mentor + Librarian).
 class LobbyNpc {
   final String id;
   final String name;
@@ -244,8 +279,8 @@ const List<LobbyNpc> kLobbyNpcs = [
     roleTag: 'Quest Counter',
     isGoldTag: true,
     presetName: 'Amelia',
-    x: 416.0,
-    y: 108.0,
+    x: 768.0,
+    y: 122.0,
     greeting: 'Welcome! Tap Interact for Quests & Badges!',
   ),
   LobbyNpc(
@@ -254,261 +289,342 @@ const List<LobbyNpc> kLobbyNpcs = [
     roleTag: 'Teacher',
     isGoldTag: true,
     presetName: 'Edward',
-    x: 696.0,
-    y: 112.0,
+    x: 1248.0,
+    y: 122.0,
     greeting: 'Reviewers & Subject Chests are open!',
+  ),
+  LobbyNpc(
+    id: 'npc_vault_keeper',
+    name: 'Kael (Vault Keeper)',
+    roleTag: 'Reviewer Vault',
+    isGoldTag: false,
+    presetName: 'Lucy',
+    x: 1168.0,
+    y: 526.0,
+    greeting: 'Open the Subject Chests below to study!',
   ),
 ];
 
-/// Complete Student School Lobby furniture & zone pieces using TinyFloor's `atlas.json` sprites.
+/// Complete Expanded `48 x 34` Student School Lobby furniture & zone pieces.
 const List<LobbyFurniturePiece> kSchoolLobbyPieces = [
-  // --- RUGS (Floor Layer, non-blocking) ---
-  // Reception / Quest Counter Carpet (Top-Center)
-  LobbyFurniturePiece(
-    spriteKey: 'ours-rug-sunset',
-    x: 352,
-    y: 118,
-    isFloorRug: true,
-  ),
-  // Student Lounge Rug (Bottom-Left / Center)
-  LobbyFurniturePiece(
-    spriteKey: 'ours-rug-lagoon',
-    x: 148,
-    y: 332,
-    isFloorRug: true,
-  ),
-  // Teacher's Corner Rug (Top-Right)
-  LobbyFurniturePiece(
-    spriteKey: 'rug-grey',
-    x: 648,
-    y: 118,
-    isFloorRug: true,
-  ),
-  // Reviewer Treasure Corner Sanctuary Rugs (Bottom-Right)
-  LobbyFurniturePiece(
-    spriteKey: 'ours-rug-plum',
-    x: 520,
-    y: 344,
-    isFloorRug: true,
-  ),
-  LobbyFurniturePiece(
-    spriteKey: 'rug-red',
-    x: 648,
-    y: 344,
-    isFloorRug: true,
-  ),
-  LobbyFurniturePiece(
-    spriteKey: 'ours-rug-plum',
-    x: 520,
-    y: 432,
-    isFloorRug: true,
-  ),
-  LobbyFurniturePiece(
-    spriteKey: 'rug-red',
-    x: 648,
-    y: 432,
-    isFloorRug: true,
-  ),
+  // ===========================================================================
+  // 1. FLOOR RUGS (Non-blocking bottom layer)
+  // ===========================================================================
+  // North-Center Reception / Quest Counter Grand Carpet
+  LobbyFurniturePiece(spriteKey: 'ours-rug-sunset', x: 640, y: 140, isFloorRug: true),
+  LobbyFurniturePiece(spriteKey: 'ours-rug-sunset', x: 768, y: 140, isFloorRug: true),
+  // North-West Bulletin Gallery Carpet
+  LobbyFurniturePiece(spriteKey: 'rug-blue', x: 144, y: 136, isFloorRug: true),
+  LobbyFurniturePiece(spriteKey: 'rug-blue', x: 272, y: 136, isFloorRug: true),
+  // North-East Teacher's Corner Carpet
+  LobbyFurniturePiece(spriteKey: 'rug-grey', x: 1152, y: 136, isFloorRug: true),
+  LobbyFurniturePiece(spriteKey: 'rug-grey', x: 1248, y: 136, isFloorRug: true),
+  // Central Spawn Courtyard Rugs
+  LobbyFurniturePiece(spriteKey: 'ours-rug-lagoon', x: 640, y: 468, isFloorRug: true),
+  LobbyFurniturePiece(spriteKey: 'ours-rug-lagoon', x: 768, y: 468, isFloorRug: true),
+  // South-West Student Lounge & Study Commons Rugs
+  LobbyFurniturePiece(spriteKey: 'ours-rug-lagoon', x: 224, y: 540, isFloorRug: true),
+  LobbyFurniturePiece(spriteKey: 'ours-rug-lagoon', x: 352, y: 540, isFloorRug: true),
+  LobbyFurniturePiece(spriteKey: 'rug-blue', x: 224, y: 780, isFloorRug: true),
+  LobbyFurniturePiece(spriteKey: 'rug-blue', x: 352, y: 780, isFloorRug: true),
+  // South-East Reviewer Treasure Vault Sanctuary Carpets
+  LobbyFurniturePiece(spriteKey: 'ours-rug-plum', x: 960, y: 580, isFloorRug: true),
+  LobbyFurniturePiece(spriteKey: 'rug-red', x: 1088, y: 580, isFloorRug: true),
+  LobbyFurniturePiece(spriteKey: 'ours-rug-plum', x: 1216, y: 580, isFloorRug: true),
+  LobbyFurniturePiece(spriteKey: 'rug-red', x: 960, y: 720, isFloorRug: true),
+  LobbyFurniturePiece(spriteKey: 'ours-rug-plum', x: 1088, y: 720, isFloorRug: true),
+  LobbyFurniturePiece(spriteKey: 'rug-red', x: 1216, y: 720, isFloorRug: true),
 
-  // --- TOP WALL DECORATIONS: BULLETIN BOARD, QUEST BANNER & TEACHER CORNER ---
-  // Bulletin Board Wall (Top-Left)
-  LobbyFurniturePiece(
-    spriteKey: 'wall-notice',
-    x: 64,
-    y: 18,
-    isWallMounted: true,
-  ),
-  LobbyFurniturePiece(
-    spriteKey: 'wall-charts',
-    x: 132,
-    y: 18,
-    isWallMounted: true,
-  ),
-  LobbyFurniturePiece(
-    spriteKey: 'world-map',
-    x: 200,
-    y: 26,
-    isWallMounted: true,
-  ),
+  // ===========================================================================
+  // 2. NORTH-WEST WING: BULLETIN & HONOR WALL GALLERY
+  // ===========================================================================
+  LobbyFurniturePiece(spriteKey: 'wall-notice', x: 80, y: 18, isWallMounted: true),
+  LobbyFurniturePiece(spriteKey: 'wall-charts', x: 156, y: 18, isWallMounted: true),
+  LobbyFurniturePiece(spriteKey: 'world-map', x: 232, y: 24, isWallMounted: true),
+  LobbyFurniturePiece(spriteKey: 'wall-poster', x: 308, y: 18, isWallMounted: true),
+  LobbyFurniturePiece(spriteKey: 'wall-painting', x: 384, y: 18, isWallMounted: true),
   LobbyFurniturePiece(
     spriteKey: 'board-pins',
-    x: 96,
-    y: 80,
-    collider: Rect.fromLTWH(96, 96, 64, 24),
+    x: 140,
+    y: 84,
+    collider: Rect.fromLTWH(140, 100, 64, 24),
   ),
   LobbyFurniturePiece(
     spriteKey: 'board-chart',
-    x: 168,
-    y: 72,
-    collider: Rect.fromLTWH(168, 96, 64, 24),
+    x: 236,
+    y: 78,
+    collider: Rect.fromLTWH(236, 100, 64, 24),
+  ),
+  LobbyFurniturePiece(
+    spriteKey: 'board-pie',
+    x: 332,
+    y: 78,
+    collider: Rect.fromLTWH(332, 100, 64, 24),
+  ),
+  LobbyFurniturePiece(
+    spriteKey: 'bench-pale',
+    x: 180,
+    y: 196,
+    collider: Rect.fromLTWH(182, 212, 60, 24),
+  ),
+  LobbyFurniturePiece(
+    spriteKey: 'bench-pale',
+    x: 288,
+    y: 196,
+    collider: Rect.fromLTWH(290, 212, 60, 24),
   ),
 
-  // Top-Center Reception Windows, Clock & Trophy
-  LobbyFurniturePiece(
-    spriteKey: 'window-office-2',
-    x: 292,
-    y: 16,
-    isWallMounted: true,
-  ),
-  LobbyFurniturePiece(
-    spriteKey: 'ours-clock',
-    x: 400,
-    y: 20,
-    isWallMounted: true,
-  ),
-  LobbyFurniturePiece(
-    spriteKey: 'window-office-2',
-    x: 468,
-    y: 16,
-    isWallMounted: true,
-  ),
-  LobbyFurniturePiece(
-    spriteKey: 'wall-trophy',
-    x: 540,
-    y: 18,
-    isWallMounted: true,
-  ),
+  // ===========================================================================
+  // 3. NORTH-CENTER WING: GRAND RECEPTION / QUEST COUNTER HALL
+  // ===========================================================================
+  LobbyFurniturePiece(spriteKey: 'window-office-3', x: 520, y: 16, isWallMounted: true),
+  LobbyFurniturePiece(spriteKey: 'wall-trophy', x: 644, y: 16, isWallMounted: true),
+  LobbyFurniturePiece(spriteKey: 'ours-clock', x: 752, y: 20, isWallMounted: true),
+  LobbyFurniturePiece(spriteKey: 'wall-trophy', x: 860, y: 16, isWallMounted: true),
+  LobbyFurniturePiece(spriteKey: 'window-office-3', x: 920, y: 16, isWallMounted: true),
 
-  // Reception / Quest Counter Desk (Top-Center)
+  // Twin Reception / Quest Counter Desks
   LobbyFurniturePiece(
     spriteKey: 'desks-single-maple-1-n4',
-    x: 336,
-    y: 78,
-    collider: Rect.fromLTWH(340, 102, 152, 42),
+    x: 608,
+    y: 88,
+    collider: Rect.fromLTWH(612, 112, 152, 42),
+  ),
+  LobbyFurniturePiece(
+    spriteKey: 'desks-single-maple-1-n4',
+    x: 772,
+    y: 88,
+    collider: Rect.fromLTWH(776, 112, 152, 42),
   ),
   LobbyFurniturePiece(
     spriteKey: 'plant-tall',
-    x: 300,
-    y: 82,
-    collider: Rect.fromLTWH(304, 118, 24, 24),
+    x: 564,
+    y: 92,
+    collider: Rect.fromLTWH(568, 126, 24, 24),
   ),
   LobbyFurniturePiece(
     spriteKey: 'plant-tall',
-    x: 500,
-    y: 82,
-    collider: Rect.fromLTWH(504, 118, 24, 24),
+    x: 940,
+    y: 92,
+    collider: Rect.fromLTWH(944, 126, 24, 24),
+  ),
+  LobbyFurniturePiece(
+    spriteKey: 'lamp-blue',
+    x: 530,
+    y: 84,
+    collider: Rect.fromLTWH(534, 134, 24, 22),
+  ),
+  LobbyFurniturePiece(
+    spriteKey: 'lamp-blue',
+    x: 980,
+    y: 84,
+    collider: Rect.fromLTWH(984, 134, 24, 22),
   ),
 
-  // Teacher's Corner / Faculty Desk (Top-Right)
+  // ===========================================================================
+  // 4. NORTH-EAST WING: TEACHER'S CORNER & FACULTY ADVISORY SUITE
+  // ===========================================================================
   LobbyFurniturePiece(
     spriteKey: 'wall-bookcase',
-    x: 596,
+    x: 1096,
     y: 8,
-    collider: Rect.fromLTWH(596, 68, 64, 28),
+    collider: Rect.fromLTWH(1096, 68, 64, 28),
   ),
   LobbyFurniturePiece(
-    spriteKey: 'wall-cert',
-    x: 666,
-    y: 16,
-    isWallMounted: true,
+    spriteKey: 'wall-bookcase-pale',
+    x: 1164,
+    y: 8,
+    collider: Rect.fromLTWH(1164, 68, 64, 28),
   ),
+  LobbyFurniturePiece(spriteKey: 'wall-cert', x: 1240, y: 16, isWallMounted: true),
   LobbyFurniturePiece(
     spriteKey: 'wall-bookcase-red',
-    x: 704,
+    x: 1284,
     y: 8,
-    collider: Rect.fromLTWH(704, 68, 64, 28),
+    collider: Rect.fromLTWH(1284, 68, 64, 28),
   ),
+  LobbyFurniturePiece(
+    spriteKey: 'wall-cabinet',
+    x: 1356,
+    y: 8,
+    collider: Rect.fromLTWH(1356, 68, 64, 28),
+  ),
+  // Faculty Desks
   LobbyFurniturePiece(
     spriteKey: 'desks-single-walnut-1-n4',
-    x: 616,
-    y: 82,
-    collider: Rect.fromLTWH(620, 106, 152, 42),
+    x: 1120,
+    y: 92,
+    collider: Rect.fromLTWH(1124, 116, 152, 42),
   ),
   LobbyFurniturePiece(
-    spriteKey: 'ours-globe',
-    x: 740,
-    y: 94,
+    spriteKey: 'desks-single-oak-1-n4',
+    x: 1284,
+    y: 92,
+    collider: Rect.fromLTWH(1288, 116, 152, 42),
   ),
+  LobbyFurniturePiece(spriteKey: 'ours-globe', x: 1240, y: 104),
+  LobbyFurniturePiece(spriteKey: 'ours-books', x: 1320, y: 104),
 
-  // --- STUDENT LOUNGE & STUDY TABLES (Center & Bottom-Left) ---
-  // Cozy Lounge Sofas & Coffee Table (Bottom-Left)
+  // ===========================================================================
+  // 5. CENTRAL & SOUTH-WEST WING: STUDENT LOUNGE & STUDY COMMONS
+  // ===========================================================================
+  // Refreshment Bar along West Wall
   LobbyFurniturePiece(
-    spriteKey: 'sofa-three',
-    x: 112,
-    y: 292,
-    collider: Rect.fromLTWH(114, 318, 60, 32),
-  ),
-  LobbyFurniturePiece(
-    spriteKey: 'coffee-table',
-    x: 184,
-    y: 320,
-    collider: Rect.fromLTWH(186, 332, 60, 28),
-  ),
-  LobbyFurniturePiece(
-    spriteKey: 'egg-chair-teal',
-    x: 256,
-    y: 316,
-    collider: Rect.fromLTWH(258, 332, 28, 26),
-  ),
-  LobbyFurniturePiece(
-    spriteKey: 'egg-chair-mustard',
-    x: 120,
-    y: 382,
-    collider: Rect.fromLTWH(122, 398, 28, 26),
-  ),
-
-  // Collaborative Study Table (Center-Left)
-  LobbyFurniturePiece(
-    spriteKey: 'meeting-table-small',
-    x: 212,
-    y: 416,
-    collider: Rect.fromLTWH(218, 442, 148, 48),
-  ),
-  LobbyFurniturePiece(
-    spriteKey: 'ours-books',
-    x: 248,
-    y: 436,
-  ),
-  LobbyFurniturePiece(
-    spriteKey: 'ours-notebook',
-    x: 298,
-    y: 440,
-  ),
-
-  // Refreshment & Water Cooler Nook (Left Wall)
-  LobbyFurniturePiece(
-    spriteKey: 'vending-drinks',
-    x: 42,
-    y: 312,
-    collider: Rect.fromLTWH(44, 352, 58, 34),
+    spriteKey: 'wall-vending',
+    x: 48,
+    y: 380,
+    collider: Rect.fromLTWH(52, 432, 120, 40),
   ),
   LobbyFurniturePiece(
     spriteKey: 'water-cooler',
-    x: 44,
-    y: 396,
-    collider: Rect.fromLTWH(46, 428, 28, 26),
+    x: 52,
+    y: 500,
+    collider: Rect.fromLTWH(54, 532, 28, 26),
+  ),
+  LobbyFurniturePiece(
+    spriteKey: 'mini-fridge',
+    x: 52,
+    y: 576,
+    collider: Rect.fromLTWH(54, 596, 44, 26),
   ),
 
-  // --- REVIEWER TREASURE CORNER SANCTUARY (Bottom-Right) ---
-  // Bookshelf Pillars framing the Reviewer Treasure Vaults
+  // Lounge Sofa Cluster #1 (Mid-West)
+  LobbyFurniturePiece(
+    spriteKey: 'sofa-corner',
+    x: 196,
+    y: 448,
+    collider: Rect.fromLTWH(200, 488, 88, 48),
+  ),
+  LobbyFurniturePiece(
+    spriteKey: 'coffee-table',
+    x: 304,
+    y: 492,
+    collider: Rect.fromLTWH(306, 504, 60, 28),
+  ),
+  LobbyFurniturePiece(
+    spriteKey: 'egg-chair-teal',
+    x: 384,
+    y: 484,
+    collider: Rect.fromLTWH(386, 500, 28, 26),
+  ),
+  LobbyFurniturePiece(
+    spriteKey: 'egg-chair-mustard',
+    x: 384,
+    y: 544,
+    collider: Rect.fromLTWH(386, 560, 28, 26),
+  ),
+  LobbyFurniturePiece(
+    spriteKey: 'egg-chair-coral',
+    x: 224,
+    y: 564,
+    collider: Rect.fromLTWH(226, 580, 28, 26),
+  ),
+
+  // Collaborative Study Tables (South-West & Center-South)
+  LobbyFurniturePiece(
+    spriteKey: 'meeting-table',
+    x: 196,
+    y: 672,
+    collider: Rect.fromLTWH(204, 698, 208, 56),
+  ),
+  LobbyFurniturePiece(spriteKey: 'ours-books', x: 236, y: 692),
+  LobbyFurniturePiece(spriteKey: 'laptop-open', x: 300, y: 684),
+  LobbyFurniturePiece(spriteKey: 'ours-notebook', x: 356, y: 696),
+
+  LobbyFurniturePiece(
+    spriteKey: 'meeting-table-small',
+    x: 472,
+    y: 680,
+    collider: Rect.fromLTWH(478, 706, 148, 48),
+  ),
+  LobbyFurniturePiece(spriteKey: 'ours-books', x: 508, y: 700),
+  LobbyFurniturePiece(spriteKey: 'ours-mug-teal', x: 556, y: 700),
+
+  LobbyFurniturePiece(
+    spriteKey: 'meeting-table-small',
+    x: 232,
+    y: 836,
+    collider: Rect.fromLTWH(238, 862, 148, 48),
+  ),
+  LobbyFurniturePiece(spriteKey: 'ours-notebook', x: 276, y: 856),
+  LobbyFurniturePiece(spriteKey: 'ours-pen-cup', x: 324, y: 856),
+
+  // Indoor Campus Courtyard Trees & Lamps
+  LobbyFurniturePiece(
+    spriteKey: 'tree',
+    x: 540,
+    y: 348,
+    collider: Rect.fromLTWH(568, 438, 40, 32),
+  ),
+  LobbyFurniturePiece(
+    spriteKey: 'tree-small',
+    x: 896,
+    y: 368,
+    collider: Rect.fromLTWH(912, 434, 32, 28),
+  ),
+  LobbyFurniturePiece(
+    spriteKey: 'lamp-red',
+    x: 468,
+    y: 500,
+    collider: Rect.fromLTWH(472, 550, 24, 24),
+  ),
+
+  // ===========================================================================
+  // 6. SOUTH-EAST WING: GRAND REVIEWER TREASURE VAULT SANCTUARY
+  // ===========================================================================
+  // Bookshelf Colonnade framing the Sanctuary Entrance
   LobbyFurniturePiece(
     spriteKey: 'bookshelf',
-    x: 516,
-    y: 274,
-    collider: Rect.fromLTWH(518, 304, 60, 28),
+    x: 912,
+    y: 468,
+    collider: Rect.fromLTWH(914, 498, 60, 28),
+  ),
+  LobbyFurniturePiece(
+    spriteKey: 'shelving',
+    x: 980,
+    y: 468,
+    collider: Rect.fromLTWH(982, 498, 60, 28),
+  ),
+  LobbyFurniturePiece(
+    spriteKey: 'shelving',
+    x: 1272,
+    y: 468,
+    collider: Rect.fromLTWH(1274, 498, 60, 28),
   ),
   LobbyFurniturePiece(
     spriteKey: 'bookshelf',
-    x: 688,
-    y: 274,
-    collider: Rect.fromLTWH(690, 304, 60, 28),
+    x: 1340,
+    y: 468,
+    collider: Rect.fromLTWH(1342, 498, 60, 28),
   ),
   LobbyFurniturePiece(
     spriteKey: 'plant-snake',
-    x: 484,
-    y: 280,
-    collider: Rect.fromLTWH(486, 314, 26, 24),
+    x: 874,
+    y: 474,
+    collider: Rect.fromLTWH(876, 508, 26, 24),
   ),
   LobbyFurniturePiece(
     spriteKey: 'plant-snake',
-    x: 756,
-    y: 280,
-    collider: Rect.fromLTWH(758, 314, 26, 24),
+    x: 1412,
+    y: 474,
+    collider: Rect.fromLTWH(1414, 508, 26, 24),
+  ),
+  LobbyFurniturePiece(
+    spriteKey: 'lamp-blue',
+    x: 912,
+    y: 720,
+    collider: Rect.fromLTWH(916, 770, 24, 24),
+  ),
+  LobbyFurniturePiece(
+    spriteKey: 'lamp-blue',
+    x: 1396,
+    y: 720,
+    collider: Rect.fromLTWH(1400, 770, 24, 24),
   ),
 ];
 
 /// Builds all solid collision rectangles (perimeter walls + furniture + chest footprints)
-/// recycled from TinyFloor's `wallSolids` + `officeSolids`.
+/// across the expanded `48 x 34` School Lobby campus.
 List<Rect> buildLobbySolids(List<SubjectChest> chests) {
   final solids = <Rect>[
     // Top wall (3/4 perspective wall height = 88px)
@@ -531,13 +647,13 @@ List<Rect> buildLobbySolids(List<SubjectChest> chests) {
   // Subject Chest colliders
   for (var i = 0; i < chests.length; i++) {
     final pos = subjectChestPosition(i);
-    solids.add(Rect.fromCenter(center: pos, width: 38, height: 26));
+    solids.add(Rect.fromCenter(center: pos, width: 42, height: 28));
   }
 
   // Small Mystery Chest colliders
   for (final zone in INTERACTIVE_ZONES) {
     if (zone.kind == InteractiveZoneKind.smallMysteryChest) {
-      solids.add(Rect.fromCenter(center: zone.center, width: 26, height: 20));
+      solids.add(Rect.fromCenter(center: zone.center, width: 28, height: 22));
     }
   }
 

@@ -344,9 +344,9 @@ class _AuthScreenState extends State<AuthScreen> {
     return Container(
       margin: const EdgeInsets.only(bottom: 14),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: PortalColors.activeCard,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: PortalColors.rule),
+        border: Border.all(color: PortalColors.activeRule),
         boxShadow: const [
           BoxShadow(
             color: Color(0x141A3A2A),
@@ -461,19 +461,45 @@ class _AuthScreenState extends State<AuthScreen> {
             constraints: const BoxConstraints(maxWidth: 500),
             child: Column(
               children: [
-                // Endpoint configuration button intentionally omitted on Home screen
-                // so students cannot inspect or modify the Apps Script backend URL.
+                // Top-right Dark Mode Toggle (Endpoint configuration button intentionally omitted)
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: IconButton(
+                    tooltip: PortalColors.isDark
+                        ? 'Switch to Light Mode'
+                        : 'Switch to Dark Mode',
+                    onPressed: () async {
+                      await ThemeController.instance.toggleDarkMode();
+                      if (mounted) setState(() {});
+                    },
+                    icon: Icon(
+                      PortalColors.isDark
+                          ? Icons.light_mode_rounded
+                          : Icons.dark_mode_rounded,
+                      color: PortalColors.isDark
+                          ? PortalColors.gold
+                          : PortalColors.forest,
+                    ),
+                  ),
+                ),
                 const PortalHeader(),
                 Container(
                   padding: const EdgeInsets.fromLTRB(22, 24, 22, 26),
                   decoration: BoxDecoration(
-                    gradient: const LinearGradient(
+                    gradient: LinearGradient(
                       begin: Alignment.bottomCenter,
                       end: Alignment.topCenter,
-                      colors: [Colors.white, PortalColors.parchment],
+                      colors: PortalColors.isDark
+                          ? const [PortalColors.darkSurface, PortalColors.darkCard]
+                          : const [Colors.white, PortalColors.parchment],
                     ),
                     borderRadius: BorderRadius.circular(28),
-                    border: Border.all(color: Colors.white, width: 4),
+                    border: Border.all(
+                      color: PortalColors.isDark
+                          ? PortalColors.darkRule
+                          : Colors.white,
+                      width: 4,
+                    ),
                     boxShadow: const [
                       BoxShadow(
                         color: Color(0x261A3A2A),

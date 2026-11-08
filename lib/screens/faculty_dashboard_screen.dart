@@ -426,6 +426,23 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> {
           ),
           const SizedBox(width: 4),
           IconButton(
+            tooltip: PortalColors.isDark
+                ? 'Switch to Light Mode'
+                : 'Switch to Dark Mode',
+            visualDensity: VisualDensity.compact,
+            onPressed: () async {
+              await ThemeController.instance.toggleDarkMode();
+              if (mounted) setState(() {});
+            },
+            icon: Icon(
+              PortalColors.isDark
+                  ? Icons.light_mode_rounded
+                  : Icons.dark_mode_rounded,
+              size: 19,
+              color: PortalColors.gold,
+            ),
+          ),
+          IconButton(
             tooltip: 'Enter School Lobby (Teacher Mode)',
             visualDensity: VisualDensity.compact,
             onPressed: _openSchoolLobby,

@@ -1,10 +1,12 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../models/portal_models.dart';
+import '../theme/portal_theme.dart';
 import 'lobby_data_service.dart';
 import 'school_lobby_avatar.dart';
 import 'school_lobby_config.dart';
@@ -15,7 +17,8 @@ import 'school_lobby_modals.dart';
 /// Self-Contained 2D Pixel "Mini School Lobby" Screen for the MIS-SHS Learner App.
 /// Recycles TinyFloor's avatar rendering, movement/A* pathfinding, and 3/4 floor/furniture atlas,
 /// combined with Phase 2's Quest Counter, Student Badge System, Subject Reviewer Chests,
-/// and Small Mystery Pop-Quiz Chests.
+/// Small Mystery Pop-Quiz Chests, First-Time Avatar & Nickname Onboarding,
+/// Full-Screen Portrait/Landscape Responsiveness, and Night/Day Dark Mode.
 class SchoolLobbyScreen extends StatefulWidget {
   final UserSession session;
 
@@ -34,8 +37,10 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
 
   SchoolLobbyAssetBundle? _assets;
   LobbyAvatarLook _playerLook = const LobbyAvatarLook();
+  String _playerNickname = '';
   ui.Image? _playerSheet;
   bool _loading = true;
+  bool _onboardingPromptShown = false;
 
   // Player state
   Offset _playerPos = kPlayerSpawnPoint;
@@ -48,9 +53,13 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
   Offset? _tapPulseTarget;
   double _tapPulseProgress = 1.0;
 
-  // Camera state
+  // Camera & Viewport state
   Offset _cameraCenter = kPlayerSpawnPoint;
-  double _cameraZoom = 1.35;
+  double _cameraZoom = 1.2;
+  bool _userAdjustedZoom = false;
+  Size _lastViewportSize = Size.zero;
+  bool _showMiniMap = true;
+  bool _forcedLandscape = false;
 
   // Animation & Wave state
   int _animTick = 0;
@@ -65,6 +74,13 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
   @override
   void initState() {
     super.initState();
+    _playerNickname = widget.session.name;
+    // Allow students to play in either Portrait or Landscape on their phones
+    SystemChrome.setPreferredOrientations(const [
+      DeviceOrientation.portraitUp,
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ]);
     _initLobby();
   }
 
@@ -74,6 +90,12 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
       widget.session.id,
       isFaculty: widget.session.isFaculty,
     );
+    final savedNickname = await AvatarSpriteCache.instance.loadSavedNickname(
+      widget.session.id,
+      fallbackName: widget.session.name,
+    );
+    final completedOnboarding =
+        await AvatarSpriteCache.instance.hasCompletedOnboarding(widget.session.id);
     final sheet =
         await AvatarSpriteCache.instance.resolveLookSpriteSheet(savedLook);
     final bundle = await SchoolLobbyAssetBundle.load();
@@ -81,6 +103,7 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
     if (!mounted) return;
     setState(() {
       _playerLook = savedLook;
+      _playerNickname = savedNickname;
       _playerSheet = sheet;
       _assets = bundle;
       _loading = false;
@@ -91,13 +114,73 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
       const Duration(milliseconds: 16),
       (_) => _onGameTick(0.016),
     );
+
+    // Trigger First-Time Avatar & Nickname Creation Onboarding if first entry!
+    if (!completedOnboarding && !_onboardingPromptShown) {
+      _onboardingPromptShown = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _openAvatarCustomizer(isFirstTimeOnboarding: true);
+        }
+      });
+    }
   }
 
   @override
   void dispose() {
     _gameLoopTimer?.cancel();
     _keyboardFocusNode.dispose();
+    // Restore default orientation preferences when leaving the lobby
+    SystemChrome.setPreferredOrientations(const []);
     super.dispose();
+  }
+
+  void _toggleOrientationLock(bool isCurrentlyLandscape) {
+    HapticFeedback.selectionClick();
+    if (isCurrentlyLandscape) {
+      _forcedLandscape = false;
+      SystemChrome.setPreferredOrientations(const [
+        DeviceOrientation.portraitUp,
+      ]);
+    } else {
+      _forcedLandscape = true;
+      SystemChrome.setPreferredOrientations(const [
+        DeviceOrientation.landscapeLeft,
+        DeviceOrientation.landscapeRight,
+      ]);
+    }
+    // Re-unlock auto rotation after a short delay if returning to free rotation
+    Future.delayed(const Duration(seconds: 4), () {
+      if (mounted && !_forcedLandscape) {
+        SystemChrome.setPreferredOrientations(const [
+          DeviceOrientation.portraitUp,
+          DeviceOrientation.landscapeLeft,
+          DeviceOrientation.landscapeRight,
+        ]);
+      }
+    });
+  }
+
+  Offset _clampCameraToWorld(Offset target, Size viewportSize, double zoom) {
+    if (viewportSize.isEmpty) return target;
+    final halfViewW = (viewportSize.width / 2) / zoom;
+    final halfViewH = (viewportSize.height / 2) / zoom;
+
+    double clampedX;
+    if (halfViewW * 2 >= kLobbyWorldWidth) {
+      clampedX = kLobbyWorldWidth / 2;
+    } else {
+      clampedX = target.dx.clamp(halfViewW, kLobbyWorldWidth - halfViewW);
+    }
+
+    double clampedY;
+    if (halfViewH * 2 >= kLobbyWorldHeight) {
+      clampedY = kLobbyWorldHeight / 2;
+    } else {
+      clampedY = target.dy.clamp(halfViewH, kLobbyWorldHeight - halfViewH);
+    }
+
+    return Offset(clampedX, clampedY);
   }
 
   Offset _readKeyboardVector() {
@@ -214,8 +297,11 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
 
     _playerIsWalking = walking;
 
-    // 2. Smooth camera follow (`CameraRig.ts` lerp = 0.14)
-    _cameraCenter = Offset.lerp(_cameraCenter, _playerPos, 0.14) ?? _playerPos;
+    // 2. Smooth camera follow (`CameraRig.ts` lerp = 0.14) clamped to world bounds
+    final desiredCamera =
+        _clampCameraToWorld(_playerPos, _lastViewportSize, _cameraZoom);
+    _cameraCenter =
+        Offset.lerp(_cameraCenter, desiredCamera, 0.16) ?? desiredCamera;
 
     // 3. Advance 10 FPS sprite animation counter & visual effects
     _frameCounter++;
@@ -286,23 +372,30 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
     });
   }
 
-  Future<void> _openAvatarCustomizer() async {
+  Future<void> _openAvatarCustomizer({bool isFirstTimeOnboarding = false}) async {
     final equippedBadgeIcon =
         LobbyDataService.instance.progress.equippedBadge?.badgeIcon;
-    final updated = await showLobbyAvatarCustomizerModal(
+    final result = await showLobbyAvatarCustomizerModal(
       context: context,
       initialLook: _playerLook,
-      userName: widget.session.name,
+      initialNickname: _playerNickname,
       isFaculty: widget.session.isFaculty,
       equippedBadgeIcon: equippedBadgeIcon,
+      isFirstTimeOnboarding: isFirstTimeOnboarding,
     );
-    if (updated != null && mounted) {
-      await AvatarSpriteCache.instance.saveLook(widget.session.id, updated);
+    if (result != null && mounted) {
+      await AvatarSpriteCache.instance.saveLook(widget.session.id, result.look);
+      await AvatarSpriteCache.instance
+          .saveNickname(widget.session.id, result.nickname);
+      await AvatarSpriteCache.instance
+          .markOnboardingCompleted(widget.session.id);
+
       final newSheet =
-          await AvatarSpriteCache.instance.resolveLookSpriteSheet(updated);
+          await AvatarSpriteCache.instance.resolveLookSpriteSheet(result.look);
       if (mounted) {
         setState(() {
-          _playerLook = updated;
+          _playerLook = result.look;
+          _playerNickname = result.nickname;
           _playerSheet = newSheet;
         });
       }
@@ -325,7 +418,7 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
         showQuestCounterModal(
           context: context,
           isFaculty: widget.session.isFaculty,
-          userName: widget.session.name,
+          userName: _playerNickname,
         );
         break;
       case InteractiveZoneKind.subjectChest:
@@ -348,7 +441,7 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
         showTeacherCornerModal(
           context: context,
           isFaculty: widget.session.isFaculty,
-          userName: widget.session.name,
+          userName: _playerNickname,
         );
         break;
       case InteractiveZoneKind.bulletinBoard:
@@ -360,7 +453,7 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-                '🛋️ ${widget.session.name} is relaxing in the Student Study Lounge!'),
+                '🛋️ $_playerNickname is relaxing in the Student Study Lounge!'),
             behavior: SnackBarBehavior.floating,
             duration: const Duration(seconds: 2),
           ),
@@ -374,8 +467,23 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
     final service = LobbyDataService.instance;
     final progress = service.progress;
     final equippedBadgeIcon = progress.equippedBadge?.badgeIcon;
+    final screenSize = MediaQuery.sizeOf(context);
+    final isLandscape = screenSize.width > screenSize.height;
 
-    // Build cooldown map for the 4 Small Mystery Chests
+    // Auto-adapt camera zoom on screen rotation if the user hasn't manually pinched/zoomed
+    if (_lastViewportSize != screenSize) {
+      _lastViewportSize = screenSize;
+      if (!_userAdjustedZoom) {
+        final shortest = math.min(screenSize.width, screenSize.height);
+        _cameraZoom = isLandscape
+            ? (shortest < 420 ? 1.18 : 1.28)
+            : (shortest < 380 ? 1.05 : 1.15);
+      }
+      _cameraCenter =
+          _clampCameraToWorld(_playerPos, screenSize, _cameraZoom);
+    }
+
+    // Build cooldown map for the 8 Small Mystery Chests
     final nowMs = DateTime.now().millisecondsSinceEpoch;
     final smallChestRemainingSec = <String, int>{
       for (final z in INTERACTIVE_ZONES)
@@ -383,235 +491,376 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
           z.id: service.smallChestRemainingSeconds(z.id, nowMs),
     };
 
-    return Scaffold(
-      backgroundColor: const Color(0xFF090E1A),
-      body: KeyboardListener(
-        focusNode: _keyboardFocusNode,
-        autofocus: true,
-        onKeyEvent: (event) {
-          if (event is KeyDownEvent) {
-            _pressedKeys.add(event.logicalKey);
-            if (event.logicalKey == LogicalKeyboardKey.keyE ||
-                event.logicalKey == LogicalKeyboardKey.space) {
-              _triggerInteract();
-            }
-          } else if (event is KeyUpEvent) {
-            _pressedKeys.remove(event.logicalKey);
-          }
-        },
-        child: _loading || _assets == null
-            ? Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const CircularProgressIndicator(color: Color(0xFF38BDF8)),
-                    const SizedBox(height: 14),
-                    Text(
-                      'Loading MIS-SHS 2D Pixel School Lobby...',
-                      style: GoogleFonts.outfit(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ],
-                ),
-              )
-            : Stack(
-                children: [
-                  // 1. Interactive 2D Pixel Canvas (Tap-to-Walk + Camera Follow)
-                  Positioned.fill(
-                    child: LayoutBuilder(
-                      builder: (context, constraints) {
-                        final viewportSize = Size(
-                            constraints.maxWidth, constraints.maxHeight);
-                        return GestureDetector(
-                          behavior: HitTestBehavior.opaque,
-                          onTapUp: (d) => _handleCanvasTapUp(d, viewportSize),
-                          child: CustomPaint(
-                            size: viewportSize,
-                            painter: SchoolLobbyCanvasPainter(
-                              assets: _assets!,
-                              playerSheet: _playerSheet,
-                              playerPos: _playerPos,
-                              playerFacing: _playerFacing,
-                              playerIsWalking: _playerIsWalking,
-                              animTick: _animTick,
-                              playerName: widget.session.name,
-                              isFaculty: widget.session.isFaculty,
-                              equippedBadgeIcon: equippedBadgeIcon,
-                              waveBubbleProgress: _waveBubbleProgress,
-                              cameraCenter: _cameraCenter,
-                              cameraZoom: _cameraZoom,
-                              activePath: _activePath,
-                              tapPulseTarget: _tapPulseTarget,
-                              tapPulseProgress: _tapPulseProgress,
-                              highlightedZone: _highlightedZone,
-                              subjectChests: service.subjectChests,
-                              smallChestRemainingSec: smallChestRemainingSec,
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-                  ),
+    return ListenableBuilder(
+      listenable: ThemeController.instance,
+      builder: (context, _) {
+        final isDarkMode = ThemeController.instance.isDarkMode;
 
-                  // 2. Top HUD Bar ("Back to App", XP/Level Pill, "My Badges", Teacher "+ Post Activity", "Avatar")
-                  SafeArea(
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+        return Scaffold(
+          backgroundColor: const Color(0xFF090E1A),
+          body: SizedBox.expand(
+            child: KeyboardListener(
+              focusNode: _keyboardFocusNode,
+              autofocus: true,
+              onKeyEvent: (event) {
+                if (event is KeyDownEvent) {
+                  _pressedKeys.add(event.logicalKey);
+                  if (event.logicalKey == LogicalKeyboardKey.keyE ||
+                      event.logicalKey == LogicalKeyboardKey.space) {
+                    _triggerInteract();
+                  }
+                } else if (event is KeyUpEvent) {
+                  _pressedKeys.remove(event.logicalKey);
+                }
+              },
+              child: _loading || _assets == null
+                  ? Center(
                       child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          SingleChildScrollView(
-                            scrollDirection: Axis.horizontal,
-                            child: Row(
-                              children: [
-                                // "Back to App" Button
-                                _HudPillButton(
-                                  icon: Icons.arrow_back_rounded,
-                                  label: 'Back to App',
-                                  borderColor: Colors.white24,
-                                  onTap: () => Navigator.of(context).pop(),
+                          const CircularProgressIndicator(
+                              color: Color(0xFF38BDF8)),
+                          const SizedBox(height: 14),
+                          Text(
+                            'Loading MIS-SHS 2D Pixel School Lobby...',
+                            style: GoogleFonts.outfit(
+                              color: Colors.white,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ],
+                      ),
+                    )
+                  : Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        // 1. Full-Screen 2D Pixel Canvas (Tap-to-Walk + Camera Follow)
+                        Positioned.fill(
+                          child: LayoutBuilder(
+                            builder: (context, constraints) {
+                              final viewportSize = Size(
+                                constraints.maxWidth,
+                                constraints.maxHeight,
+                              );
+                              return GestureDetector(
+                                behavior: HitTestBehavior.opaque,
+                                onTapUp: (d) =>
+                                    _handleCanvasTapUp(d, viewportSize),
+                                child: CustomPaint(
+                                  size: viewportSize,
+                                  painter: SchoolLobbyCanvasPainter(
+                                    assets: _assets!,
+                                    playerSheet: _playerSheet,
+                                    playerPos: _playerPos,
+                                    playerFacing: _playerFacing,
+                                    playerIsWalking: _playerIsWalking,
+                                    animTick: _animTick,
+                                    playerName: _playerNickname,
+                                    isFaculty: widget.session.isFaculty,
+                                    equippedBadgeIcon: equippedBadgeIcon,
+                                    waveBubbleProgress: _waveBubbleProgress,
+                                    cameraCenter: _cameraCenter,
+                                    cameraZoom: _cameraZoom,
+                                    activePath: _activePath,
+                                    tapPulseTarget: _tapPulseTarget,
+                                    tapPulseProgress: _tapPulseProgress,
+                                    highlightedZone: _highlightedZone,
+                                    subjectChests: service.subjectChests,
+                                    smallChestRemainingSec:
+                                        smallChestRemainingSec,
+                                    isDarkMode: isDarkMode,
+                                  ),
                                 ),
-                                const SizedBox(width: 8),
+                              );
+                            },
+                          ),
+                        ),
 
-                                // Level & XP / Role Status Pill
-                                _HudPillButton(
-                                  icon: Icons.bolt_rounded,
-                                  iconColor: const Color(0xFFFACC15),
-                                  label:
-                                      'LVL ${progress.level} • ${progress.xp} XP',
-                                  borderColor:
-                                      const Color(0xFFFACC15).withOpacity(0.5),
-                                  onTap: () =>
-                                      showMyBadgesModal(context: context),
-                                ),
-                                const SizedBox(width: 8),
+                        // 2. Top HUD Bar (Explicitly Positioned so Stack always fills 100% of screen!)
+                        Positioned(
+                          top: 0,
+                          left: 0,
+                          right: 0,
+                          child: SafeArea(
+                            bottom: false,
+                            child: Padding(
+                              padding: const EdgeInsets.fromLTRB(10, 6, 10, 0),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  SingleChildScrollView(
+                                    scrollDirection: Axis.horizontal,
+                                    child: Row(
+                                      children: [
+                                        // "Back to App" Button
+                                        _HudPillButton(
+                                          icon: Icons.arrow_back_rounded,
+                                          label: 'Back to App',
+                                          borderColor: Colors.white24,
+                                          onTap: () =>
+                                              Navigator.of(context).pop(),
+                                        ),
+                                        const SizedBox(width: 6),
 
-                                // "My Badges" Drawer Button
-                                _HudPillButton(
-                                  icon: Icons.workspace_premium_rounded,
-                                  iconColor: const Color(0xFF34D399),
-                                  label: equippedBadgeIcon != null
-                                      ? '$equippedBadgeIcon Badges (${progress.earnedBadges.length})'
-                                      : 'My Badges (${progress.earnedBadges.length})',
-                                  borderColor:
-                                      const Color(0xFF10B981).withOpacity(0.55),
-                                  onTap: () =>
-                                      showMyBadgesModal(context: context),
-                                ),
-                                const SizedBox(width: 8),
+                                        // Level & XP Status Pill
+                                        _HudPillButton(
+                                          icon: Icons.bolt_rounded,
+                                          iconColor: const Color(0xFFFACC15),
+                                          label:
+                                              'LVL ${progress.level} • ${progress.xp} XP',
+                                          borderColor: const Color(0xFFFACC15)
+                                              .withOpacity(0.5),
+                                          onTap: () => showMyBadgesModal(
+                                              context: context),
+                                        ),
+                                        const SizedBox(width: 6),
 
-                                // Teacher Quick "+ Post Activity" HUD Button
-                                if (widget.session.isFaculty) ...[
-                                  _HudPillButton(
-                                    icon: Icons.add_task_rounded,
-                                    iconColor: const Color(0xFFF59E0B),
-                                    label: '+ Post Activity',
-                                    borderColor: const Color(0xFFF59E0B),
-                                    onTap: () => showPostActivityModal(
-                                      context: context,
-                                      postedBy: widget.session.name,
+                                        // "My Badges" Drawer Button
+                                        _HudPillButton(
+                                          icon:
+                                              Icons.workspace_premium_rounded,
+                                          iconColor: const Color(0xFF34D399),
+                                          label: equippedBadgeIcon != null
+                                              ? '$equippedBadgeIcon Badges (${progress.earnedBadges.length})'
+                                              : 'Badges (${progress.earnedBadges.length})',
+                                          borderColor: const Color(0xFF10B981)
+                                              .withOpacity(0.55),
+                                          onTap: () => showMyBadgesModal(
+                                              context: context),
+                                        ),
+                                        const SizedBox(width: 6),
+
+                                        // Teacher Quick "+ Post Activity" HUD Button
+                                        if (widget.session.isFaculty) ...[
+                                          _HudPillButton(
+                                            icon: Icons.add_task_rounded,
+                                            iconColor: const Color(0xFFF59E0B),
+                                            label: '+ Post Activity',
+                                            borderColor:
+                                                const Color(0xFFF59E0B),
+                                            onTap: () => showPostActivityModal(
+                                              context: context,
+                                              postedBy: _playerNickname,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 6),
+                                        ],
+
+                                        // "Customize Avatar & Nickname" Button
+                                        _HudPillButton(
+                                          icon: Icons
+                                              .face_retouching_natural_rounded,
+                                          iconColor: const Color(0xFF38BDF8),
+                                          label: 'Avatar ($_playerNickname)',
+                                          borderColor: const Color(0xFF38BDF8)
+                                              .withOpacity(0.55),
+                                          onTap: () => _openAvatarCustomizer(
+                                            isFirstTimeOnboarding: false,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 6),
+
+                                        // Dark Mode / Night Campus Toggle Pill
+                                        _HudPillButton(
+                                          icon: isDarkMode
+                                              ? Icons.dark_mode_rounded
+                                              : Icons.light_mode_rounded,
+                                          iconColor: isDarkMode
+                                              ? const Color(0xFFFACC15)
+                                              : const Color(0xFFF59E0B),
+                                          label: isDarkMode ? 'Night' : 'Day',
+                                          borderColor: const Color(0xFFFACC15)
+                                              .withOpacity(0.45),
+                                          onTap: () => ThemeController.instance
+                                              .toggleDarkMode(),
+                                        ),
+                                        const SizedBox(width: 6),
+
+                                        // 1-Tap Portrait / Landscape Orientation Switcher
+                                        _HudPillButton(
+                                          icon: isLandscape
+                                              ? Icons
+                                                  .stay_current_portrait_rounded
+                                              : Icons
+                                                  .stay_current_landscape_rounded,
+                                          iconColor: const Color(0xFFA78BFA),
+                                          label: isLandscape
+                                              ? 'Portrait'
+                                              : 'Landscape',
+                                          borderColor: const Color(0xFFA78BFA)
+                                              .withOpacity(0.45),
+                                          onTap: () => _toggleOrientationLock(
+                                              isLandscape),
+                                        ),
+                                        const SizedBox(width: 6),
+
+                                        // Mini-Map Toggle Pill
+                                        _HudPillButton(
+                                          icon: Icons.map_rounded,
+                                          iconColor: _showMiniMap
+                                              ? const Color(0xFF34D399)
+                                              : Colors.white60,
+                                          label: 'Map',
+                                          borderColor: _showMiniMap
+                                              ? const Color(0xFF34D399)
+                                                  .withOpacity(0.5)
+                                              : Colors.white24,
+                                          onTap: () => setState(() {
+                                            _showMiniMap = !_showMiniMap;
+                                          }),
+                                        ),
+                                      ],
                                     ),
                                   ),
-                                  const SizedBox(width: 8),
-                                ],
 
-                                // "Customize Avatar" Button
-                                _HudPillButton(
-                                  icon: Icons.face_retouching_natural_rounded,
-                                  iconColor: const Color(0xFF38BDF8),
-                                  label: 'Avatar',
-                                  borderColor:
-                                      const Color(0xFF38BDF8).withOpacity(0.55),
-                                  onTap: _openAvatarCustomizer,
-                                ),
-                              ],
+                                  // Active Zone Proximity Banner under Top HUD
+                                  if (_highlightedZone != null) ...[
+                                    const SizedBox(height: 6),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 12, vertical: 6),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFF0F172A)
+                                            .withOpacity(0.90),
+                                        borderRadius: BorderRadius.circular(12),
+                                        border: Border.all(
+                                          color: Color(
+                                              _highlightedZone!.accentColor),
+                                          width: 1.4,
+                                        ),
+                                      ),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Icon(
+                                            Icons.place_rounded,
+                                            color: Color(
+                                                _highlightedZone!.accentColor),
+                                            size: 15,
+                                          ),
+                                          const SizedBox(width: 6),
+                                          Flexible(
+                                            child: Text(
+                                              '${_highlightedZone!.label} — ${_highlightedZone!.subtitle}',
+                                              style: GoogleFonts.inter(
+                                                color: Colors.white,
+                                                fontSize: 11,
+                                                fontWeight: FontWeight.w700,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+
+                        // 3. Top-Right Compact Campus Mini-Map Radar
+                        if (_showMiniMap)
+                          Positioned(
+                            top: isLandscape ? 54 : 62,
+                            right: 12,
+                            child: SafeArea(
+                              bottom: false,
+                              child: _LobbyMiniMapRadar(
+                                playerPos: _playerPos,
+                                subjectChests: service.subjectChests,
+                                isCompact: !isLandscape && screenSize.width < 390,
+                                onTapWorldPoint: (worldTarget) {
+                                  final solids =
+                                      buildLobbySolids(service.subjectChests);
+                                  final nav = LobbyNavGrid(
+                                    cols: kLobbyCols,
+                                    rows: kLobbyRows,
+                                    solids: solids,
+                                  );
+                                  final path =
+                                      nav.findPath(_playerPos, worldTarget);
+                                  setState(() {
+                                    _tapPulseTarget = worldTarget;
+                                    _tapPulseProgress = 0.0;
+                                    if (path.isNotEmpty) {
+                                      _activePath = path;
+                                    }
+                                  });
+                                },
+                              ),
                             ),
                           ),
 
-                          // Active Zone Proximity Banner under Top HUD
-                          if (_highlightedZone != null) ...[
-                            const SizedBox(height: 8),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 12, vertical: 6),
-                              decoration: BoxDecoration(
-                                color:
-                                    const Color(0xFF0F172A).withOpacity(0.88),
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(
-                                  color: Color(_highlightedZone!.accentColor),
-                                  width: 1.4,
-                                ),
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(
-                                    Icons.place_rounded,
-                                    color:
-                                        Color(_highlightedZone!.accentColor),
-                                    size: 16,
-                                  ),
-                                  const SizedBox(width: 6),
-                                  Flexible(
-                                    child: Text(
-                                      '${_highlightedZone!.label} — ${_highlightedZone!.subtitle}',
-                                      style: GoogleFonts.inter(
-                                        color: Colors.white,
-                                        fontSize: 11.5,
-                                        fontWeight: FontWeight.w700,
-                                      ),
-                                    ),
-                                  ),
-                                ],
+                        // 4. Bottom-Left Virtual Touch Joystick (Mobile APK Controls)
+                        Positioned(
+                          left: isLandscape ? 20 : 12,
+                          bottom: isLandscape ? 18 : 16,
+                          child: SafeArea(
+                            top: false,
+                            child: Transform.scale(
+                              scale:
+                                  (!isLandscape && screenSize.width < 380)
+                                      ? 0.88
+                                      : 1.0,
+                              alignment: Alignment.bottomLeft,
+                              child: SchoolLobbyVirtualJoystick(
+                                onVectorChanged: (vec) {
+                                  _joystickVector = vec;
+                                },
                               ),
                             ),
-                          ],
-                        ],
-                      ),
-                    ),
-                  ),
+                          ),
+                        ),
 
-                  // 3. Bottom-Left Virtual Touch Joystick (Mobile APK Controls)
-                  Positioned(
-                    left: 18,
-                    bottom: 22,
-                    child: SafeArea(
-                      top: false,
-                      child: SchoolLobbyVirtualJoystick(
-                        onVectorChanged: (vec) {
-                          _joystickVector = vec;
-                        },
-                      ),
+                        // 5. Bottom-Right On-Screen "Interact" Button + Wave & Zoom Cluster
+                        Positioned(
+                          right: isLandscape ? 18 : 12,
+                          bottom: isLandscape ? 18 : 16,
+                          child: SafeArea(
+                            top: false,
+                            child: Transform.scale(
+                              scale:
+                                  (!isLandscape && screenSize.width < 380)
+                                      ? 0.90
+                                      : 1.0,
+                              alignment: Alignment.bottomRight,
+                              child: SchoolLobbyInteractCluster(
+                                activeZone: _highlightedZone,
+                                onInteract: _triggerInteract,
+                                onWave: _triggerWave,
+                                onZoomIn: () => setState(() {
+                                  _userAdjustedZoom = true;
+                                  _cameraZoom =
+                                      (_cameraZoom + 0.18).clamp(0.75, 2.2);
+                                  _cameraCenter = _clampCameraToWorld(
+                                    _playerPos,
+                                    screenSize,
+                                    _cameraZoom,
+                                  );
+                                }),
+                                onZoomOut: () => setState(() {
+                                  _userAdjustedZoom = true;
+                                  _cameraZoom =
+                                      (_cameraZoom - 0.18).clamp(0.75, 2.2);
+                                  _cameraCenter = _clampCameraToWorld(
+                                    _playerPos,
+                                    screenSize,
+                                    _cameraZoom,
+                                  );
+                                }),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
-                  ),
-
-                  // 4. Bottom-Right On-Screen "Interact" Button + Wave & Zoom Cluster
-                  Positioned(
-                    right: 16,
-                    bottom: 22,
-                    child: SafeArea(
-                      top: false,
-                      child: SchoolLobbyInteractCluster(
-                        activeZone: _highlightedZone,
-                        onInteract: _triggerInteract,
-                        onWave: _triggerWave,
-                        onZoomIn: () => setState(() {
-                          _cameraZoom = (_cameraZoom + 0.2).clamp(0.85, 2.2);
-                        }),
-                        onZoomOut: () => setState(() {
-                          _cameraZoom = (_cameraZoom - 0.2).clamp(0.85, 2.2);
-                        }),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-      ),
+            ),
+          ),
+        );
+      },
     );
   }
 }
@@ -634,27 +883,27 @@ class _HudPillButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: const Color(0xFF0F172A).withOpacity(0.86),
+      color: const Color(0xFF0F172A).withOpacity(0.88),
       borderRadius: BorderRadius.circular(99),
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(99),
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(99),
-            border: Border.all(color: borderColor, width: 1.3),
+            border: Border.all(color: borderColor, width: 1.25),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(icon, color: iconColor, size: 16),
-              const SizedBox(width: 6),
+              Icon(icon, color: iconColor, size: 15),
+              const SizedBox(width: 5),
               Text(
                 label,
                 style: GoogleFonts.inter(
                   color: Colors.white,
-                  fontSize: 12,
+                  fontSize: 11.5,
                   fontWeight: FontWeight.w700,
                 ),
               ),
@@ -664,4 +913,137 @@ class _HudPillButton extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Interactive Mini-Map Radar of the expanded `48 x 34` (`1536 x 1088` px) School Campus.
+/// Tapping anywhere on the mini-map auto-walks the player to that wing!
+class _LobbyMiniMapRadar extends StatelessWidget {
+  final Offset playerPos;
+  final List<SubjectChest> subjectChests;
+  final bool isCompact;
+  final ValueChanged<Offset> onTapWorldPoint;
+
+  const _LobbyMiniMapRadar({
+    required this.playerPos,
+    required this.subjectChests,
+    required this.isCompact,
+    required this.onTapWorldPoint,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final mapW = isCompact ? 112.0 : 136.0;
+    final mapH = mapW * (kLobbyWorldHeight / kLobbyWorldWidth);
+
+    return GestureDetector(
+      onTapDown: (d) {
+        final wx =
+            (d.localPosition.dx / mapW * kLobbyWorldWidth).clamp(48.0, kLobbyWorldWidth - 48.0);
+        final wy =
+            (d.localPosition.dy / mapH * kLobbyWorldHeight).clamp(96.0, kLobbyWorldHeight - 48.0);
+        onTapWorldPoint(Offset(wx, wy));
+      },
+      child: Container(
+        width: mapW,
+        height: mapH,
+        decoration: BoxDecoration(
+          color: const Color(0xFF0F172A).withOpacity(0.86),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: const Color(0xFF38BDF8).withOpacity(0.55),
+            width: 1.4,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.45),
+              blurRadius: 8,
+              offset: const Offset(0, 3),
+            ),
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(8.5),
+          child: CustomPaint(
+            size: Size(mapW, mapH),
+            painter: _MiniMapRadarPainter(
+              playerPos: playerPos,
+              subjectChests: subjectChests,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _MiniMapRadarPainter extends CustomPainter {
+  final Offset playerPos;
+  final List<SubjectChest> subjectChests;
+
+  const _MiniMapRadarPainter({
+    required this.playerPos,
+    required this.subjectChests,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final sx = size.width / kLobbyWorldWidth;
+    final sy = size.height / kLobbyWorldHeight;
+
+    // 1. Campus Zones
+    // Bulletin Wing (Top-Left)
+    canvas.drawRect(
+      Rect.fromLTWH(44 * sx, 92 * sy, 460 * sx, 190 * sy),
+      Paint()..color = const Color(0xFF38BDF8).withOpacity(0.28),
+    );
+    // Quest Counter (Top-Center)
+    canvas.drawRect(
+      Rect.fromLTWH(620 * sx, 92 * sy, 296 * sx, 170 * sy),
+      Paint()..color = const Color(0xFFF59E0B).withOpacity(0.32),
+    );
+    // Teacher's Corner (Top-Right)
+    canvas.drawRect(
+      Rect.fromLTWH(1060 * sx, 92 * sy, 420 * sx, 190 * sy),
+      Paint()..color = const Color(0xFFFBBF24).withOpacity(0.28),
+    );
+    // Student Lounge & Study Commons (Left & Center-Bottom)
+    canvas.drawRect(
+      Rect.fromLTWH(76 * sx, 430 * sy, 680 * sx, 560 * sy),
+      Paint()..color = const Color(0xFF10B981).withOpacity(0.22),
+    );
+    // Reviewer Treasure Vault Sanctuary (Bottom-Right)
+    canvas.drawRect(
+      Rect.fromLTWH(880 * sx, 460 * sy, 580 * sx, 560 * sy),
+      Paint()..color = const Color(0xFFA855F7).withOpacity(0.28),
+    );
+
+    // 2. Subject Chest dots
+    for (var i = 0; i < subjectChests.length; i++) {
+      final pos = subjectChestPosition(i);
+      canvas.drawCircle(
+        Offset(pos.dx * sx, pos.dy * sy),
+        2.6,
+        Paint()..color = Color(subjectChests[i].colorValue),
+      );
+    }
+
+    // 3. Player glowing dot
+    final px = (playerPos.dx * sx).clamp(4.0, size.width - 4.0);
+    final py = (playerPos.dy * sy).clamp(4.0, size.height - 4.0);
+    canvas.drawCircle(
+      Offset(px, py),
+      5.5,
+      Paint()..color = const Color(0xFF38BDF8).withOpacity(0.38),
+    );
+    canvas.drawCircle(
+      Offset(px, py),
+      3.0,
+      Paint()..color = Colors.white,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _MiniMapRadarPainter oldDelegate) =>
+      oldDelegate.playerPos != playerPos ||
+      oldDelegate.subjectChests.length != subjectChests.length;
 }

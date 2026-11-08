@@ -16,6 +16,7 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   // Warm up local SQLite database & offline-to-online Background Sync Manager
+  await ThemeController.instance.initialize();
   await LocalDatabase.instance.database;
   await SyncManager.instance.initialize();
 
@@ -27,11 +28,19 @@ class MisShsLearnerApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: AppConfig.appName,
-      debugShowCheckedModeBanner: false,
-      theme: PortalTheme.buildTheme(),
-      home: const PortalRootShell(),
+    return ListenableBuilder(
+      listenable: ThemeController.instance,
+      builder: (context, _) {
+        final isDark = ThemeController.instance.isDarkMode;
+        return MaterialApp(
+          title: AppConfig.appName,
+          debugShowCheckedModeBanner: false,
+          theme: PortalTheme.buildTheme(),
+          darkTheme: PortalTheme.buildDarkTheme(),
+          themeMode: isDark ? ThemeMode.dark : ThemeMode.light,
+          home: const PortalRootShell(),
+        );
+      },
     );
   }
 }

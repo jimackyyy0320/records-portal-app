@@ -46,3 +46,6 @@ flutter:
     - assets/school_lobby/characters/parts/glasses/
     - assets/school_lobby/characters/parts/hat/
     - assets/school_lobby/characters/parts/bag/
+    - assets/school_lobby/characters/parts/face/
+    - assets/school_lobby/characters/parts/gloves/
+    - assets/school_lobby/tilesets/textures/

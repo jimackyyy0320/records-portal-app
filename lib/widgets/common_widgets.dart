@@ -49,35 +49,44 @@ class ParchmentScaffold extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return PortalLoadingOverlay(
-      visible: isLoading,
-      message: loadingMessage,
-      subtitle: loadingSubtitle,
-      child: Scaffold(
-        backgroundColor: PortalColors.parchment,
-        floatingActionButton: floatingActionButton,
-        body: CustomPaint(
-          painter: _ParchmentLinesPainter(),
-          child: SafeArea(
-            child: Column(
-              children: [
-                if (topBanner != null) topBanner!,
-                if (topNavigationBar != null) topNavigationBar!,
-                Expanded(child: child),
-              ],
+    return ListenableBuilder(
+      listenable: ThemeController.instance,
+      builder: (context, _) {
+        final isDark = ThemeController.instance.isDarkMode;
+        return PortalLoadingOverlay(
+          visible: isLoading,
+          message: loadingMessage,
+          subtitle: loadingSubtitle,
+          child: Scaffold(
+            backgroundColor: isDark ? PortalColors.darkBg : PortalColors.parchment,
+            floatingActionButton: floatingActionButton,
+            body: CustomPaint(
+              painter: _ParchmentLinesPainter(isDark: isDark),
+              child: SafeArea(
+                child: Column(
+                  children: [
+                    if (topBanner != null) topBanner!,
+                    if (topNavigationBar != null) topNavigationBar!,
+                    Expanded(child: child),
+                  ],
+                ),
+              ),
             ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 }
 
 class _ParchmentLinesPainter extends CustomPainter {
+  final bool isDark;
+  const _ParchmentLinesPainter({this.isDark = false});
+
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
-      ..color = const Color(0x0E1A3A2A)
+      ..color = isDark ? const Color(0x1494A3B8) : const Color(0x0E1A3A2A)
       ..strokeWidth = 1;
     for (double y = 28; y < size.height; y += 28) {
       canvas.drawLine(Offset(0, y), Offset(size.width, y), paint);
@@ -85,7 +94,8 @@ class _ParchmentLinesPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+  bool shouldRepaint(covariant _ParchmentLinesPainter oldDelegate) =>
+      oldDelegate.isDark != isDark;
 }
 
 /// Top scrolling announcement marquee matching `#top-banner` in `index.html`.

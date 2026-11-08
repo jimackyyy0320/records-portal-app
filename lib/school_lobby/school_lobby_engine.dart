@@ -305,6 +305,7 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
   final InteractiveZone? highlightedZone;
   final List<SubjectChest> subjectChests;
   final Map<String, int> smallChestRemainingSec;
+  final bool isDarkMode;
 
   const SchoolLobbyCanvasPainter({
     required this.assets,
@@ -325,6 +326,7 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
     required this.highlightedZone,
     required this.subjectChests,
     required this.smallChestRemainingSec,
+    this.isDarkMode = false,
   });
 
   @override
@@ -438,20 +440,28 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
     // Outer drop shadow
     canvas.drawRRect(
       RRect.fromRectAndRadius(
-        const Rect.fromLTWH(-10, -6, kLobbyWorldWidth + 20, kLobbyWorldHeight + 20),
-        const Radius.circular(14),
+        const Rect.fromLTWH(-12, -8, kLobbyWorldWidth + 24, kLobbyWorldHeight + 24),
+        const Radius.circular(16),
       ),
-      Paint()..color = Colors.black.withOpacity(0.55),
+      Paint()..color = Colors.black.withOpacity(0.65),
     );
 
-    // Main warm school wood/tile floor
+    // Main school wood/tile floor (Day Warm Timber vs Night Midnight Slate)
     const floorRect = Rect.fromLTWH(0, 0, kLobbyWorldWidth, kLobbyWorldHeight);
-    canvas.drawRect(floorRect, Paint()..color = const Color(0xFFD8C5A8));
+    final baseFloorColor =
+        isDarkMode ? const Color(0xFF152033) : const Color(0xFFD8C5A8);
+    final altFloorColor =
+        isDarkMode ? const Color(0xFF111A2B) : const Color(0xFFD1BC9D);
+    final gridColor = isDarkMode
+        ? const Color(0xFF283953).withOpacity(0.42)
+        : const Color(0xFFBFA888).withOpacity(0.45);
 
-    // Checkerboard & plank tile grid (`TILE = 32`)
-    final altTilePaint = Paint()..color = const Color(0xFFD1BC9D);
+    canvas.drawRect(floorRect, Paint()..color = baseFloorColor);
+
+    // Checkerboard & plank tile grid (`TILE = 32`, `48 x 34` tiles)
+    final altTilePaint = Paint()..color = altFloorColor;
     final gridLinePaint = Paint()
-      ..color = const Color(0xFFBFA888).withOpacity(0.45)
+      ..color = gridColor
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1.0;
 
@@ -466,49 +476,97 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
       }
     }
 
-    // Distinct visual zone floor tinting
-    // 1. Bulletin Board Reading Floor (Top-Left)
+    // Center Grand Campus Walkway Carpet Runner (Vertical & Horizontal Crossroads)
     canvas.drawRRect(
       RRect.fromRectAndRadius(
-        const Rect.fromLTWH(44, 92, 224, 128),
+        const Rect.fromLTWH(720, 260, 96, kLobbyWorldHeight - 288),
         const Radius.circular(8),
       ),
-      Paint()..color = const Color(0xFF38BDF8).withOpacity(0.10),
+      Paint()
+        ..color = isDarkMode
+            ? const Color(0xFF1E3A5F).withOpacity(0.32)
+            : const Color(0xFF0F766E).withOpacity(0.11),
     );
 
-    // 2. Reviewer Treasure Corner Sanctuary Floor (Bottom-Right)
-    final sanctuaryRect = RRect.fromRectAndRadius(
-      const Rect.fromLTWH(488, 296, 300, 240),
-      const Radius.circular(12),
-    );
+    // Distinct visual zone floor tinting
+    // 1. Bulletin Board Reading Floor (Top-Left Wing)
     canvas.drawRRect(
-      sanctuaryRect,
-      Paint()..color = const Color(0xFF3B1D5E).withOpacity(0.22),
+      RRect.fromRectAndRadius(
+        const Rect.fromLTWH(44, 92, 460, 190),
+        const Radius.circular(10),
+      ),
+      Paint()
+        ..color = const Color(0xFF38BDF8).withOpacity(isDarkMode ? 0.14 : 0.10),
+    );
+
+    // 2. Reviewer Treasure Corner Sanctuary Floor (Expanded Bottom-Right Wing)
+    final sanctuaryRect = RRect.fromRectAndRadius(
+      const Rect.fromLTWH(880, 460, 580, 560),
+      const Radius.circular(14),
     );
     canvas.drawRRect(
       sanctuaryRect,
       Paint()
-        ..color = const Color(0xFFF59E0B).withOpacity(0.55)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 2.0,
+        ..color = const Color(0xFF3B1D5E).withOpacity(isDarkMode ? 0.36 : 0.22),
     );
+    canvas.drawRRect(
+      sanctuaryRect,
+      Paint()
+        ..color = const Color(0xFFF59E0B).withOpacity(0.65)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.2,
+    );
+
+    // Warm golden ambient light pools when Night / Dark Study Campus mode is active
+    if (isDarkMode) {
+      final glowCenters = <Offset>[
+        const Offset(268, 175), // Bulletin Wall
+        const Offset(768, 200), // Quest Counter
+        const Offset(1248, 200), // Teacher's Corner
+        const Offset(416, 672), // Student Lounge
+        const Offset(1168, 760), // Reviewer Treasure Vault
+        playerPos, // Subtle lantern glow around the player
+      ];
+      for (final center in glowCenters) {
+        final radius = center == playerPos ? 130.0 : 210.0;
+        final shader = ui.Gradient.radial(
+          center,
+          radius,
+          [
+            const Color(0xFFFBBF24).withOpacity(0.16),
+            const Color(0xFFF59E0B).withOpacity(0.05),
+            Colors.transparent,
+          ],
+          const [0.0, 0.55, 1.0],
+        );
+        canvas.drawCircle(center, radius, Paint()..shader = shader);
+      }
+    }
 
     // 3/4-Perspective Top Wall (`WALL_HEIGHT = 82` from `shell.ts`)
     const topWallFace = Rect.fromLTWH(0, 14, kLobbyWorldWidth, 68);
-    canvas.drawRect(topWallFace, Paint()..color = const Color(0xFFE7DFD3));
+    canvas.drawRect(
+      topWallFace,
+      Paint()
+        ..color =
+            isDarkMode ? const Color(0xFF1E293B) : const Color(0xFFE7DFD3),
+    );
     // Lower wainscot molding along the top wall
     canvas.drawRect(
       const Rect.fromLTWH(0, 66, kLobbyWorldWidth, 16),
-      Paint()..color = const Color(0xFF9C8468),
+      Paint()
+        ..color =
+            isDarkMode ? const Color(0xFF334155) : const Color(0xFF9C8468),
     );
     // Wall drop shadow (`SHADOW = 0.86`)
     canvas.drawRect(
       const Rect.fromLTWH(0, 82, kLobbyWorldWidth, 12),
-      Paint()..color = Colors.black.withOpacity(0.14),
+      Paint()..color = Colors.black.withOpacity(isDarkMode ? 0.35 : 0.14),
     );
 
     // Perimeter dark architectural wall caps (`TOP = #26243a` from `shell.ts`)
-    final wallCapPaint = Paint()..color = const Color(0xFF26243A);
+    final wallCapPaint = Paint()
+      ..color = isDarkMode ? const Color(0xFF0F172A) : const Color(0xFF26243A);
     // Top cap
     canvas.drawRect(
       const Rect.fromLTWH(0, 0, kLobbyWorldWidth, 16),
@@ -524,19 +582,19 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
       const Rect.fromLTWH(kLobbyWorldWidth - 32, 0, 32, kLobbyWorldHeight),
       wallCapPaint,
     );
-    // Bottom wall cap with school entrance mat in the middle
+    // Bottom wall cap with school entrance mat in the middle (708..828)
     canvas.drawRect(
-      const Rect.fromLTWH(0, kLobbyWorldHeight - 24, 352, 24),
+      const Rect.fromLTWH(0, kLobbyWorldHeight - 24, 704, 24),
       wallCapPaint,
     );
     canvas.drawRect(
-      const Rect.fromLTWH(480, kLobbyWorldHeight - 24, 352, 24),
+      const Rect.fromLTWH(832, kLobbyWorldHeight - 24, 704, 24),
       wallCapPaint,
     );
     // School Lobby Entrance Threshold Mat (Bottom Center)
     canvas.drawRRect(
       RRect.fromRectAndRadius(
-        const Rect.fromLTWH(356, kLobbyWorldHeight - 26, 120, 22),
+        const Rect.fromLTWH(708, kLobbyWorldHeight - 26, 120, 22),
         const Radius.circular(4),
       ),
       Paint()..color = const Color(0xFF0F766E),
@@ -544,35 +602,35 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
   }
 
   void _paintZoneFloorDecals(Canvas canvas) {
-    // Subtle zone floor title plaques for the 5 areas
+    // Subtle zone floor title plaques for the 5 expanded campus wings
     _drawFloorPlaque(
       canvas,
       text: '📌 BULLETIN WALL',
-      center: const Offset(152, 198),
+      center: const Offset(268, 250),
       color: const Color(0xFF0284C7),
     );
     _drawFloorPlaque(
       canvas,
       text: '⚔️ QUEST COUNTER',
-      center: const Offset(416, 206),
+      center: const Offset(768, 256),
       color: const Color(0xFFD97706),
     );
     _drawFloorPlaque(
       canvas,
       text: "🎓 TEACHER'S CORNER",
-      center: const Offset(696, 206),
+      center: const Offset(1248, 256),
       color: const Color(0xFFB45309),
     );
     _drawFloorPlaque(
       canvas,
-      text: '🛋️ STUDENT LOUNGE & STUDY',
-      center: const Offset(256, 304),
+      text: '🛋️ STUDENT LOUNGE & STUDY COMMONS',
+      center: const Offset(416, 420),
       color: const Color(0xFF059669),
     );
     _drawFloorPlaque(
       canvas,
       text: '💎 REVIEWER TREASURE VAULT',
-      center: const Offset(640, 314),
+      center: const Offset(1168, 568),
       color: const Color(0xFF9333EA),
     );
 
@@ -706,7 +764,9 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
       name: npc.name,
       roleTag: npc.roleTag,
       isGoldTag: npc.isGoldTag,
-      badgeIcon: npc.id == 'npc_receptionist' ? '✨' : '🎓',
+      badgeIcon: npc.id == 'npc_receptionist'
+          ? '✨'
+          : (npc.id == 'npc_teacher' ? '🎓' : '📚'),
     );
   }
 

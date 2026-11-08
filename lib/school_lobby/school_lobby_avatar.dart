@@ -64,7 +64,7 @@ const List<String> kBundledPresets = [
   'Jenny',
 ];
 
-/// Bundled Custom Layer Options (`assets/school_lobby/characters/parts/<group>/<id>.png`).
+/// Expanded Bundled Custom Layer Options (`assets/school_lobby/characters/parts/<group>/<id>.png`).
 const Map<String, List<Map<String, String>>> kBundledCustomParts = {
   'body': [
     {'id': '1', 'label': 'Warm Tan', 'hex': '#bf8b78'},
@@ -105,6 +105,14 @@ const Map<String, List<Map<String, String>>> kBundledCustomParts = {
     {'id': '11-3', 'label': 'Lilac Pullover', 'hex': '#beb6cc'},
     {'id': '14-1', 'label': 'Denim Jacket', 'hex': '#647e99'},
     {'id': '15-1', 'label': 'Crisp White Shirt', 'hex': '#ebf3ff'},
+    {'id': '16-1', 'label': 'Amber Tracksuit', 'hex': '#f5aa14'},
+    {'id': '17-1', 'label': 'Teal Windbreaker', 'hex': '#4b9296'},
+    {'id': '18-1', 'label': 'Terracotta Coat', 'hex': '#c37759'},
+    {'id': '19-1', 'label': 'Royal Polo', 'hex': '#4280dd'},
+    {'id': '20-1', 'label': 'Midnight Suit', 'hex': '#4d5988'},
+    {'id': '24-1', 'label': 'Cerulean Tee', 'hex': '#0092e3'},
+    {'id': '25-1', 'label': 'Azure Hoodie', 'hex': '#0092e3'},
+    {'id': '31-1', 'label': 'Academy Blazer', 'hex': '#335789'},
   ],
   'hair': [
     {'id': 'none', 'label': 'None', 'hex': '#334155'},
@@ -127,6 +135,21 @@ const Map<String, List<Map<String, String>>> kBundledCustomParts = {
     {'id': '20-4', 'label': 'Scholar Fade', 'hex': '#674d49'},
     {'id': '21-7', 'label': 'Stealth Messy', 'hex': '#566279'},
     {'id': '22-1', 'label': 'Golden Pomp', 'hex': '#b37b3f'},
+    {'id': '23-1', 'label': 'Sunburst Wavy', 'hex': '#b37b3f'},
+    {'id': '24-1', 'label': 'Amber Curls', 'hex': '#b37b3f'},
+    {'id': '25-1', 'label': 'Copper Ponytail', 'hex': '#ab6736'},
+    {'id': '26-1', 'label': 'Golden bangs', 'hex': '#b37b3f'},
+    {'id': '27-1', 'label': 'Sakura Pink', 'hex': '#e88dad'},
+    {'id': '28-4', 'label': 'Cobalt Shag', 'hex': '#4280dd'},
+    {'id': '29-4', 'label': 'Sky Anime Cut', 'hex': '#50a7e8'},
+  ],
+  'face': [
+    {'id': 'none', 'label': 'None', 'hex': '#334155'},
+    {'id': '7-1', 'label': 'Dapper Stache', 'hex': '#51506f'},
+    {'id': '12-1', 'label': 'Full Beard', 'hex': '#8a6552'},
+    {'id': '13-1', 'label': 'Goatee Trim', 'hex': '#6f5449'},
+    {'id': '16-1', 'label': 'Chin Strap', 'hex': '#795237'},
+    {'id': '17-1', 'label': 'Face Mask', 'hex': '#ffffff'},
   ],
   'glasses': [
     {'id': 'none', 'label': 'None', 'hex': '#334155'},
@@ -144,18 +167,34 @@ const Map<String, List<Map<String, String>>> kBundledCustomParts = {
     {'id': '2-1', 'label': 'Gold Beanie', 'hex': '#f8d239'},
     {'id': '4-1', 'label': 'Crimson Beret', 'hex': '#e63f38'},
     {'id': '4-2', 'label': 'Azure Beret', 'hex': '#4995e3'},
+    {'id': '5-1', 'label': 'Lime Visor', 'hex': '#9bc246'},
     {'id': '6-1', 'label': 'Scholar Fedora', 'hex': '#6c6e85'},
+    {'id': '8-1', 'label': 'Ranger Hat', 'hex': '#c37759'},
     {'id': '9-1', 'label': 'Sun Hat', 'hex': '#c6a755'},
+    {'id': '10-1', 'label': 'Silver Crown', 'hex': '#b9c3d5'},
     {'id': '11-1', 'label': 'Winter Knit', 'hex': '#676e8d'},
+    {'id': '18-1', 'label': 'Bunny Ears', 'hex': '#ebe4f2'},
+    {'id': '19-1', 'label': 'Headband', 'hex': '#e63f38'},
+  ],
+  'gloves': [
+    {'id': 'none', 'label': 'None', 'hex': '#334155'},
+    {'id': '14-1', 'label': 'White Gloves', 'hex': '#f4eae2'},
+    {'id': '14-2', 'label': 'Mint Gloves', 'hex': '#c8e9d9'},
+    {'id': '14-3', 'label': 'Lilac Gloves', 'hex': '#c8a7d9'},
+    {'id': '14-4', 'label': 'Leather Mitts', 'hex': '#b7723c'},
   ],
   'bag': [
     {'id': 'none', 'label': 'None', 'hex': '#334155'},
     {'id': '3-1', 'label': 'Leather Pack', 'hex': '#8a6d58'},
+    {'id': '3-2', 'label': 'Sand Pack', 'hex': '#bda766'},
     {'id': '3-3', 'label': 'Emerald Pack', 'hex': '#74b453'},
+    {'id': '3-4', 'label': 'Teal Pack', 'hex': '#3cb074'},
     {'id': '3-5', 'label': 'Crimson Pack', 'hex': '#e63f38'},
     {'id': '3-6', 'label': 'Cobalt Pack', 'hex': '#4995e3'},
     {'id': '3-7', 'label': 'Rose Pack', 'hex': '#e88dad'},
+    {'id': '3-8', 'label': 'Slate Pack', 'hex': '#9da3b7'},
     {'id': '3-9', 'label': 'Violet Pack', 'hex': '#8555c5'},
+    {'id': '3-10', 'label': 'Sky Pack', 'hex': '#50a7e8'},
   ],
 };
 
@@ -167,8 +206,10 @@ class LobbyAvatarLook {
   final String eyes;
   final String outfit;
   final String hair;
+  final String face;
   final String glasses;
   final String hat;
+  final String gloves;
   final String bag;
 
   const LobbyAvatarLook({
@@ -178,8 +219,10 @@ class LobbyAvatarLook {
     this.eyes = '1',
     this.outfit = '1-2',
     this.hair = '17-4',
+    this.face = 'none',
     this.glasses = 'none',
     this.hat = 'none',
+    this.gloves = 'none',
     this.bag = '3-6',
   });
 
@@ -190,8 +233,10 @@ class LobbyAvatarLook {
     String? eyes,
     String? outfit,
     String? hair,
+    String? face,
     String? glasses,
     String? hat,
+    String? gloves,
     String? bag,
   }) {
     return LobbyAvatarLook(
@@ -201,8 +246,10 @@ class LobbyAvatarLook {
       eyes: eyes ?? this.eyes,
       outfit: outfit ?? this.outfit,
       hair: hair ?? this.hair,
+      face: face ?? this.face,
       glasses: glasses ?? this.glasses,
       hat: hat ?? this.hat,
+      gloves: gloves ?? this.gloves,
       bag: bag ?? this.bag,
     );
   }
@@ -217,8 +264,10 @@ class LobbyAvatarLook {
       'eyes.$eyes',
       'outfit.$outfit',
       if (hair != 'none' && hair.isNotEmpty) 'hair.$hair',
+      if (face != 'none' && face.isNotEmpty) 'face.$face',
       if (glasses != 'none' && glasses.isNotEmpty) 'glasses.$glasses',
       if (hat != 'none' && hat.isNotEmpty) 'hat.$hat',
+      if (gloves != 'none' && gloves.isNotEmpty) 'gloves.$gloves',
       if (bag != 'none' && bag.isNotEmpty) 'bag.$bag',
     ];
     return segments.join('/');
@@ -248,8 +297,10 @@ class LobbyAvatarLook {
     var eyes = '1';
     var outfit = '1-2';
     var hair = '17-4';
+    var face = 'none';
     var glasses = 'none';
     var hat = 'none';
+    var gloves = 'none';
     var bag = 'none';
 
     for (final token in trimmed.split('/')) {
@@ -270,11 +321,17 @@ class LobbyAvatarLook {
         case 'hair':
           hair = val;
           break;
+        case 'face':
+          face = val;
+          break;
         case 'glasses':
           glasses = val;
           break;
         case 'hat':
           hat = val;
+          break;
+        case 'gloves':
+          gloves = val;
           break;
         case 'bag':
           bag = val;
@@ -289,8 +346,10 @@ class LobbyAvatarLook {
       eyes: eyes,
       outfit: outfit,
       hair: hair,
+      face: face,
       glasses: glasses,
       hat: hat,
+      gloves: gloves,
       bag: bag,
     );
   }
@@ -306,17 +365,33 @@ class LobbyAvatarLook {
       'assets/school_lobby/characters/parts/outfit/$outfit.png',
       if (hair != 'none' && hair.isNotEmpty)
         'assets/school_lobby/characters/parts/hair/$hair.png',
+      if (face != 'none' && face.isNotEmpty)
+        'assets/school_lobby/characters/parts/face/$face.png',
       if (glasses != 'none' && glasses.isNotEmpty)
         'assets/school_lobby/characters/parts/glasses/$glasses.png',
       if (hat != 'none' && hat.isNotEmpty)
         'assets/school_lobby/characters/parts/hat/$hat.png',
+      if (gloves != 'none' && gloves.isNotEmpty)
+        'assets/school_lobby/characters/parts/gloves/$gloves.png',
       if (bag != 'none' && bag.isNotEmpty)
         'assets/school_lobby/characters/parts/bag/$bag.png',
     ];
   }
 }
 
-/// Manages loading, compositing, and caching `ui.Image` sprite strips for presets & custom looks.
+/// Returned when a user saves their Avatar Look + Avatar Nickname.
+class LobbyAvatarCustomizationResult {
+  final LobbyAvatarLook look;
+  final String nickname;
+
+  const LobbyAvatarCustomizationResult({
+    required this.look,
+    required this.nickname,
+  });
+}
+
+/// Manages loading, compositing, and caching `ui.Image` sprite strips, plus saving
+/// the user's Avatar Look, Avatar Nickname, and First-Time Onboarding state.
 class AvatarSpriteCache {
   static final AvatarSpriteCache instance = AvatarSpriteCache._();
   AvatarSpriteCache._();
@@ -324,12 +399,54 @@ class AvatarSpriteCache {
   final Map<String, ui.Image> _rawAssetCache = {};
   final Map<String, ui.Image> _compositedLookCache = {};
 
-  static const String _kPrefPrefix = 'mis_lobby_avatar_look_';
+  static const String _kPrefLookPrefix = 'mis_lobby_avatar_look_';
+  static const String _kPrefNicknamePrefix = 'mis_lobby_nickname_';
+  static const String _kPrefOnboardedPrefix = 'mis_lobby_onboarded_v2_';
+
+  String _cleanUserId(String userId) =>
+      userId.trim().isEmpty ? 'guest' : userId.trim();
+
+  /// Checks whether this user has completed their First-Time Avatar & Nickname setup.
+  Future<bool> hasCompletedOnboarding(String userId) async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool('$_kPrefOnboardedPrefix${_cleanUserId(userId)}') ??
+        false;
+  }
+
+  /// Marks First-Time Avatar & Nickname onboarding as completed for [userId].
+  Future<void> markOnboardingCompleted(String userId) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('$_kPrefOnboardedPrefix${_cleanUserId(userId)}', true);
+  }
+
+  /// Loads the user's saved Avatar Nickname (defaults to a friendly short version of [fallbackName]).
+  Future<String> loadSavedNickname(String userId,
+      {required String fallbackName}) async {
+    final prefs = await SharedPreferences.getInstance();
+    final saved = prefs.getString('$_kPrefNicknamePrefix${_cleanUserId(userId)}');
+    if (saved != null && saved.trim().isNotEmpty) {
+      return saved.trim();
+    }
+    final cleanFallback = fallbackName.trim();
+    if (cleanFallback.isEmpty) return 'Learner';
+    final firstWord = cleanFallback.split(RegExp(r'\s+')).first;
+    return firstWord.replaceAll(',', '');
+  }
+
+  /// Saves the user's chosen Avatar Nickname.
+  Future<void> saveNickname(String userId, String nickname) async {
+    final prefs = await SharedPreferences.getInstance();
+    final trimmed = nickname.trim();
+    if (trimmed.isNotEmpty) {
+      await prefs.setString(
+          '$_kPrefNicknamePrefix${_cleanUserId(userId)}', trimmed);
+    }
+  }
 
   Future<LobbyAvatarLook> loadSavedLook(String userId,
       {required bool isFaculty}) async {
     final prefs = await SharedPreferences.getInstance();
-    final key = '$_kPrefPrefix${userId.trim().isEmpty ? "guest" : userId.trim()}';
+    final key = '$_kPrefLookPrefix${_cleanUserId(userId)}';
     final saved = prefs.getString(key);
     if (saved == null || saved.isEmpty) {
       return LobbyAvatarLook(
@@ -342,7 +459,7 @@ class AvatarSpriteCache {
 
   Future<void> saveLook(String userId, LobbyAvatarLook look) async {
     final prefs = await SharedPreferences.getInstance();
-    final key = '$_kPrefPrefix${userId.trim().isEmpty ? "guest" : userId.trim()}';
+    final key = '$_kPrefLookPrefix${_cleanUserId(userId)}';
     await prefs.setString(key, look.toLookString());
   }
 
@@ -518,38 +635,46 @@ class _SingleFrameAvatarPainter extends CustomPainter {
   }
 }
 
-/// Opens the mobile-friendly TinyFloor Character Customizer Modal.
-Future<LobbyAvatarLook?> showLobbyAvatarCustomizerModal({
+/// Opens the mobile-friendly TinyFloor Character + Nickname Customizer Modal.
+/// Supports both **First-Time Entry Onboarding** (`isFirstTimeOnboarding: true`)
+/// and anytime wardrobe editing, adapting cleanly to Portrait & Landscape screens.
+Future<LobbyAvatarCustomizationResult?> showLobbyAvatarCustomizerModal({
   required BuildContext context,
   required LobbyAvatarLook initialLook,
-  required String userName,
+  required String initialNickname,
   required bool isFaculty,
   String? equippedBadgeIcon,
+  bool isFirstTimeOnboarding = false,
 }) {
-  return showModalBottomSheet<LobbyAvatarLook>(
+  return showModalBottomSheet<LobbyAvatarCustomizationResult>(
     context: context,
     isScrollControlled: true,
+    isDismissible: !isFirstTimeOnboarding,
+    enableDrag: !isFirstTimeOnboarding,
     backgroundColor: Colors.transparent,
     builder: (ctx) => _LobbyAvatarCustomizerSheet(
       initialLook: initialLook,
-      userName: userName,
+      initialNickname: initialNickname,
       isFaculty: isFaculty,
       equippedBadgeIcon: equippedBadgeIcon,
+      isFirstTimeOnboarding: isFirstTimeOnboarding,
     ),
   );
 }
 
 class _LobbyAvatarCustomizerSheet extends StatefulWidget {
   final LobbyAvatarLook initialLook;
-  final String userName;
+  final String initialNickname;
   final bool isFaculty;
   final String? equippedBadgeIcon;
+  final bool isFirstTimeOnboarding;
 
   const _LobbyAvatarCustomizerSheet({
     required this.initialLook,
-    required this.userName,
+    required this.initialNickname,
     required this.isFaculty,
     this.equippedBadgeIcon,
+    required this.isFirstTimeOnboarding,
   });
 
   @override
@@ -560,6 +685,7 @@ class _LobbyAvatarCustomizerSheet extends StatefulWidget {
 class _LobbyAvatarCustomizerSheetState
     extends State<_LobbyAvatarCustomizerSheet> {
   late LobbyAvatarLook _look;
+  late final TextEditingController _nicknameCtrl;
   AvatarFacing _previewFacing = AvatarFacing.down;
   bool _previewWalking = true;
   String _selectedPartCategory = 'outfit';
@@ -568,6 +694,13 @@ class _LobbyAvatarCustomizerSheetState
   void initState() {
     super.initState();
     _look = widget.initialLook;
+    _nicknameCtrl = TextEditingController(text: widget.initialNickname);
+  }
+
+  @override
+  void dispose() {
+    _nicknameCtrl.dispose();
+    super.dispose();
   }
 
   void _rotateFacing() {
@@ -605,10 +738,14 @@ class _LobbyAvatarCustomizerSheetState
         return _look.outfit;
       case 'hair':
         return _look.hair;
+      case 'face':
+        return _look.face;
       case 'glasses':
         return _look.glasses;
       case 'hat':
         return _look.hat;
+      case 'gloves':
+        return _look.gloves;
       case 'bag':
         return _look.bag;
       default:
@@ -624,261 +761,408 @@ class _LobbyAvatarCustomizerSheetState
         eyes: category == 'eyes' ? id : _look.eyes,
         outfit: category == 'outfit' ? id : _look.outfit,
         hair: category == 'hair' ? id : _look.hair,
+        face: category == 'face' ? id : _look.face,
         glasses: category == 'glasses' ? id : _look.glasses,
         hat: category == 'hat' ? id : _look.hat,
+        gloves: category == 'gloves' ? id : _look.gloves,
         bag: category == 'bag' ? id : _look.bag,
       );
     });
   }
 
+  void _saveAndClose() {
+    final cleanNick = _nicknameCtrl.text.trim().isEmpty
+        ? widget.initialNickname
+        : _nicknameCtrl.text.trim();
+    Navigator.of(context).pop(
+      LobbyAvatarCustomizationResult(
+        look: _look,
+        nickname: cleanNick,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final media = MediaQuery.of(context);
+    final isLandscape = media.size.width > media.size.height;
+
+    return PopScope(
+      canPop: !widget.isFirstTimeOnboarding,
+      child: Padding(
+        padding: EdgeInsets.only(bottom: media.viewInsets.bottom),
+        child: Container(
+          height: media.size.height * (isLandscape ? 0.94 : 0.88),
+          decoration: BoxDecoration(
+            color: const Color(0xFF0F172A),
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+            border: Border.all(
+              color: widget.isFirstTimeOnboarding
+                  ? const Color(0xFFFACC15).withOpacity(0.6)
+                  : Colors.white.withOpacity(0.16),
+              width: 1.6,
+            ),
+          ),
+          child: Column(
+            children: [
+              const SizedBox(height: 8),
+              Container(
+                width: 44,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.white24,
+                  borderRadius: BorderRadius.circular(99),
+                ),
+              ),
+              // Header
+              Padding(
+                padding: const EdgeInsets.fromLTRB(18, 10, 14, 6),
+                child: Row(
+                  children: [
+                    Icon(
+                      widget.isFirstTimeOnboarding
+                          ? Icons.auto_awesome_rounded
+                          : Icons.face_retouching_natural_rounded,
+                      color: widget.isFirstTimeOnboarding
+                          ? const Color(0xFFFACC15)
+                          : const Color(0xFF38BDF8),
+                      size: 24,
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            widget.isFirstTimeOnboarding
+                                ? 'WELCOME! CREATE YOUR AVATAR & NICKNAME'
+                                : 'PIXEL AVATAR & NICKNAME WARDROBE',
+                            style: GoogleFonts.outfit(
+                              color: Colors.white,
+                              fontSize: isLandscape ? 15.5 : 16.5,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: 0.5,
+                            ),
+                          ),
+                          Text(
+                            widget.isFirstTimeOnboarding
+                                ? 'Choose your nickname and character look before entering the School Lobby!'
+                                : 'Update your floating nameplate nickname or customize your pixel look',
+                            style: GoogleFonts.inter(
+                              color: Colors.white60,
+                              fontSize: 11.5,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (!widget.isFirstTimeOnboarding)
+                      IconButton(
+                        onPressed: () => Navigator.of(context).pop(),
+                        icon: const Icon(Icons.close_rounded,
+                            color: Colors.white70),
+                      ),
+                  ],
+                ),
+              ),
+
+              // Body: Adapts between Landscape (2-column split) and Portrait (vertical stack)
+              Expanded(
+                child: isLandscape
+                    ? Row(
+                        children: [
+                          SizedBox(
+                            width: media.size.width * 0.38,
+                            child: SingleChildScrollView(
+                              padding:
+                                  const EdgeInsets.symmetric(horizontal: 14),
+                              child: Column(
+                                children: [
+                                  _buildPreviewAndNicknameCard(compact: true),
+                                  const SizedBox(height: 10),
+                                  _buildSaveButton(),
+                                ],
+                              ),
+                            ),
+                          ),
+                          Expanded(
+                            child: Column(
+                              children: [
+                                _buildModeSwitcherRow(),
+                                Expanded(
+                                  child: _look.isPreset
+                                      ? _buildPresetGrid(crossAxisCount: 4)
+                                      : _buildCustomPartsEditor(),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      )
+                    : Column(
+                        children: [
+                          Padding(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 16, vertical: 4),
+                            child:
+                                _buildPreviewAndNicknameCard(compact: false),
+                          ),
+                          _buildModeSwitcherRow(),
+                          Expanded(
+                            child: _look.isPreset
+                                ? _buildPresetGrid(crossAxisCount: 4)
+                                : _buildCustomPartsEditor(),
+                          ),
+                          SafeArea(
+                            top: false,
+                            child: Padding(
+                              padding:
+                                  const EdgeInsets.fromLTRB(16, 6, 16, 12),
+                              child: _buildSaveButton(),
+                            ),
+                          ),
+                        ],
+                      ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPreviewAndNicknameCard({required bool compact}) {
+    final displayNick = _nicknameCtrl.text.trim().isEmpty
+        ? widget.initialNickname
+        : _nicknameCtrl.text.trim();
+
     return Container(
-      height: media.size.height * 0.84,
+      padding: EdgeInsets.all(compact ? 10 : 12),
       decoration: BoxDecoration(
-        color: const Color(0xFF0F172A),
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-        border: Border.all(color: Colors.white.withOpacity(0.14)),
+        gradient: const LinearGradient(
+          colors: [Color(0xFF1E293B), Color(0xFF0F172A)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFF38BDF8).withOpacity(0.32)),
       ),
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          const SizedBox(height: 10),
-          Container(
-            width: 44,
-            height: 4,
-            decoration: BoxDecoration(
-              color: Colors.white24,
-              borderRadius: BorderRadius.circular(99),
-            ),
-          ),
-          // Header
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 14, 16, 8),
-            child: Row(
-              children: [
-                const Icon(Icons.face_retouching_natural_rounded,
-                    color: Color(0xFF38BDF8), size: 24),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'PIXEL AVATAR WARDROBE',
-                        style: GoogleFonts.outfit(
-                          color: Colors.white,
-                          fontSize: 17,
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: 0.6,
-                        ),
-                      ),
-                      Text(
-                        'Pick a character preset or customize your layered look',
-                        style: GoogleFonts.inter(
-                          color: Colors.white60,
-                          fontSize: 12,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                IconButton(
-                  onPressed: () => Navigator.of(context).pop(),
-                  icon: const Icon(Icons.close_rounded, color: Colors.white70),
-                ),
-              ],
-            ),
-          ),
-
-          // Live Stage Preview with Floating Nameplate
-          Container(
-            margin: const EdgeInsets.symmetric(horizontal: 18, vertical: 6),
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [Color(0xFF1E293B), Color(0xFF0F172A)],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: const Color(0xFF38BDF8).withOpacity(0.3)),
-            ),
-            child: Row(
-              children: [
-                // Avatar + Floating Nameplate Preview
-                Expanded(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      // Floating Nameplate Preview
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 10, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: Colors.black.withOpacity(0.75),
-                          borderRadius: BorderRadius.circular(99),
-                          border: Border.all(
-                            color: widget.isFaculty
-                                ? const Color(0xFFFACC15)
-                                : const Color(0xFF38BDF8),
-                            width: 1.2,
-                          ),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            if (widget.equippedBadgeIcon != null &&
-                                widget.equippedBadgeIcon!.isNotEmpty) ...[
-                              Text(
-                                widget.equippedBadgeIcon!,
-                                style: const TextStyle(fontSize: 12),
-                              ),
-                              const SizedBox(width: 4),
-                            ],
-                            Flexible(
-                              child: Text(
-                                widget.userName,
-                                overflow: TextOverflow.ellipsis,
-                                style: GoogleFonts.inter(
-                                  color: Colors.white,
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 5),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 5, vertical: 1),
-                              decoration: BoxDecoration(
-                                color: widget.isFaculty
-                                    ? const Color(0xFFFACC15)
-                                    : const Color(0xFF10B981),
-                                borderRadius: BorderRadius.circular(6),
-                              ),
-                              child: Text(
-                                widget.isFaculty ? 'Teacher' : 'Student',
-                                style: GoogleFonts.inter(
-                                  color: widget.isFaculty
-                                      ? Colors.black
-                                      : Colors.white,
-                                  fontSize: 9,
-                                  fontWeight: FontWeight.w800,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      PixelAvatarPreview(
-                        look: _look,
-                        facing: _previewFacing,
-                        animateWalk: _previewWalking,
-                        scale: 2.2,
-                      ),
-                    ],
-                  ),
-                ),
-                // Controls for preview
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
+          Row(
+            children: [
+              // Avatar + Floating Nameplate Preview
+              Expanded(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    OutlinedButton.icon(
-                      onPressed: _rotateFacing,
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: Colors.white,
-                        side: const BorderSide(color: Colors.white24),
-                        visualDensity: VisualDensity.compact,
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.78),
+                        borderRadius: BorderRadius.circular(99),
+                        border: Border.all(
+                          color: widget.isFaculty
+                              ? const Color(0xFFFACC15)
+                              : const Color(0xFF38BDF8),
+                          width: 1.2,
+                        ),
                       ),
-                      icon: const Icon(Icons.rotate_right_rounded, size: 16),
-                      label: const Text('Rotate'),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (widget.equippedBadgeIcon != null &&
+                              widget.equippedBadgeIcon!.isNotEmpty) ...[
+                            Text(
+                              widget.equippedBadgeIcon!,
+                              style: const TextStyle(fontSize: 12),
+                            ),
+                            const SizedBox(width: 4),
+                          ],
+                          Flexible(
+                            child: Text(
+                              displayNick,
+                              overflow: TextOverflow.ellipsis,
+                              style: GoogleFonts.inter(
+                                color: Colors.white,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 5),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 5, vertical: 1),
+                            decoration: BoxDecoration(
+                              color: widget.isFaculty
+                                  ? const Color(0xFFFACC15)
+                                  : const Color(0xFF10B981),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              widget.isFaculty ? 'Teacher' : 'Student',
+                              style: GoogleFonts.inter(
+                                color: widget.isFaculty
+                                    ? Colors.black
+                                    : Colors.white,
+                                fontSize: 9,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                    const SizedBox(height: 6),
-                    OutlinedButton.icon(
-                      onPressed: () =>
-                          setState(() => _previewWalking = !_previewWalking),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: const Color(0xFF38BDF8),
-                        side: const BorderSide(color: Color(0xFF38BDF8)),
-                        visualDensity: VisualDensity.compact,
-                      ),
-                      icon: Icon(
-                        _previewWalking
-                            ? Icons.directions_walk_rounded
-                            : Icons.accessibility_new_rounded,
-                        size: 16,
-                      ),
-                      label: Text(_previewWalking ? 'Walking' : 'Idle'),
+                    const SizedBox(height: 4),
+                    PixelAvatarPreview(
+                      look: _look,
+                      facing: _previewFacing,
+                      animateWalk: _previewWalking,
+                      scale: compact ? 1.75 : 2.0,
                     ),
                   ],
                 ),
-              ],
-            ),
-          ),
-
-          // Mode Switcher: Presets vs Custom Layers
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 6),
-            child: Row(
-              children: [
-                Expanded(
-                  child: _buildModeTab(
-                    label: 'Preset Characters (16)',
-                    selected: _look.isPreset,
-                    onTap: () => setState(() => _look = _look.copyWith(isPreset: true)),
+              ),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  OutlinedButton.icon(
+                    onPressed: _rotateFacing,
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.white,
+                      side: const BorderSide(color: Colors.white24),
+                      visualDensity: VisualDensity.compact,
+                    ),
+                    icon: const Icon(Icons.rotate_right_rounded, size: 15),
+                    label: const Text('Rotate', style: TextStyle(fontSize: 12)),
                   ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: _buildModeTab(
-                    label: 'Custom Layered Mix',
-                    selected: !_look.isPreset,
-                    onTap: () =>
-                        setState(() => _look = _look.copyWith(isPreset: false)),
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          // Selector Area
-          Expanded(
-            child: _look.isPreset ? _buildPresetGrid() : _buildCustomPartsEditor(),
-          ),
-
-          // Save Bar
-          SafeArea(
-            top: false,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(18, 8, 18, 14),
-              child: SizedBox(
-                width: double.infinity,
-                height: 50,
-                child: ElevatedButton.icon(
-                  onPressed: () => Navigator.of(context).pop(_look),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF10B981),
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14),
+                  const SizedBox(height: 6),
+                  OutlinedButton.icon(
+                    onPressed: () =>
+                        setState(() => _previewWalking = !_previewWalking),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: const Color(0xFF38BDF8),
+                      side: const BorderSide(color: Color(0xFF38BDF8)),
+                      visualDensity: VisualDensity.compact,
+                    ),
+                    icon: Icon(
+                      _previewWalking
+                          ? Icons.directions_walk_rounded
+                          : Icons.accessibility_new_rounded,
+                      size: 15,
+                    ),
+                    label: Text(
+                      _previewWalking ? 'Walking' : 'Idle',
+                      style: const TextStyle(fontSize: 12),
                     ),
                   ),
-                  icon: const Icon(Icons.check_circle_rounded),
-                  label: Text(
-                    'SAVE & EQUIP AVATAR',
-                    style: GoogleFonts.outfit(
-                      fontWeight: FontWeight.w800,
-                      fontSize: 15,
-                      letterSpacing: 0.5,
-                    ),
-                  ),
-                ),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          // Avatar Nickname Input Field
+          TextField(
+            controller: _nicknameCtrl,
+            maxLength: 18,
+            onChanged: (_) => setState(() {}),
+            style: GoogleFonts.inter(
+              color: Colors.white,
+              fontSize: 13.5,
+              fontWeight: FontWeight.w700,
+            ),
+            decoration: InputDecoration(
+              counterText: '',
+              prefixIcon: const Icon(Icons.badge_rounded,
+                  color: Color(0xFFFACC15), size: 18),
+              labelText: 'Avatar Nickname (shown above your character)',
+              labelStyle:
+                  const TextStyle(color: Colors.white70, fontSize: 12),
+              hintText: 'Enter your lobby nickname...',
+              hintStyle: const TextStyle(color: Colors.white30, fontSize: 12),
+              filled: true,
+              fillColor: const Color(0xFF0F172A),
+              isDense: true,
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: Colors.white24),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: Colors.white24),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: Color(0xFFFACC15)),
               ),
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildModeSwitcherRow() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      child: Row(
+        children: [
+          Expanded(
+            child: _buildModeTab(
+              label: 'Presets (16)',
+              selected: _look.isPreset,
+              onTap: () =>
+                  setState(() => _look = _look.copyWith(isPreset: true)),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: _buildModeTab(
+              label: 'Custom Layered Mix',
+              selected: !_look.isPreset,
+              onTap: () =>
+                  setState(() => _look = _look.copyWith(isPreset: false)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSaveButton() {
+    return SizedBox(
+      width: double.infinity,
+      height: 48,
+      child: ElevatedButton.icon(
+        onPressed: _saveAndClose,
+        style: ElevatedButton.styleFrom(
+          backgroundColor: widget.isFirstTimeOnboarding
+              ? const Color(0xFFFACC15)
+              : const Color(0xFF10B981),
+          foregroundColor:
+              widget.isFirstTimeOnboarding ? Colors.black : Colors.white,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+        ),
+        icon: Icon(widget.isFirstTimeOnboarding
+            ? Icons.sports_esports_rounded
+            : Icons.check_circle_rounded),
+        label: Text(
+          widget.isFirstTimeOnboarding
+              ? 'ENTER SCHOOL LOBBY!'
+              : 'SAVE NICKNAME & AVATAR',
+          style: GoogleFonts.outfit(
+            fontWeight: FontWeight.w900,
+            fontSize: 14.5,
+            letterSpacing: 0.5,
+          ),
+        ),
       ),
     );
   }
@@ -892,7 +1176,7 @@ class _LobbyAvatarCustomizerSheetState
       onTap: onTap,
       borderRadius: BorderRadius.circular(12),
       child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 10),
+        padding: const EdgeInsets.symmetric(vertical: 9),
         alignment: Alignment.center,
         decoration: BoxDecoration(
           color: selected
@@ -909,20 +1193,20 @@ class _LobbyAvatarCustomizerSheetState
           style: GoogleFonts.inter(
             color: selected ? const Color(0xFF38BDF8) : Colors.white70,
             fontWeight: FontWeight.w700,
-            fontSize: 12.5,
+            fontSize: 12,
           ),
         ),
       ),
     );
   }
 
-  Widget _buildPresetGrid() {
+  Widget _buildPresetGrid({required int crossAxisCount}) {
     return GridView.builder(
-      padding: const EdgeInsets.fromLTRB(18, 8, 18, 12),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 4,
-        mainAxisSpacing: 10,
-        crossAxisSpacing: 10,
+      padding: const EdgeInsets.fromLTRB(16, 6, 16, 12),
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: crossAxisCount,
+        mainAxisSpacing: 8,
+        crossAxisSpacing: 8,
         childAspectRatio: 0.78,
       ),
       itemCount: kBundledPresets.length,
@@ -952,14 +1236,14 @@ class _LobbyAvatarCustomizerSheetState
                   look: LobbyAvatarLook(isPreset: true, presetName: name),
                   facing: AvatarFacing.down,
                   animateWalk: false,
-                  scale: 1.15,
+                  scale: 1.1,
                 ),
                 const SizedBox(height: 4),
                 Text(
                   name,
                   style: GoogleFonts.inter(
                     color: isSelected ? const Color(0xFF38BDF8) : Colors.white,
-                    fontSize: 11.5,
+                    fontSize: 11,
                     fontWeight: FontWeight.w700,
                   ),
                 ),
@@ -977,8 +1261,10 @@ class _LobbyAvatarCustomizerSheetState
       {'key': 'eyes', 'label': 'Eyes'},
       {'key': 'outfit', 'label': 'Outfit'},
       {'key': 'hair', 'label': 'Hair'},
+      {'key': 'face', 'label': 'Facial'},
       {'key': 'glasses', 'label': 'Glasses'},
       {'key': 'hat', 'label': 'Hat'},
+      {'key': 'gloves', 'label': 'Gloves'},
       {'key': 'bag', 'label': 'Bag'},
     ];
     final options = kBundledCustomParts[_selectedPartCategory] ?? const [];
@@ -987,10 +1273,10 @@ class _LobbyAvatarCustomizerSheetState
     return Column(
       children: [
         SizedBox(
-          height: 40,
+          height: 38,
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 18),
+            padding: const EdgeInsets.symmetric(horizontal: 16),
             itemCount: categories.length,
             separatorBuilder: (_, __) => const SizedBox(width: 8),
             itemBuilder: (context, i) {
@@ -1006,21 +1292,21 @@ class _LobbyAvatarCustomizerSheetState
                 labelStyle: GoogleFonts.inter(
                   color: isCat ? Colors.black : Colors.white70,
                   fontWeight: FontWeight.w700,
-                  fontSize: 12,
+                  fontSize: 11.5,
                 ),
               );
             },
           ),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 6),
         Expanded(
           child: GridView.builder(
-            padding: const EdgeInsets.fromLTRB(18, 4, 18, 12),
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
             gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
               crossAxisCount: 3,
               mainAxisSpacing: 8,
               crossAxisSpacing: 8,
-              childAspectRatio: 2.3,
+              childAspectRatio: 2.35,
             ),
             itemCount: options.length,
             itemBuilder: (context, index) {
@@ -1048,15 +1334,15 @@ class _LobbyAvatarCustomizerSheetState
                   child: Row(
                     children: [
                       Container(
-                        width: 14,
-                        height: 14,
+                        width: 13,
+                        height: 13,
                         decoration: BoxDecoration(
                           color: _parseHex(hex),
                           shape: BoxShape.circle,
                           border: Border.all(color: Colors.white38, width: 1),
                         ),
                       ),
-                      const SizedBox(width: 7),
+                      const SizedBox(width: 6),
                       Expanded(
                         child: Text(
                           label,
@@ -1064,7 +1350,7 @@ class _LobbyAvatarCustomizerSheetState
                           overflow: TextOverflow.ellipsis,
                           style: GoogleFonts.inter(
                             color: Colors.white,
-                            fontSize: 11,
+                            fontSize: 10.5,
                             fontWeight:
                                 selected ? FontWeight.w800 : FontWeight.w500,
                           ),

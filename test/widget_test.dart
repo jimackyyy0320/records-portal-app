@@ -14,6 +14,7 @@ import 'package:student_portal_app/school_lobby/lobby_data_service.dart';
 import 'package:student_portal_app/school_lobby/school_lobby_avatar.dart';
 import 'package:student_portal_app/school_lobby/school_lobby_config.dart';
 import 'package:student_portal_app/school_lobby/school_lobby_engine.dart';
+import 'package:student_portal_app/theme/portal_theme.dart';
 
 void main() {
   setUpAll(() {
@@ -296,18 +297,43 @@ void main() {
         }
       }
 
-      // 5. Interactive zones & A* pathfinding
+      // 5. Expanded 48x34 Campus Map (1536x1088), 8 Small Mystery Chests & A* pathfinding
+      expect(kLobbyCols, 48);
+      expect(kLobbyRows, 34);
+      expect(kLobbyWorldWidth, 1536.0);
+      expect(kLobbyWorldHeight, 1088.0);
+
       final zones = buildActiveInteractiveZones(service.subjectChests);
       expect(zones.any((z) => z.id == 'quest_counter'), isTrue);
       expect(zones.any((z) => z.id == 'small_chest_1'), isTrue);
+      expect(zones.any((z) => z.id == 'small_chest_8'), isTrue);
 
       final nav = LobbyNavGrid(
         cols: kLobbyCols,
         rows: kLobbyRows,
         solids: buildLobbySolids(service.subjectChests),
       );
-      final path = nav.findPath(kPlayerSpawnPoint, const Offset(416, 162));
+      final path = nav.findPath(kPlayerSpawnPoint, const Offset(768, 196));
       expect(path, isNotEmpty);
+
+      // 6. First-time Avatar & Nickname onboarding persistence + Dark Mode controller
+      expect(await AvatarSpriteCache.instance.hasCompletedOnboarding('2024-00142'), isFalse);
+      await AvatarSpriteCache.instance.saveNickname('2024-00142', 'AetherScholar');
+      await AvatarSpriteCache.instance.markOnboardingCompleted('2024-00142');
+      expect(await AvatarSpriteCache.instance.hasCompletedOnboarding('2024-00142'), isTrue);
+      expect(
+        await AvatarSpriteCache.instance.loadSavedNickname(
+          '2024-00142',
+          fallbackName: 'Juan Dela Cruz',
+        ),
+        'AetherScholar',
+      );
+
+      await ThemeController.instance.init();
+      expect(ThemeController.instance.isDarkMode, isFalse);
+      await ThemeController.instance.toggleDarkMode();
+      expect(ThemeController.instance.isDarkMode, isTrue);
+      await ThemeController.instance.setDarkMode(false);
     },
   );
 }

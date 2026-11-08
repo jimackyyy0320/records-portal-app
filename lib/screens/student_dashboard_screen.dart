@@ -498,9 +498,9 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        border: Border(bottom: BorderSide(color: PortalColors.rule)),
+      decoration: BoxDecoration(
+        color: PortalColors.activeCard,
+        border: Border(bottom: BorderSide(color: PortalColors.activeRule)),
       ),
       child: Row(
         children: [
@@ -579,23 +579,46 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
             ),
           ],
           IconButton(
+            tooltip: PortalColors.isDark
+                ? 'Switch to Light Mode'
+                : 'Switch to Dark Mode',
+            visualDensity: VisualDensity.compact,
+            onPressed: () async {
+              await ThemeController.instance.toggleDarkMode();
+              if (mounted) setState(() {});
+            },
+            icon: Icon(
+              PortalColors.isDark
+                  ? Icons.light_mode_rounded
+                  : Icons.dark_mode_rounded,
+              size: 20,
+              color: PortalColors.isDark
+                  ? PortalColors.gold
+                  : PortalColors.forest,
+            ),
+          ),
+          IconButton(
             tooltip: 'Enter School Lobby',
             visualDensity: VisualDensity.compact,
             onPressed: _openSchoolLobby,
-            icon: const Icon(
+            icon: Icon(
               Icons.sports_esports_rounded,
               size: 21,
-              color: PortalColors.forest,
+              color: PortalColors.isDark
+                  ? const Color(0xFF34D399)
+                  : PortalColors.forest,
             ),
           ),
           IconButton(
             tooltip: 'My QR Pass',
             visualDensity: VisualDensity.compact,
             onPressed: _openStudentQrGenerator,
-            icon: const Icon(
+            icon: Icon(
               Icons.qr_code_2_rounded,
               size: 21,
-              color: PortalColors.forest,
+              color: PortalColors.isDark
+                  ? PortalColors.gold
+                  : PortalColors.forest,
             ),
           ),
           IconButton(
