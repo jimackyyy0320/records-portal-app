@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-import '../services/session_service.dart';
+import '../models/portal_models.dart';
 import 'lobby_data_service.dart';
 import 'school_lobby_avatar.dart';
 import 'school_lobby_config.dart';

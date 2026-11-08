@@ -2109,8 +2109,8 @@ class _AddQuestionsSheetState extends State<_AddQuestionsSheet> {
           ),
         ),
       ),
-    ),
-  );
+    );
+  }
 }
 
 // =============================================================================
