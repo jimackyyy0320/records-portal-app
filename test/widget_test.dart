@@ -329,7 +329,7 @@ void main() {
         'AetherScholar',
       );
 
-      await ThemeController.instance.init();
+      await ThemeController.instance.initialize();
       expect(ThemeController.instance.isDarkMode, isFalse);
       await ThemeController.instance.toggleDarkMode();
       expect(ThemeController.instance.isDarkMode, isTrue);
