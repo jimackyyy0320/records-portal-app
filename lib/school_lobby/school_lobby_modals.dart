@@ -1860,7 +1860,7 @@ class _SubjectChestModalSheet extends StatelessWidget {
     LobbyReviewerItem item,
   ) async {
     final earned = await LobbyDataService.instance.completeReviewer(item);
-    if (!earned || !context.mounted) return;
+    if (earned == null || !context.mounted) return;
     HapticFeedback.heavyImpact();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -4074,7 +4074,7 @@ class _TeacherLinkManagerSheetState extends State<_TeacherLinkManagerSheet> {
 
   Widget _buildActivityLinksTab(
     List<String> subjectNames,
-    List<LobbyActivity> activities,
+    List<LobbyQuestActivity> activities,
     LobbyDataService service,
   ) {
     return Column(
@@ -4392,7 +4392,7 @@ class _CharacterProgressSheet extends StatelessWidget {
                     ClipRRect(
                       borderRadius: BorderRadius.circular(99),
                       child: LinearProgressIndicator(
-                        value: progress.levelProgressFraction,
+                        value: progress.levelProgress,
                         minHeight: 10,
                         backgroundColor: Colors.white12,
                         valueColor: const AlwaysStoppedAnimation<Color>(

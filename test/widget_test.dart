@@ -308,7 +308,7 @@ void main() {
       expect(
           service.progress.launchedReviewerIds.contains(addedRev.id), isTrue);
       final completedRev = await service.completeReviewer(addedRev);
-      expect(completedRev, isTrue);
+      expect(completedRev, isNotNull);
       expect(
           service.progress.completedReviewerIds.contains(addedRev.id), isTrue);
       expect(service.progress.xp, 225); // 150 + 75 XP
