@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:ui' as ui;
 
-import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
 import '../models/portal_models.dart';
@@ -714,7 +714,7 @@ class LobbyPresenceService extends ChangeNotifier {
         utf8.encode(jsonEncode({'players': activeList, 'updatedAtMs': nowMs})),
       );
       await ApiService.instance.uploadStudentAvatar(
-        studentId: _kCloudPresenceManifestId,
+        id: _kCloudPresenceManifestId,
         dataUrl: 'data:image/png;base64,$b64',
       );
     } catch (_) {}
