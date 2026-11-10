@@ -4392,7 +4392,7 @@ class _CharacterProgressSheet extends StatelessWidget {
                     ClipRRect(
                       borderRadius: BorderRadius.circular(99),
                       child: LinearProgressIndicator(
-                        value: progress.levelProgress,
+                        value: (progress.currentLevelXp / 100.0).clamp(0.0, 1.0),
                         minHeight: 10,
                         backgroundColor: Colors.white12,
                         valueColor: const AlwaysStoppedAnimation<Color>(
