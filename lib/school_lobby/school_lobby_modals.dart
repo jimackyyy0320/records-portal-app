@@ -4813,7 +4813,7 @@ class _OnlinePlayersDirectorySheetState
                             ),
                           ),
                           Text(
-                            '${widget.currentRoom.iconEmoji} ${widget.currentRoom.title} • Live Connected',
+                            '${widget.currentRoom.iconEmoji} ${widget.currentRoom.title} • ⚡ Real-Time Stream (${presence.activeTransportCount} Active Channels)',
                             style: GoogleFonts.inter(
                               color: const Color(0xFF6EE7B7),
                               fontSize: 11.5,

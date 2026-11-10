@@ -543,7 +543,7 @@ void main() {
       expect(remoteBea.hasActiveThought, isTrue);
       expect(remoteBea.thoughtText, 'Hi everyone in the Main Lobby!');
 
-      // Move Bea by 60 pixels and verify 60 FPS interpolation glides her toward targetPos
+      // Move Bea by 60 pixels with seq=2 and verify 60 FPS interpolation glides her toward targetPos
       presence.handleIncomingPresencePayload({
         'app': 'mis_shs_lobby_v1',
         'type': 'state',
@@ -556,17 +556,46 @@ void main() {
         'room': 'mainLobby',
         'x': 680,
         'y': 540,
+        'vx': 180,
+        'vy': 0,
         'facing': 'right',
         'isWalking': true,
         'rest': 'none',
         'thought': 'Hi everyone in the Main Lobby!',
+        'sessionMs': 1000,
+        'seq': 2,
         'ts': DateTime.now().millisecondsSinceEpoch,
       });
+
+      // Verify out-of-order older packet (seq=1) is strictly ignored and cannot rewind position
+      presence.handleIncomingPresencePayload({
+        'app': 'mis_shs_lobby_v1',
+        'type': 'state',
+        'peerKey': '2024-00999_54321',
+        'userId': '2024-00999',
+        'nickname': 'Bea_HUMSS',
+        'isFaculty': false,
+        'look': 'preset:2',
+        'badgeIcon': '🏆',
+        'room': 'mainLobby',
+        'x': 400,
+        'y': 400,
+        'facing': 'left',
+        'isWalking': false,
+        'rest': 'none',
+        'thought': 'Old stale packet',
+        'sessionMs': 1000,
+        'seq': 1,
+        'ts': DateTime.now().millisecondsSinceEpoch - 5000,
+      });
+      expect(remoteBea.targetPos.dx, 680.0);
+      expect(remoteBea.thoughtText, 'Hi everyone in the Main Lobby!');
+
       final moved =
           presence.tickInterpolation(0.05, LobbyRoomId.mainLobby);
       expect(moved, isTrue);
       expect(remoteBea.currentPos.dx, greaterThan(620.0));
-      expect(remoteBea.currentPos.dx, lessThanOrEqualTo(680.0));
+      expect(remoteBea.currentPos.dx, lessThanOrEqualTo(700.0));
 
       // Verify 'leave' packet cleanly removes remote player
       presence.handleIncomingPresencePayload({
