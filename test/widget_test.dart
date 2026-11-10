@@ -334,6 +334,81 @@ void main() {
       await ThemeController.instance.toggleDarkMode();
       expect(ThemeController.instance.isDarkMode, isTrue);
       await ThemeController.instance.setDarkMode(false);
+
+      // 7. Phase 3: Campus Doors (Park, Class Room, Canteen, Faculty Room), Sit/Nap/Sleep,
+      //    Thought Bubbles, MIS Control Sheet Active/Finished & Student Enrollment Filtering
+      expect(LobbyRoomId.values.length, 5);
+      expect(zones.any((z) => z.id == 'door_to_park'), isTrue);
+      expect(zones.any((z) => z.id == 'door_to_classroom'), isTrue);
+      expect(zones.any((z) => z.id == 'door_to_canteen'), isTrue);
+      expect(zones.any((z) => z.id == 'door_to_faculty_room'), isTrue);
+
+      for (final room in LobbyRoomId.values) {
+        final roomZones =
+            buildActiveInteractiveZones(service.subjectChests, room: room);
+        expect(
+          roomZones.any((z) => z.kind == InteractiveZoneKind.doorPortal),
+          isTrue,
+        );
+        expect(
+          roomZones.any((z) => z.kind == InteractiveZoneKind.restSpot),
+          isTrue,
+        );
+        expect(
+          roomZones.any((z) => z.kind == InteractiveZoneKind.peerStudent),
+          isTrue,
+        );
+      }
+
+      expect(PlayerRestState.sitting.isResting, isTrue);
+      expect(PlayerRestState.napping.isResting, isTrue);
+      expect(PlayerRestState.sleeping.isResting, isTrue);
+      expect(PlayerRestState.none.isResting, isFalse);
+
+      // MIS Control Sheet: PKLP (Term 1) is Finished -> excluded; PGP & UCSP are Active
+      expect(service.isSubjectActiveInControlSheet('PKLP'), isFalse);
+      expect(service.isSubjectActiveInControlSheet('PGP'), isTrue);
+      expect(service.isSubjectActiveInControlSheet('UCSP'), isTrue);
+      expect(service.isSubjectActiveInControlSheet('PKLP TERM 2'), isTrue);
+
+      // Strict Student Enrollment Filtering: student enrolled only in PGP, UCSP, and finished PKLP
+      service.applyUserEnrollmentFilter(
+        isFaculty: false,
+        enrolledSubjects: const [
+          SubjectItem(code: 'PGP', name: 'Philippine Governance and Politics'),
+          SubjectItem(
+              code: 'UCSP',
+              name: 'Understanding Culture, Society and Politics'),
+          SubjectItem(
+              code: 'PKLP',
+              name: 'Pag-aaral ng Kasaysayan at Lipunang Pilipino'),
+        ],
+      );
+      final filteredChestNames =
+          service.subjectChests.map((c) => c.subjectName).toSet();
+      expect(filteredChestNames, equals({'PGP', 'UCSP'}));
+      expect(filteredChestNames.contains('PHILO'), isFalse);
+      expect(filteredChestNames.contains('PKLP'), isFalse);
+
+      for (final act in service.activities) {
+        expect({'PGP', 'UCSP'}.contains(act.subject), isTrue);
+      }
+      for (final qItem in service.quizQuestions) {
+        expect({'PGP', 'UCSP'}.contains(qItem.subject), isTrue);
+      }
+
+      // Thought Bubble recording
+      service.recordThoughtBubble(
+        senderName: 'AetherScholar',
+        senderRole: 'Student',
+        roomName: 'Park',
+        text: 'Studying PGP under the Campus Park trees!',
+      );
+      expect(service.thoughtMessages, isNotEmpty);
+      expect(
+        service.thoughtMessages.first.text,
+        'Studying PGP under the Campus Park trees!',
+      );
     },
   );
 }

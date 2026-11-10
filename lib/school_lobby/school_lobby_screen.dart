@@ -15,10 +15,12 @@ import 'school_lobby_engine.dart';
 import 'school_lobby_modals.dart';
 
 /// Self-Contained 2D Pixel "Mini School Lobby" Screen for the MIS-SHS Learner App.
-/// Recycles TinyFloor's avatar rendering, movement/A* pathfinding, and 3/4 floor/furniture atlas,
-/// combined with Phase 2's Quest Counter, Student Badge System, Subject Reviewer Chests,
-/// Small Mystery Pop-Quiz Chests, First-Time Avatar & Nickname Onboarding,
-/// Full-Screen Portrait/Landscape Responsiveness, and Night/Day Dark Mode.
+/// Includes:
+/// - 5 Explorable Campus Rooms connected via Doors (`Main Lobby`, `Park`, `Class Room`, `Canteen`, `Faculty Room`)
+/// - Student Rest States (`🪑 Sit`, `😪 Nap`, `🛌 Sleep`) on chairs, benches, sofas, desks & park lawns
+/// - Real Google Drive Reviewer Folder (`1EFX9aylAeSRmDWU7OeFIPa0llAMD8wC5`) sync & HTML Streamer
+/// - MIS Control Sheet (`Subject Enrollment`) Active vs. Finished filtering + strict Student Enrollment filtering
+/// - Cloud Thought Bubbles (`💭`) for chatting with classmates across the campus
 class SchoolLobbyScreen extends StatefulWidget {
   final UserSession session;
 
@@ -42,10 +44,17 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
   bool _loading = true;
   bool _onboardingPromptShown = false;
 
-  // Player state
+  // Room & Player state
+  LobbyRoomId _currentRoom = LobbyRoomId.mainLobby;
   Offset _playerPos = kPlayerSpawnPoint;
   AvatarFacing _playerFacing = AvatarFacing.down;
   bool _playerIsWalking = false;
+  PlayerRestState _playerRestState = PlayerRestState.none;
+
+  // Thought Bubble state (`💭`)
+  String? _playerThoughtText;
+  int _playerThoughtUntilMs = 0;
+  final Map<String, String> _activePeerThoughts = <String, String>{};
 
   // Movement inputs
   Offset _joystickVector = Offset.zero;
@@ -75,7 +84,6 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
   void initState() {
     super.initState();
     _playerNickname = widget.session.name;
-    // Allow students to play in either Portrait or Landscape on their phones
     SystemChrome.setPreferredOrientations(const [
       DeviceOrientation.portraitUp,
       DeviceOrientation.landscapeLeft,
@@ -85,7 +93,15 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
   }
 
   Future<void> _initLobby() async {
-    await LobbyDataService.instance.init(widget.session.id);
+    await LobbyDataService.instance.init(
+      widget.session.id,
+      session: widget.session,
+    );
+    // Asynchronously sync active subjects from MIS Control Sheet & Google Drive Reviewer Folder
+    unawaited(
+      LobbyDataService.instance.syncDriveReviewersForSession(widget.session),
+    );
+
     final savedLook = await AvatarSpriteCache.instance.loadSavedLook(
       widget.session.id,
       isFaculty: widget.session.isFaculty,
@@ -94,8 +110,8 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
       widget.session.id,
       fallbackName: widget.session.name,
     );
-    final completedOnboarding =
-        await AvatarSpriteCache.instance.hasCompletedOnboarding(widget.session.id);
+    final completedOnboarding = await AvatarSpriteCache.instance
+        .hasCompletedOnboarding(widget.session.id);
     final sheet =
         await AvatarSpriteCache.instance.resolveLookSpriteSheet(savedLook);
     final bundle = await SchoolLobbyAssetBundle.load();
@@ -130,7 +146,6 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
   void dispose() {
     _gameLoopTimer?.cancel();
     _keyboardFocusNode.dispose();
-    // Restore default orientation preferences when leaving the lobby
     SystemChrome.setPreferredOrientations(const []);
     super.dispose();
   }
@@ -149,7 +164,6 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
         DeviceOrientation.landscapeRight,
       ]);
     }
-    // Re-unlock auto rotation after a short delay if returning to free rotation
     Future.delayed(const Duration(seconds: 4), () {
       if (mounted && !_forcedLandscape) {
         SystemChrome.setPreferredOrientations(const [
@@ -159,6 +173,115 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
         ]);
       }
     });
+  }
+
+  void _enterRoom(LobbyRoomId targetRoom, {Offset? spawnOverride}) {
+    HapticFeedback.mediumImpact();
+    final spawn = spawnOverride ?? targetRoom.defaultSpawn;
+    setState(() {
+      _currentRoom = targetRoom;
+      _playerPos = spawn;
+      _playerFacing = AvatarFacing.down;
+      _playerIsWalking = false;
+      _playerRestState = PlayerRestState.none;
+      _activePath = const [];
+      _highlightedZone = null;
+      _cameraCenter =
+          _clampCameraToWorld(spawn, _lastViewportSize, _cameraZoom);
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          '${targetRoom.iconEmoji} Entered ${targetRoom.title}!',
+        ),
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(milliseconds: 1600),
+      ),
+    );
+  }
+
+  void _setPlayerRestState(
+    PlayerRestState nextState, {
+    LobbyRestSpot? snapToSpot,
+  }) {
+    HapticFeedback.selectionClick();
+    setState(() {
+      if (snapToSpot != null && nextState.isResting) {
+        _playerPos = snapToSpot.position;
+        _playerFacing = snapToSpot.facing;
+      }
+      _playerRestState = nextState;
+      if (nextState.isResting) {
+        _activePath = const [];
+        _playerIsWalking = false;
+      }
+    });
+  }
+
+  Future<void> _openThoughtBubbleModal({LobbyPeerStudent? peer}) async {
+    // Check if there is a nearby peer student even if not explicitly passed
+    LobbyPeerStudent? targetPeer = peer;
+    if (targetPeer == null) {
+      for (final p in peersForRoom(_currentRoom)) {
+        if ((_playerPos - p.position).distance <= 120.0) {
+          targetPeer = p;
+          break;
+        }
+      }
+    }
+
+    final result = await showThoughtBubbleComposerModal(
+      context: context,
+      playerName: _playerNickname,
+      isFaculty: widget.session.isFaculty,
+      currentRoom: _currentRoom,
+      nearbyPeer: targetPeer,
+      currentThought: _playerThoughtText,
+    );
+    if (!mounted || result == null) return;
+
+    if (result.trim().isEmpty) {
+      setState(() {
+        _playerThoughtText = null;
+        _playerThoughtUntilMs = 0;
+      });
+      return;
+    }
+
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    final clean = result.trim();
+    setState(() {
+      _playerThoughtText = clean;
+      _playerThoughtUntilMs = nowMs + 14000; // Visible for 14 seconds
+    });
+
+    LobbyDataService.instance.recordThoughtBubble(
+      senderName: _playerNickname,
+      senderRole: widget.session.isFaculty ? 'Teacher' : 'Student',
+      roomName: _currentRoom.shortLabel,
+      text: clean,
+      isFromPeer: false,
+    );
+
+    // If a classmate peer is nearby, let them respond with a friendly Thought Bubble!
+    if (targetPeer != null && targetPeer.sampleReplies.isNotEmpty) {
+      final peerObj = targetPeer;
+      Future.delayed(const Duration(milliseconds: 900), () {
+        if (!mounted) return;
+        final reply = peerObj.sampleReplies[
+            DateTime.now().second % peerObj.sampleReplies.length];
+        setState(() {
+          _activePeerThoughts[peerObj.id] = reply;
+        });
+        LobbyDataService.instance.recordThoughtBubble(
+          senderName: peerObj.name,
+          senderRole: peerObj.roleTag,
+          roomName: _currentRoom.shortLabel,
+          text: reply.replaceFirst('💭 ', ''),
+          isFromPeer: true,
+        );
+      });
+    }
   }
 
   Offset _clampCameraToWorld(Offset target, Size viewportSize, double zoom) {
@@ -216,14 +339,10 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
     }
   }
 
-  /// Recycled from TinyFloor `MovementManager.ts` (`moveBy`):
-  /// Resolves X and Y axis collisions independently so the player slides smoothly along walls/desks.
   Offset _moveWithSlidingCollision(
       Offset current, Offset delta, List<Rect> solids) {
-    var nextX = (current.dx + delta.dx)
-        .clamp(38.0, kLobbyWorldWidth - 38.0);
-    var nextY = (current.dy + delta.dy)
-        .clamp(90.0, kLobbyWorldHeight - 30.0);
+    var nextX = (current.dx + delta.dx).clamp(38.0, kLobbyWorldWidth - 38.0);
+    var nextY = (current.dy + delta.dy).clamp(90.0, kLobbyWorldHeight - 30.0);
 
     bool collidesAt(double x, double y) {
       final footBox = Rect.fromCenter(
@@ -251,7 +370,7 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
 
     final service = LobbyDataService.instance;
     final chests = service.subjectChests;
-    final solids = buildLobbySolids(chests);
+    final solids = buildLobbySolids(chests, room: _currentRoom);
 
     // 1. Determine movement vector: Keyboard / Joystick overrides Tap-to-Walk path
     final kbVec = _readKeyboardVector();
@@ -262,11 +381,18 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
     var walking = false;
 
     if (manualVec != Offset.zero) {
+      // Automatically stand up if the player was sitting/napping/sleeping
+      if (_playerRestState.isResting) {
+        _playerRestState = PlayerRestState.none;
+      }
       _activePath = const [];
       moveDelta = manualVec * (kPlayerMoveSpeed * dt);
       _playerFacing = _facingFromVector(manualVec, _playerFacing);
       walking = true;
     } else if (_activePath.isNotEmpty) {
+      if (_playerRestState.isResting) {
+        _playerRestState = PlayerRestState.none;
+      }
       final target = _activePath.first;
       final toTarget = target - _playerPos;
       final dist = toTarget.distance;
@@ -289,7 +415,6 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
       _playerPos = _moveWithSlidingCollision(_playerPos, moveDelta, solids);
       if ((_playerPos - prev).distanceSquared < 0.05 &&
           _activePath.isNotEmpty) {
-        // Reached an obstacle along path; clear remaining waypoints
         _activePath = const [];
         walking = false;
       }
@@ -297,7 +422,7 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
 
     _playerIsWalking = walking;
 
-    // 2. Smooth camera follow (`CameraRig.ts` lerp = 0.14) clamped to world bounds
+    // 2. Smooth camera follow clamped to world bounds
     final desiredCamera =
         _clampCameraToWorld(_playerPos, _lastViewportSize, _cameraZoom);
     _cameraCenter =
@@ -318,8 +443,16 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
       }
     }
 
-    // 4. Update nearest InteractiveZone within radius (`ProximityManager.ts`)
-    final allZones = buildActiveInteractiveZones(chests);
+    // Expire player Thought Bubble after timer
+    if (_playerThoughtText != null &&
+        _playerThoughtUntilMs > 0 &&
+        DateTime.now().millisecondsSinceEpoch >= _playerThoughtUntilMs) {
+      _playerThoughtText = null;
+      _playerThoughtUntilMs = 0;
+    }
+
+    // 4. Update nearest InteractiveZone within radius in `_currentRoom`
+    final allZones = buildActiveInteractiveZones(chests, room: _currentRoom);
     InteractiveZone? nearest;
     var bestDist = 999999.0;
     for (final z in allZones) {
@@ -334,9 +467,6 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
     setState(() {});
   }
 
-  /// Converts a screen tap inside the canvas into world coordinates and computes an A* path
-  /// (`Navigation.ts` + `MovementManager.ts`). Also triggers interaction if tapping directly
-  /// on an already-in-range interactive zone!
   void _handleCanvasTapUp(TapUpDetails details, Size viewportSize) {
     _keyboardFocusNode.requestFocus();
     final local = details.localPosition;
@@ -346,7 +476,7 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
         (local.dy - viewportSize.height / 2) / _cameraZoom + _cameraCenter.dy;
     final worldTap = Offset(worldX, worldY);
 
-    // If user tapped directly on the currently highlighted zone within range, open it immediately!
+    // If user tapped directly on the currently highlighted zone within range, trigger it immediately!
     if (_highlightedZone != null &&
         (worldTap - _highlightedZone!.center).distance <=
             _highlightedZone!.radius * 0.85) {
@@ -355,7 +485,7 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
     }
 
     final chests = LobbyDataService.instance.subjectChests;
-    final solids = buildLobbySolids(chests);
+    final solids = buildLobbySolids(chests, room: _currentRoom);
     final nav = LobbyNavGrid(
       cols: kLobbyCols,
       rows: kLobbyRows,
@@ -367,12 +497,14 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
       _tapPulseTarget = worldTap;
       _tapPulseProgress = 0.0;
       if (path.isNotEmpty) {
+        _playerRestState = PlayerRestState.none;
         _activePath = path;
       }
     });
   }
 
-  Future<void> _openAvatarCustomizer({bool isFirstTimeOnboarding = false}) async {
+  Future<void> _openAvatarCustomizer(
+      {bool isFirstTimeOnboarding = false}) async {
     final equippedBadgeIcon =
         LobbyDataService.instance.progress.equippedBadge?.badgeIcon;
     final result = await showLobbyAvatarCustomizerModal(
@@ -409,13 +541,46 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
     });
   }
 
-  void _triggerInteract() {
+  Future<void> _triggerInteract() async {
     final zone = _highlightedZone;
     if (zone == null) return;
 
     switch (zone.kind) {
+      case InteractiveZoneKind.doorPortal:
+        if (zone.targetRoom != null) {
+          _enterRoom(zone.targetRoom!, spawnOverride: zone.targetSpawn);
+        }
+        break;
+      case InteractiveZoneKind.restSpot:
+        final spot = restSpotsForRoom(_currentRoom).firstWhere(
+          (r) => r.id == zone.restSpotId,
+          orElse: () => LobbyRestSpot(
+            id: 'fallback',
+            label: zone.label,
+            room: _currentRoom,
+            x: zone.x,
+            y: zone.y,
+          ),
+        );
+        final chosenRest = await showRestSpotActionModal(
+          context: context,
+          spotLabel: spot.label,
+          currentState: _playerRestState,
+          canSleepFlat: spot.canSleepFlat,
+        );
+        if (chosenRest != null && mounted) {
+          _setPlayerRestState(chosenRest, snapToSpot: spot);
+        }
+        break;
+      case InteractiveZoneKind.peerStudent:
+        final peer = peersForRoom(_currentRoom).firstWhere(
+          (p) => p.id == zone.peerStudentId,
+          orElse: () => kLobbyPeerStudents.first,
+        );
+        await _openThoughtBubbleModal(peer: peer);
+        break;
       case InteractiveZoneKind.questCounter:
-        showQuestCounterModal(
+        await showQuestCounterModal(
           context: context,
           isFaculty: widget.session.isFaculty,
           userName: _playerNickname,
@@ -423,7 +588,7 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
         break;
       case InteractiveZoneKind.subjectChest:
         if (zone.subjectChestId != null) {
-          showSubjectChestModal(
+          await showSubjectChestModal(
             context: context,
             chestId: zone.subjectChestId!,
             isFaculty: widget.session.isFaculty,
@@ -431,35 +596,146 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
         }
         break;
       case InteractiveZoneKind.smallMysteryChest:
-        showSmallMysteryChestModal(
+        await showSmallMysteryChestModal(
           context: context,
           smallChestId: zone.id,
           smallChestLabel: zone.label,
         );
         break;
       case InteractiveZoneKind.teacherCorner:
-        showTeacherCornerModal(
+        await showTeacherCornerModal(
           context: context,
           isFaculty: widget.session.isFaculty,
           userName: _playerNickname,
         );
         break;
       case InteractiveZoneKind.bulletinBoard:
-        showBulletinBoardModal(context: context);
+        await showBulletinBoardModal(context: context);
         break;
       case InteractiveZoneKind.studentLounge:
+        final chosenRest = await showRestSpotActionModal(
+          context: context,
+          spotLabel: 'Student Study Lounge',
+          currentState: _playerRestState,
+          canSleepFlat: true,
+        );
+        if (chosenRest != null && mounted) {
+          _setPlayerRestState(chosenRest);
+        }
+        break;
       case InteractiveZoneKind.reviewerTreasureArea:
         _triggerWave();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-                '🛋️ $_playerNickname is relaxing in the Student Study Lounge!'),
+              '💎 Walk up to any of your ${LobbyDataService.instance.subjectChests.length} enrolled Subject Chest(s) to open Google Drive reviewers!',
+            ),
             behavior: SnackBarBehavior.floating,
             duration: const Duration(seconds: 2),
           ),
         );
         break;
     }
+  }
+
+  void _showRoomQuickTravelMenu() {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Container(
+        margin: const EdgeInsets.all(14),
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          color: const Color(0xFF0F172A),
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(
+            color: const Color(0xFF38BDF8).withOpacity(0.55),
+            width: 1.5,
+          ),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Text('🚪', style: TextStyle(fontSize: 22)),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Campus Doors & Room Directory',
+                    style: GoogleFonts.outfit(
+                      color: Colors.white,
+                      fontSize: 17,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+                IconButton(
+                  onPressed: () => Navigator.of(ctx).pop(),
+                  icon: const Icon(Icons.close_rounded, color: Colors.white70),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            ...LobbyRoomId.values.map((room) {
+              final isCurrent = room == _currentRoom;
+              final accent = Color(room.accentColor);
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: ListTile(
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    side: BorderSide(
+                      color: isCurrent ? accent : Colors.white12,
+                      width: isCurrent ? 1.8 : 1.0,
+                    ),
+                  ),
+                  tileColor: isCurrent
+                      ? accent.withOpacity(0.20)
+                      : const Color(0xFF1E293B),
+                  leading:
+                      Text(room.iconEmoji, style: const TextStyle(fontSize: 22)),
+                  title: Text(
+                    room.title,
+                    style: GoogleFonts.outfit(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 14.5,
+                    ),
+                  ),
+                  trailing: isCurrent
+                      ? Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: accent,
+                            borderRadius: BorderRadius.circular(99),
+                          ),
+                          child: const Text(
+                            'Current Room',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        )
+                      : const Icon(Icons.arrow_forward_ios_rounded,
+                          color: Colors.white54, size: 15),
+                  onTap: () {
+                    Navigator.of(ctx).pop();
+                    if (!isCurrent) {
+                      _enterRoom(room);
+                    }
+                  },
+                ),
+              );
+            }),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -470,7 +746,6 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
     final screenSize = MediaQuery.sizeOf(context);
     final isLandscape = screenSize.width > screenSize.height;
 
-    // Auto-adapt camera zoom on screen rotation if the user hasn't manually pinched/zoomed
     if (_lastViewportSize != screenSize) {
       _lastViewportSize = screenSize;
       if (!_userAdjustedZoom) {
@@ -483,7 +758,6 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
           _clampCameraToWorld(_playerPos, screenSize, _cameraZoom);
     }
 
-    // Build cooldown map for the 8 Small Mystery Chests
     final nowMs = DateTime.now().millisecondsSinceEpoch;
     final smallChestRemainingSec = <String, int>{
       for (final z in INTERACTIVE_ZONES)
@@ -492,7 +766,7 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
     };
 
     return ListenableBuilder(
-      listenable: ThemeController.instance,
+      listenable: Listenable.merge([ThemeController.instance, service]),
       builder: (context, _) {
         final isDarkMode = ThemeController.instance.isDarkMode;
 
@@ -522,7 +796,7 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
                               color: Color(0xFF38BDF8)),
                           const SizedBox(height: 14),
                           Text(
-                            'Loading MIS-SHS 2D Pixel School Lobby...',
+                            'Loading MIS-SHS 2D Pixel School Campus...',
                             style: GoogleFonts.outfit(
                               color: Colors.white,
                               fontSize: 16,
@@ -535,7 +809,7 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
                   : Stack(
                       fit: StackFit.expand,
                       children: [
-                        // 1. Full-Screen 2D Pixel Canvas (Tap-to-Walk + Camera Follow)
+                        // 1. Full-Screen 2D Pixel Canvas
                         Positioned.fill(
                           child: LayoutBuilder(
                             builder: (context, constraints) {
@@ -570,6 +844,10 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
                                     smallChestRemainingSec:
                                         smallChestRemainingSec,
                                     isDarkMode: isDarkMode,
+                                    currentRoom: _currentRoom,
+                                    playerRestState: _playerRestState,
+                                    playerThoughtText: _playerThoughtText,
+                                    activePeerThoughts: _activePeerThoughts,
                                   ),
                                 ),
                               );
@@ -577,7 +855,7 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
                           ),
                         ),
 
-                        // 2. Top HUD Bar (Explicitly Positioned so Stack always fills 100% of screen!)
+                        // 2. Top HUD Bar
                         Positioned(
                           top: 0,
                           left: 0,
@@ -601,6 +879,32 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
                                           borderColor: Colors.white24,
                                           onTap: () =>
                                               Navigator.of(context).pop(),
+                                        ),
+                                        const SizedBox(width: 6),
+
+                                        // 1-Tap Campus Room Switcher / Doors Directory
+                                        _HudPillButton(
+                                          icon: Icons.door_front_door_rounded,
+                                          iconColor:
+                                              Color(_currentRoom.accentColor),
+                                          label:
+                                              '${_currentRoom.iconEmoji} ${_currentRoom.shortLabel} ▾',
+                                          borderColor:
+                                              Color(_currentRoom.accentColor)
+                                                  .withOpacity(0.75),
+                                          onTap: _showRoomQuickTravelMenu,
+                                        ),
+                                        const SizedBox(width: 6),
+
+                                        // Thought Bubble Chat Quick Button
+                                        _HudPillButton(
+                                          icon: Icons.cloud_outlined,
+                                          iconColor: const Color(0xFF38BDF8),
+                                          label: '💭 Thought Chat',
+                                          borderColor: const Color(0xFF38BDF8)
+                                              .withOpacity(0.55),
+                                          onTap: () =>
+                                              _openThoughtBubbleModal(),
                                         ),
                                         const SizedBox(width: 6),
 
@@ -771,10 +1075,14 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
                               child: _LobbyMiniMapRadar(
                                 playerPos: _playerPos,
                                 subjectChests: service.subjectChests,
-                                isCompact: !isLandscape && screenSize.width < 390,
+                                currentRoom: _currentRoom,
+                                isCompact:
+                                    !isLandscape && screenSize.width < 390,
                                 onTapWorldPoint: (worldTarget) {
-                                  final solids =
-                                      buildLobbySolids(service.subjectChests);
+                                  final solids = buildLobbySolids(
+                                    service.subjectChests,
+                                    room: _currentRoom,
+                                  );
                                   final nav = LobbyNavGrid(
                                     cols: kLobbyCols,
                                     rows: kLobbyRows,
@@ -786,6 +1094,7 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
                                     _tapPulseTarget = worldTarget;
                                     _tapPulseProgress = 0.0;
                                     if (path.isNotEmpty) {
+                                      _playerRestState = PlayerRestState.none;
                                       _activePath = path;
                                     }
                                   });
@@ -794,17 +1103,16 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
                             ),
                           ),
 
-                        // 4. Bottom-Left Virtual Touch Joystick (Mobile APK Controls)
+                        // 4. Bottom-Left Virtual Touch Joystick
                         Positioned(
                           left: isLandscape ? 20 : 12,
                           bottom: isLandscape ? 18 : 16,
                           child: SafeArea(
                             top: false,
                             child: Transform.scale(
-                              scale:
-                                  (!isLandscape && screenSize.width < 380)
-                                      ? 0.88
-                                      : 1.0,
+                              scale: (!isLandscape && screenSize.width < 380)
+                                  ? 0.88
+                                  : 1.0,
                               alignment: Alignment.bottomLeft,
                               child: SchoolLobbyVirtualJoystick(
                                 onVectorChanged: (vec) {
@@ -815,22 +1123,26 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
                           ),
                         ),
 
-                        // 5. Bottom-Right On-Screen "Interact" Button + Wave & Zoom Cluster
+                        // 5. Bottom-Right On-Screen "Interact" + Sit/Nap/Sleep + Thought Bubble Cluster
                         Positioned(
                           right: isLandscape ? 18 : 12,
                           bottom: isLandscape ? 18 : 16,
                           child: SafeArea(
                             top: false,
                             child: Transform.scale(
-                              scale:
-                                  (!isLandscape && screenSize.width < 380)
-                                      ? 0.90
-                                      : 1.0,
+                              scale: (!isLandscape && screenSize.width < 380)
+                                  ? 0.88
+                                  : 1.0,
                               alignment: Alignment.bottomRight,
                               child: SchoolLobbyInteractCluster(
                                 activeZone: _highlightedZone,
+                                playerRestState: _playerRestState,
                                 onInteract: _triggerInteract,
                                 onWave: _triggerWave,
+                                onThoughtBubble: () =>
+                                    _openThoughtBubbleModal(),
+                                onChangeRestState: (nextState) =>
+                                    _setPlayerRestState(nextState),
                                 onZoomIn: () => setState(() {
                                   _userAdjustedZoom = true;
                                   _cameraZoom =
@@ -915,17 +1227,17 @@ class _HudPillButton extends StatelessWidget {
   }
 }
 
-/// Interactive Mini-Map Radar of the expanded `48 x 34` (`1536 x 1088` px) School Campus.
-/// Tapping anywhere on the mini-map auto-walks the player to that wing!
 class _LobbyMiniMapRadar extends StatelessWidget {
   final Offset playerPos;
   final List<SubjectChest> subjectChests;
+  final LobbyRoomId currentRoom;
   final bool isCompact;
   final ValueChanged<Offset> onTapWorldPoint;
 
   const _LobbyMiniMapRadar({
     required this.playerPos,
     required this.subjectChests,
+    required this.currentRoom,
     required this.isCompact,
     required this.onTapWorldPoint,
   });
@@ -937,10 +1249,10 @@ class _LobbyMiniMapRadar extends StatelessWidget {
 
     return GestureDetector(
       onTapDown: (d) {
-        final wx =
-            (d.localPosition.dx / mapW * kLobbyWorldWidth).clamp(48.0, kLobbyWorldWidth - 48.0);
-        final wy =
-            (d.localPosition.dy / mapH * kLobbyWorldHeight).clamp(96.0, kLobbyWorldHeight - 48.0);
+        final wx = (d.localPosition.dx / mapW * kLobbyWorldWidth)
+            .clamp(48.0, kLobbyWorldWidth - 48.0);
+        final wy = (d.localPosition.dy / mapH * kLobbyWorldHeight)
+            .clamp(96.0, kLobbyWorldHeight - 48.0);
         onTapWorldPoint(Offset(wx, wy));
       },
       child: Container(
@@ -950,7 +1262,7 @@ class _LobbyMiniMapRadar extends StatelessWidget {
           color: const Color(0xFF0F172A).withOpacity(0.86),
           borderRadius: BorderRadius.circular(10),
           border: Border.all(
-            color: const Color(0xFF38BDF8).withOpacity(0.55),
+            color: Color(currentRoom.accentColor).withOpacity(0.65),
             width: 1.4,
           ),
           boxShadow: [
@@ -968,6 +1280,7 @@ class _LobbyMiniMapRadar extends StatelessWidget {
             painter: _MiniMapRadarPainter(
               playerPos: playerPos,
               subjectChests: subjectChests,
+              currentRoom: currentRoom,
             ),
           ),
         ),
@@ -979,10 +1292,12 @@ class _LobbyMiniMapRadar extends StatelessWidget {
 class _MiniMapRadarPainter extends CustomPainter {
   final Offset playerPos;
   final List<SubjectChest> subjectChests;
+  final LobbyRoomId currentRoom;
 
   const _MiniMapRadarPainter({
     required this.playerPos,
     required this.subjectChests,
+    required this.currentRoom,
   });
 
   @override
@@ -990,44 +1305,46 @@ class _MiniMapRadarPainter extends CustomPainter {
     final sx = size.width / kLobbyWorldWidth;
     final sy = size.height / kLobbyWorldHeight;
 
-    // 1. Campus Zones
-    // Bulletin Wing (Top-Left)
-    canvas.drawRect(
-      Rect.fromLTWH(44 * sx, 92 * sy, 460 * sx, 190 * sy),
-      Paint()..color = const Color(0xFF38BDF8).withOpacity(0.28),
-    );
-    // Quest Counter (Top-Center)
-    canvas.drawRect(
-      Rect.fromLTWH(620 * sx, 92 * sy, 296 * sx, 170 * sy),
-      Paint()..color = const Color(0xFFF59E0B).withOpacity(0.32),
-    );
-    // Teacher's Corner (Top-Right)
-    canvas.drawRect(
-      Rect.fromLTWH(1060 * sx, 92 * sy, 420 * sx, 190 * sy),
-      Paint()..color = const Color(0xFFFBBF24).withOpacity(0.28),
-    );
-    // Student Lounge & Study Commons (Left & Center-Bottom)
-    canvas.drawRect(
-      Rect.fromLTWH(76 * sx, 430 * sy, 680 * sx, 560 * sy),
-      Paint()..color = const Color(0xFF10B981).withOpacity(0.22),
-    );
-    // Reviewer Treasure Vault Sanctuary (Bottom-Right)
-    canvas.drawRect(
-      Rect.fromLTWH(880 * sx, 460 * sy, 580 * sx, 560 * sy),
-      Paint()..color = const Color(0xFFA855F7).withOpacity(0.28),
-    );
+    if (currentRoom == LobbyRoomId.mainLobby) {
+      canvas.drawRect(
+        Rect.fromLTWH(44 * sx, 92 * sy, 460 * sx, 190 * sy),
+        Paint()..color = const Color(0xFF38BDF8).withOpacity(0.28),
+      );
+      canvas.drawRect(
+        Rect.fromLTWH(620 * sx, 92 * sy, 296 * sx, 170 * sy),
+        Paint()..color = const Color(0xFFF59E0B).withOpacity(0.32),
+      );
+      canvas.drawRect(
+        Rect.fromLTWH(1060 * sx, 92 * sy, 420 * sx, 190 * sy),
+        Paint()..color = const Color(0xFFFBBF24).withOpacity(0.28),
+      );
+      canvas.drawRect(
+        Rect.fromLTWH(76 * sx, 430 * sy, 680 * sx, 560 * sy),
+        Paint()..color = const Color(0xFF10B981).withOpacity(0.22),
+      );
+      canvas.drawRect(
+        Rect.fromLTWH(880 * sx, 460 * sy, 580 * sx, 560 * sy),
+        Paint()..color = const Color(0xFFA855F7).withOpacity(0.28),
+      );
 
-    // 2. Subject Chest dots
-    for (var i = 0; i < subjectChests.length; i++) {
-      final pos = subjectChestPosition(i);
-      canvas.drawCircle(
-        Offset(pos.dx * sx, pos.dy * sy),
-        2.6,
-        Paint()..color = Color(subjectChests[i].colorValue),
+      for (var i = 0; i < subjectChests.length; i++) {
+        final pos = subjectChestPosition(i);
+        canvas.drawCircle(
+          Offset(pos.dx * sx, pos.dy * sy),
+          2.6,
+          Paint()..color = Color(subjectChests[i].colorValue),
+        );
+      }
+    } else {
+      // Sub-room radar tint
+      canvas.drawRect(
+        Rect.fromLTWH(40 * sx, 90 * sy, (kLobbyWorldWidth - 80) * sx,
+            (kLobbyWorldHeight - 130) * sy),
+        Paint()..color = Color(currentRoom.accentColor).withOpacity(0.22),
       );
     }
 
-    // 3. Player glowing dot
+    // Player glowing dot
     final px = (playerPos.dx * sx).clamp(4.0, size.width - 4.0);
     final py = (playerPos.dy * sy).clamp(4.0, size.height - 4.0);
     canvas.drawCircle(
@@ -1045,5 +1362,6 @@ class _MiniMapRadarPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _MiniMapRadarPainter oldDelegate) =>
       oldDelegate.playerPos != playerPos ||
+      oldDelegate.currentRoom != currentRoom ||
       oldDelegate.subjectChests.length != subjectChests.length;
 }

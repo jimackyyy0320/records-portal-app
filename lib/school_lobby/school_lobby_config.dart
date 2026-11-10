@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'lobby_data_service.dart';
+import 'school_lobby_avatar.dart';
 
 /// TinyFloor core tile & character frame constants recycled from:
 /// - `_reference_tinyfloor/web-shared/src/lib/characterSheet.ts`
@@ -13,28 +14,11 @@ const int kLobbyRows = 34;
 const double kLobbyWorldWidth = kLobbyCols * kTileSize; // 1536 px
 const double kLobbyWorldHeight = kLobbyRows * kTileSize; // 1088 px
 
-const double kCharFrameWidth = 32.0;
-const double kCharFrameHeight = 64.0;
-const int kCharFramesPerDirection = 6;
-const int kCharTotalFrames = 24;
-
 const double kPlayerMoveSpeed = 205.0; // Smooth campus walking speed
 const double kPlayerHalfWidth = 11.0;
 
 /// Player default spawn point in the Grand Central Courtyard of the Main Lobby.
 const Offset kPlayerSpawnPoint = Offset(768, 560);
-
-/// Facing directions matching TinyFloor's `DIR_OFFSET` in `characterSheet.ts`:
-/// `right: 0, up: 6, left: 12, down: 18`
-enum AvatarFacing {
-  right(0),
-  up(6),
-  left(12),
-  down(18);
-
-  final int frameOffset;
-  const AvatarFacing(this.frameOffset);
-}
 
 /// The 5 explorable Campus Rooms connected via interactive Doors (`🚪`):
 /// 1. Main School Lobby (`mainLobby`)
@@ -162,18 +146,6 @@ enum PlayerRestState {
         return '🛌';
     }
   }
-}
-
-/// Computes the 0..23 horizontal frame index on a TinyFloor `768x64` character sheet.
-int computeCharacterFrameIndex({
-  required AvatarFacing facing,
-  required bool isWalking,
-  required int stepFrame,
-}) {
-  if (!isWalking) {
-    return facing.frameOffset + (stepFrame % 2 == 0 ? 0 : 3);
-  }
-  return facing.frameOffset + (stepFrame % kCharFramesPerDirection);
 }
 
 enum InteractiveZoneKind {
@@ -732,7 +704,7 @@ const List<LobbyPeerStudent> kLobbyPeerStudents = [
   LobbyPeerStudent(
     id: 'peer_main_alyssa',
     name: 'Alyssa (HUMSS 12)',
-    presetName: 'character_09',
+    presetName: 'Amelia',
     room: LobbyRoomId.mainLobby,
     x: 340,
     y: 590,
@@ -748,7 +720,7 @@ const List<LobbyPeerStudent> kLobbyPeerStudents = [
   LobbyPeerStudent(
     id: 'peer_main_marco',
     name: 'Marco (GAS 12)',
-    presetName: 'character_04',
+    presetName: 'Alex',
     room: LobbyRoomId.mainLobby,
     x: 492,
     y: 516,
@@ -766,7 +738,7 @@ const List<LobbyPeerStudent> kLobbyPeerStudents = [
   LobbyPeerStudent(
     id: 'peer_park_bea',
     name: 'Bea (STEM 12)',
-    presetName: 'character_14',
+    presetName: 'Molly',
     room: LobbyRoomId.park,
     x: 560,
     y: 520,
@@ -782,7 +754,7 @@ const List<LobbyPeerStudent> kLobbyPeerStudents = [
   LobbyPeerStudent(
     id: 'peer_park_carlo',
     name: 'Carlo (HUMSS 12)',
-    presetName: 'character_11',
+    presetName: 'Ash',
     room: LobbyRoomId.park,
     x: 1100,
     y: 720,
@@ -799,7 +771,7 @@ const List<LobbyPeerStudent> kLobbyPeerStudents = [
   LobbyPeerStudent(
     id: 'peer_class_jamie',
     name: 'Jamie (ABM 12)',
-    presetName: 'character_06',
+    presetName: 'Jenny',
     room: LobbyRoomId.classroom,
     x: 610,
     y: 455,
@@ -817,7 +789,7 @@ const List<LobbyPeerStudent> kLobbyPeerStudents = [
   LobbyPeerStudent(
     id: 'peer_canteen_enz',
     name: 'Enzo (TVL 12)',
-    presetName: 'character_08',
+    presetName: 'Bob',
     room: LobbyRoomId.canteen,
     x: 610,
     y: 540,
@@ -834,7 +806,7 @@ const List<LobbyPeerStudent> kLobbyPeerStudents = [
   LobbyPeerStudent(
     id: 'peer_faculty_lara',
     name: 'Lara (Class Rep)',
-    presetName: 'character_15',
+    presetName: 'Lucy',
     room: LobbyRoomId.facultyRoom,
     x: 560,
     y: 520,
@@ -1185,7 +1157,7 @@ const List<LobbyNpc> kLobbyNpcs = [
     name: 'Aiko (Quest Guide)',
     roleTag: 'Reception',
     isGoldTag: true,
-    presetName: 'character_02',
+    presetName: 'Lucy',
     room: LobbyRoomId.mainLobby,
     x: 768,
     y: 142,
@@ -1196,7 +1168,7 @@ const List<LobbyNpc> kLobbyNpcs = [
     name: 'Sir Jim Mark',
     roleTag: 'Teacher',
     isGoldTag: true,
-    presetName: 'character_05',
+    presetName: 'Adam',
     room: LobbyRoomId.mainLobby,
     x: 1248,
     y: 142,
@@ -1207,7 +1179,7 @@ const List<LobbyNpc> kLobbyNpcs = [
     name: 'Kuya Ben (Vault Keeper)',
     roleTag: 'Archivist',
     isGoldTag: false,
-    presetName: 'character_12',
+    presetName: 'Dan',
     room: LobbyRoomId.mainLobby,
     x: 1168,
     y: 545,
@@ -1218,7 +1190,7 @@ const List<LobbyNpc> kLobbyNpcs = [
     name: 'Ate Lorna (Canteen)',
     roleTag: 'Staff',
     isGoldTag: true,
-    presetName: 'character_03',
+    presetName: 'Amelia',
     room: LobbyRoomId.canteen,
     x: 1100,
     y: 160,
@@ -1229,7 +1201,7 @@ const List<LobbyNpc> kLobbyNpcs = [
     name: 'Ma\'am Reyes (Adviser)',
     roleTag: 'Teacher',
     isGoldTag: true,
-    presetName: 'character_07',
+    presetName: 'Jenny',
     room: LobbyRoomId.facultyRoom,
     x: 768,
     y: 350,

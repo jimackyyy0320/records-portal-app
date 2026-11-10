@@ -29,7 +29,8 @@ class LobbyNavGrid {
         s.bottom + pad,
       );
       final c0 = (expanded.left / kTileSize).floor().clamp(0, cols - 1);
-      final c1 = ((expanded.right - 0.01) / kTileSize).floor().clamp(0, cols - 1);
+      final c1 =
+          ((expanded.right - 0.01) / kTileSize).floor().clamp(0, cols - 1);
       final r0 = (expanded.top / kTileSize).floor().clamp(0, rows - 1);
       final r1 =
           ((expanded.bottom - 0.01) / kTileSize).floor().clamp(0, rows - 1);
@@ -145,7 +146,6 @@ class LobbyNavGrid {
 
         final isDiag = d.x != 0 && d.y != 0;
         if (isDiag) {
-          // Prevent corner-cutting through solid corners
           if (!isWalkableTile(current.x + d.x, current.y) ||
               !isWalkableTile(current.x, current.y + d.y)) {
             continue;
@@ -219,7 +219,7 @@ class PointInt {
   int get hashCode => Object.hash(x, y);
 }
 
-/// Holds loaded TinyFloor sprite atlases (`floor-items.png`, `floor-sheet.png`, `atlas.json`, NPC sheets).
+/// Holds loaded TinyFloor sprite atlases (`floor-items.png`, `floor-sheet.png`, `atlas.json`, NPC & Peer sheets).
 class SchoolLobbyAssetBundle {
   final ui.Image floorSheet;
   final ui.Image floorItems;
@@ -263,8 +263,15 @@ class SchoolLobbyAssetBundle {
 
     final npcSheets = <String, ui.Image>{};
     for (final npc in kLobbyNpcs) {
-      npcSheets[npc.id] = await AvatarSpriteCache.instance.resolveLookSpriteSheet(
+      npcSheets[npc.id] =
+          await AvatarSpriteCache.instance.resolveLookSpriteSheet(
         LobbyAvatarLook(isPreset: true, presetName: npc.presetName),
+      );
+    }
+    for (final peer in kLobbyPeerStudents) {
+      npcSheets[peer.id] =
+          await AvatarSpriteCache.instance.resolveLookSpriteSheet(
+        LobbyAvatarLook(isPreset: true, presetName: peer.presetName),
       );
     }
 
@@ -278,14 +285,12 @@ class SchoolLobbyAssetBundle {
   }
 }
 
-/// CustomPainter that renders the 2D Pixel Student School Lobby:
-/// - 3/4-perspective walls & wood/tile school flooring
-/// - Distinct visual zone floor accents & labels
-/// - Tap-to-walk target ring pulse
-/// - Proximity zone ring highlight
-/// - Y-sorted furniture (`floor-items.png`), NPCs, Subject-Labeled Large Treasure Chests
-///   (with permanent floating color-coded banners), 4 Small Mystery Chests (with `✨ ?` or open cooldown sprite),
-///   and the Player Avatar + Floating Nameplate + Equipped Badge Icon + Wave emote!
+/// CustomPainter that renders the 5-Room 2D Pixel Student Campus:
+/// - Main School Lobby, Campus Park, Class Room, Student Canteen, and Faculty Room
+/// - Interactive Doors (`🚪`), Rest Spots (`🪑 Sit`, `😪 Nap`, `🛌 Sleep`),
+/// - Classmate Peer Students with Cloud Thought Bubbles (`💭`),
+/// - Subject-Labeled Large Treasure Chests (filtered to enrolled active subjects),
+/// - Small Mystery Quiz Chests, and Player Avatar with Rest Poses & Thought Bubbles!
 class SchoolLobbyCanvasPainter extends CustomPainter {
   final SchoolLobbyAssetBundle assets;
   final ui.Image? playerSheet;
@@ -306,6 +311,10 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
   final List<SubjectChest> subjectChests;
   final Map<String, int> smallChestRemainingSec;
   final bool isDarkMode;
+  final LobbyRoomId currentRoom;
+  final PlayerRestState playerRestState;
+  final String? playerThoughtText;
+  final Map<String, String> activePeerThoughts;
 
   const SchoolLobbyCanvasPainter({
     required this.assets,
@@ -327,6 +336,10 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
     required this.subjectChests,
     required this.smallChestRemainingSec,
     this.isDarkMode = false,
+    this.currentRoom = LobbyRoomId.mainLobby,
+    this.playerRestState = PlayerRestState.none,
+    this.playerThoughtText,
+    this.activePeerThoughts = const {},
   });
 
   @override
@@ -338,32 +351,32 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
     );
 
     canvas.save();
-    // Apply camera transform centered on viewport
     canvas.translate(size.width / 2, size.height / 2);
     canvas.scale(cameraZoom);
     canvas.translate(-cameraCenter.dx, -cameraCenter.dy);
 
-    // 2. Render School Lobby Floor & 3/4 Perspective Walls (recycled from `shell.ts`)
+    // 2. Render Room Floor & 3/4 Perspective Walls + Doors
     _paintLobbyShell(canvas);
 
     // 3. Render Floor Rugs (bottom layer)
     final pixelPaint = Paint()..filterQuality = FilterQuality.none;
-    for (final piece in kSchoolLobbyPieces) {
+    final roomPieces = furnitureForRoom(currentRoom);
+    for (final piece in roomPieces) {
       if (!piece.isFloorRug) continue;
       _drawFurniturePiece(canvas, piece, pixelPaint);
     }
 
-    // 4. Render Distinct Zone Floor Labels & Interactive Proximity Rings
+    // 4. Render Distinct Zone Floor Decals, Doors & Interactive Proximity Rings
     _paintZoneFloorDecals(canvas);
 
-    // 5. Render Tap-to-Walk path breadcrumbs & pulse ring (`pulseTile` from `MovementManager.ts`)
+    // 5. Render Tap-to-Walk path breadcrumbs & pulse ring
     _paintNavigationOverlay(canvas);
 
     // 6. Build Y-sorted renderables (`depthForY(y) = y` from `office.ts`)
     final drawables = <_YSortedDrawable>[];
 
     // 6a. Furniture pieces (non-rug)
-    for (final piece in kSchoolLobbyPieces) {
+    for (final piece in roomPieces) {
       if (piece.isFloorRug) continue;
       drawables.add(
         _YSortedDrawable(
@@ -373,8 +386,8 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
       );
     }
 
-    // 6b. NPCs (Anime Receptionist at Quest Counter + Faculty Adviser at Teacher's Corner)
-    for (final npc in kLobbyNpcs) {
+    // 6b. NPCs in this room
+    for (final npc in npcsForRoom(currentRoom)) {
       drawables.add(
         _YSortedDrawable(
           sortY: npc.y,
@@ -383,44 +396,55 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
       );
     }
 
-    // 6c. Subject-Labeled Large Treasure Chests in the Reviewer Treasure Corner
-    for (var i = 0; i < subjectChests.length; i++) {
-      final chest = subjectChests[i];
-      final pos = subjectChestPosition(i);
-      final isHighlighted =
-          highlightedZone?.id == 'subject_chest_${chest.id}';
+    // 6c. Classmate Peer Students in this room (with Sit/Nap/Sleep poses + Thought Bubbles!)
+    for (final peer in peersForRoom(currentRoom)) {
       drawables.add(
         _YSortedDrawable(
-          sortY: pos.dy,
-          draw: (c) => _drawLargeSubjectChest(
-            c,
-            chest: chest,
-            pos: pos,
-            isHighlighted: isHighlighted,
-          ),
+          sortY: peer.y,
+          draw: (c) => _drawPeerStudent(c, peer, pixelPaint),
         ),
       );
     }
 
-    // 6d. 4 Small Mystery Chests (with sparkling `?` or open 2-min cooldown sprite)
-    for (final zone in INTERACTIVE_ZONES) {
-      if (zone.kind != InteractiveZoneKind.smallMysteryChest) continue;
-      final remainingSec = smallChestRemainingSec[zone.id] ?? 0;
-      final isHighlighted = highlightedZone?.id == zone.id;
-      drawables.add(
-        _YSortedDrawable(
-          sortY: zone.y,
-          draw: (c) => _drawSmallMysteryChest(
-            c,
-            zone: zone,
-            remainingCooldownSec: remainingSec,
-            isHighlighted: isHighlighted,
+    // 6d. Subject-Labeled Large Treasure Chests & Small Mystery Chests (in Main Lobby)
+    if (currentRoom == LobbyRoomId.mainLobby) {
+      for (var i = 0; i < subjectChests.length; i++) {
+        final chest = subjectChests[i];
+        final pos = subjectChestPosition(i);
+        final isHighlighted =
+            highlightedZone?.id == 'subject_chest_${chest.id}';
+        drawables.add(
+          _YSortedDrawable(
+            sortY: pos.dy,
+            draw: (c) => _drawLargeSubjectChest(
+              c,
+              chest: chest,
+              pos: pos,
+              isHighlighted: isHighlighted,
+            ),
           ),
-        ),
-      );
+        );
+      }
+
+      for (final zone in INTERACTIVE_ZONES) {
+        if (zone.kind != InteractiveZoneKind.smallMysteryChest) continue;
+        final remainingSec = smallChestRemainingSec[zone.id] ?? 0;
+        final isHighlighted = highlightedZone?.id == zone.id;
+        drawables.add(
+          _YSortedDrawable(
+            sortY: zone.y,
+            draw: (c) => _drawSmallMysteryChest(
+              c,
+              zone: zone,
+              remainingCooldownSec: remainingSec,
+              isHighlighted: isHighlighted,
+            ),
+          ),
+        );
+      }
     }
 
-    // 6e. Player Avatar + Floating Nameplate + Equipped Badge Icon
+    // 6e. Player Avatar + Rest Pose (Sit/Nap/Sleep) + Floating Nameplate + Thought Bubble
     drawables.add(
       _YSortedDrawable(
         sortY: playerPos.dy,
@@ -440,25 +464,70 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
     // Outer drop shadow
     canvas.drawRRect(
       RRect.fromRectAndRadius(
-        const Rect.fromLTWH(-12, -8, kLobbyWorldWidth + 24, kLobbyWorldHeight + 24),
+        const Rect.fromLTWH(
+            -12, -8, kLobbyWorldWidth + 24, kLobbyWorldHeight + 24),
         const Radius.circular(16),
       ),
       Paint()..color = Colors.black.withOpacity(0.65),
     );
 
-    // Main school wood/tile floor (Day Warm Timber vs Night Midnight Slate)
     const floorRect = Rect.fromLTWH(0, 0, kLobbyWorldWidth, kLobbyWorldHeight);
-    final baseFloorColor =
-        isDarkMode ? const Color(0xFF152033) : const Color(0xFFD8C5A8);
-    final altFloorColor =
-        isDarkMode ? const Color(0xFF111A2B) : const Color(0xFFD1BC9D);
-    final gridColor = isDarkMode
-        ? const Color(0xFF283953).withOpacity(0.42)
-        : const Color(0xFFBFA888).withOpacity(0.45);
+
+    // Room-specific floor palette
+    Color baseFloorColor;
+    Color altFloorColor;
+    Color gridColor;
+
+    switch (currentRoom) {
+      case LobbyRoomId.park:
+        baseFloorColor =
+            isDarkMode ? const Color(0xFF0E291E) : const Color(0xFF65A34E);
+        altFloorColor =
+            isDarkMode ? const Color(0xFF0B2219) : const Color(0xFF5B9644);
+        gridColor = isDarkMode
+            ? const Color(0xFF1E4631).withOpacity(0.42)
+            : const Color(0xFF4A7F35).withOpacity(0.35);
+        break;
+      case LobbyRoomId.classroom:
+        baseFloorColor =
+            isDarkMode ? const Color(0xFF172336) : const Color(0xFFE2E8F0);
+        altFloorColor =
+            isDarkMode ? const Color(0xFF131D2E) : const Color(0xFFCBD5E1);
+        gridColor = isDarkMode
+            ? const Color(0xFF2B3D59).withOpacity(0.45)
+            : const Color(0xFF94A3B8).withOpacity(0.40);
+        break;
+      case LobbyRoomId.canteen:
+        baseFloorColor =
+            isDarkMode ? const Color(0xFF231924) : const Color(0xFFFDE68A);
+        altFloorColor =
+            isDarkMode ? const Color(0xFF1A121B) : const Color(0xFFFCD34D);
+        gridColor = isDarkMode
+            ? const Color(0xFF3F2B42).withOpacity(0.45)
+            : const Color(0xFFD97706).withOpacity(0.28);
+        break;
+      case LobbyRoomId.facultyRoom:
+        baseFloorColor =
+            isDarkMode ? const Color(0xFF1A182E) : const Color(0xFFC7B299);
+        altFloorColor =
+            isDarkMode ? const Color(0xFF141225) : const Color(0xFFBBA388);
+        gridColor = isDarkMode
+            ? const Color(0xFF312E52).withOpacity(0.45)
+            : const Color(0xFF998267).withOpacity(0.42);
+        break;
+      case LobbyRoomId.mainLobby:
+        baseFloorColor =
+            isDarkMode ? const Color(0xFF152033) : const Color(0xFFD8C5A8);
+        altFloorColor =
+            isDarkMode ? const Color(0xFF111A2B) : const Color(0xFFD1BC9D);
+        gridColor = isDarkMode
+            ? const Color(0xFF283953).withOpacity(0.42)
+            : const Color(0xFFBFA888).withOpacity(0.45);
+        break;
+    }
 
     canvas.drawRect(floorRect, Paint()..color = baseFloorColor);
 
-    // Checkerboard & plank tile grid (`TILE = 32`, `48 x 34` tiles)
     final altTilePaint = Paint()..color = altFloorColor;
     final gridLinePaint = Paint()
       ..color = gridColor
@@ -476,59 +545,141 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
       }
     }
 
-    // Center Grand Campus Walkway Carpet Runner (Vertical & Horizontal Crossroads)
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        const Rect.fromLTWH(720, 260, 96, kLobbyWorldHeight - 288),
-        const Radius.circular(8),
-      ),
-      Paint()
+    // Room-specific architectural floor features
+    if (currentRoom == LobbyRoomId.mainLobby) {
+      // Center Grand Campus Walkway Carpet Runner
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          const Rect.fromLTWH(720, 260, 96, kLobbyWorldHeight - 288),
+          const Radius.circular(8),
+        ),
+        Paint()
+          ..color = isDarkMode
+              ? const Color(0xFF1E3A5F).withOpacity(0.32)
+              : const Color(0xFF0F766E).withOpacity(0.11),
+      );
+
+      // Bulletin Board Reading Floor (Top-Left Wing)
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          const Rect.fromLTWH(44, 92, 460, 190),
+          const Radius.circular(10),
+        ),
+        Paint()
+          ..color =
+              const Color(0xFF38BDF8).withOpacity(isDarkMode ? 0.14 : 0.10),
+      );
+
+      // Reviewer Treasure Corner Sanctuary Floor (Expanded Bottom-Right Wing)
+      final sanctuaryRect = RRect.fromRectAndRadius(
+        const Rect.fromLTWH(880, 460, 580, 560),
+        const Radius.circular(14),
+      );
+      canvas.drawRRect(
+        sanctuaryRect,
+        Paint()
+          ..color =
+              const Color(0xFF3B1D5E).withOpacity(isDarkMode ? 0.36 : 0.22),
+      );
+      canvas.drawRRect(
+        sanctuaryRect,
+        Paint()
+          ..color = const Color(0xFFF59E0B).withOpacity(0.65)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2.2,
+      );
+    } else if (currentRoom == LobbyRoomId.park) {
+      // Cobblestone Park Walkways (Horizontal & Vertical paths)
+      final pathPaint = Paint()
         ..color = isDarkMode
-            ? const Color(0xFF1E3A5F).withOpacity(0.32)
-            : const Color(0xFF0F766E).withOpacity(0.11),
-    );
+            ? const Color(0xFF334155).withOpacity(0.65)
+            : const Color(0xFFD6D3D1).withOpacity(0.85);
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          const Rect.fromLTWH(96, 504, kLobbyWorldWidth - 144, 80),
+          const Radius.circular(12),
+        ),
+        pathPaint,
+      );
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          const Rect.fromLTWH(728, 160, 80, kLobbyWorldHeight - 240),
+          const Radius.circular(12),
+        ),
+        pathPaint,
+      );
 
-    // Distinct visual zone floor tinting
-    // 1. Bulletin Board Reading Floor (Top-Left Wing)
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        const Rect.fromLTWH(44, 92, 460, 190),
-        const Radius.circular(10),
-      ),
-      Paint()
-        ..color = const Color(0xFF38BDF8).withOpacity(isDarkMode ? 0.14 : 0.10),
-    );
+      // Sparkling Central Park Pond (`x: 640..896, y: 420..600`)
+      final pondRect = RRect.fromRectAndRadius(
+        const Rect.fromLTWH(640, 420, 256, 180),
+        const Radius.circular(36),
+      );
+      canvas.drawRRect(
+        pondRect.inflate(8),
+        Paint()..color = const Color(0xFF78716C),
+      );
+      canvas.drawRRect(
+        pondRect,
+        Paint()
+          ..color =
+              isDarkMode ? const Color(0xFF0369A1) : const Color(0xFF0EA5E9),
+      );
+      // Lily pads & water ripples
+      canvas.drawCircle(
+        const Offset(710, 485),
+        14,
+        Paint()..color = const Color(0xFF22C55E),
+      );
+      canvas.drawCircle(
+        const Offset(820, 540),
+        12,
+        Paint()..color = const Color(0xFF16A34A),
+      );
+    } else if (currentRoom == LobbyRoomId.classroom) {
+      // Front Wooden Teaching Stage
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          const Rect.fromLTWH(280, 96, 976, 150),
+          const Radius.circular(10),
+        ),
+        Paint()
+          ..color =
+              isDarkMode ? const Color(0xFF3B281E) : const Color(0xFFB4845C),
+      );
+    } else if (currentRoom == LobbyRoomId.canteen) {
+      // Canteen Food Service Zone Floor
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          const Rect.fromLTWH(960, 100, 460, 160),
+          const Radius.circular(12),
+        ),
+        Paint()
+          ..color =
+              const Color(0xFFF97316).withOpacity(isDarkMode ? 0.25 : 0.18),
+      );
+    } else if (currentRoom == LobbyRoomId.facultyRoom) {
+      // Executive Carpet Centerpiece
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          const Rect.fromLTWH(480, 280, 576, 360),
+          const Radius.circular(16),
+        ),
+        Paint()
+          ..color =
+              const Color(0xFF7C3AED).withOpacity(isDarkMode ? 0.28 : 0.18),
+      );
+    }
 
-    // 2. Reviewer Treasure Corner Sanctuary Floor (Expanded Bottom-Right Wing)
-    final sanctuaryRect = RRect.fromRectAndRadius(
-      const Rect.fromLTWH(880, 460, 580, 560),
-      const Radius.circular(14),
-    );
-    canvas.drawRRect(
-      sanctuaryRect,
-      Paint()
-        ..color = const Color(0xFF3B1D5E).withOpacity(isDarkMode ? 0.36 : 0.22),
-    );
-    canvas.drawRRect(
-      sanctuaryRect,
-      Paint()
-        ..color = const Color(0xFFF59E0B).withOpacity(0.65)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 2.2,
-    );
-
-    // Warm golden ambient light pools when Night / Dark Study Campus mode is active
+    // Night / Dark Mode warm ambient light pools
     if (isDarkMode) {
       final glowCenters = <Offset>[
-        const Offset(268, 175), // Bulletin Wall
-        const Offset(768, 200), // Quest Counter
-        const Offset(1248, 200), // Teacher's Corner
-        const Offset(416, 672), // Student Lounge
-        const Offset(1168, 760), // Reviewer Treasure Vault
-        playerPos, // Subtle lantern glow around the player
+        const Offset(768, 220),
+        const Offset(420, 620),
+        const Offset(1140, 620),
+        playerPos,
       ];
       for (final center in glowCenters) {
-        final radius = center == playerPos ? 130.0 : 210.0;
+        final radius = center == playerPos ? 140.0 : 220.0;
         final shader = ui.Gradient.radial(
           center,
           radius,
@@ -543,96 +694,156 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
       }
     }
 
-    // 3/4-Perspective Top Wall (`WALL_HEIGHT = 82` from `shell.ts`)
+    // 3/4-Perspective Top Wall (`WALL_HEIGHT = 82`)
     const topWallFace = Rect.fromLTWH(0, 14, kLobbyWorldWidth, 68);
     canvas.drawRect(
       topWallFace,
       Paint()
-        ..color =
-            isDarkMode ? const Color(0xFF1E293B) : const Color(0xFFE7DFD3),
+        ..color = currentRoom == LobbyRoomId.park
+            ? (isDarkMode ? const Color(0xFF143325) : const Color(0xFF3F6212))
+            : (isDarkMode ? const Color(0xFF1E293B) : const Color(0xFFE7DFD3)),
     );
-    // Lower wainscot molding along the top wall
+    // Classroom Giant Green Chalkboard on Top Wall
+    if (currentRoom == LobbyRoomId.classroom) {
+      final boardRect = RRect.fromRectAndRadius(
+        const Rect.fromLTWH(490, 20, 556, 48),
+        const Radius.circular(4),
+      );
+      canvas.drawRRect(boardRect.inflate(3),
+          Paint()..color = const Color(0xFF78350F));
+      canvas.drawRRect(
+          boardRect, Paint()..color = const Color(0xFF064E3B));
+    }
     canvas.drawRect(
       const Rect.fromLTWH(0, 66, kLobbyWorldWidth, 16),
       Paint()
         ..color =
             isDarkMode ? const Color(0xFF334155) : const Color(0xFF9C8468),
     );
-    // Wall drop shadow (`SHADOW = 0.86`)
     canvas.drawRect(
       const Rect.fromLTWH(0, 82, kLobbyWorldWidth, 12),
       Paint()..color = Colors.black.withOpacity(isDarkMode ? 0.35 : 0.14),
     );
 
-    // Perimeter dark architectural wall caps (`TOP = #26243a` from `shell.ts`)
+    // Perimeter dark architectural wall caps
     final wallCapPaint = Paint()
       ..color = isDarkMode ? const Color(0xFF0F172A) : const Color(0xFF26243A);
-    // Top cap
     canvas.drawRect(
       const Rect.fromLTWH(0, 0, kLobbyWorldWidth, 16),
       wallCapPaint,
     );
-    // Left wall cap
     canvas.drawRect(
       const Rect.fromLTWH(0, 0, 32, kLobbyWorldHeight),
       wallCapPaint,
     );
-    // Right wall cap
     canvas.drawRect(
       const Rect.fromLTWH(kLobbyWorldWidth - 32, 0, 32, kLobbyWorldHeight),
       wallCapPaint,
     );
-    // Bottom wall cap with school entrance mat in the middle (708..828)
     canvas.drawRect(
-      const Rect.fromLTWH(0, kLobbyWorldHeight - 24, 704, 24),
+      const Rect.fromLTWH(0, kLobbyWorldHeight - 24, kLobbyWorldWidth, 24),
       wallCapPaint,
-    );
-    canvas.drawRect(
-      const Rect.fromLTWH(832, kLobbyWorldHeight - 24, 704, 24),
-      wallCapPaint,
-    );
-    // School Lobby Entrance Threshold Mat (Bottom Center)
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        const Rect.fromLTWH(708, kLobbyWorldHeight - 26, 120, 22),
-        const Radius.circular(4),
-      ),
-      Paint()..color = const Color(0xFF0F766E),
     );
   }
 
   void _paintZoneFloorDecals(Canvas canvas) {
-    // Subtle zone floor title plaques for the 5 expanded campus wings
-    _drawFloorPlaque(
-      canvas,
-      text: '📌 BULLETIN WALL',
-      center: const Offset(268, 250),
-      color: const Color(0xFF0284C7),
-    );
-    _drawFloorPlaque(
-      canvas,
-      text: '⚔️ QUEST COUNTER',
-      center: const Offset(768, 256),
-      color: const Color(0xFFD97706),
-    );
-    _drawFloorPlaque(
-      canvas,
-      text: "🎓 TEACHER'S CORNER",
-      center: const Offset(1248, 256),
-      color: const Color(0xFFB45309),
-    );
-    _drawFloorPlaque(
-      canvas,
-      text: '🛋️ STUDENT LOUNGE & STUDY COMMONS',
-      center: const Offset(416, 420),
-      color: const Color(0xFF059669),
-    );
-    _drawFloorPlaque(
-      canvas,
-      text: '💎 REVIEWER TREASURE VAULT',
-      center: const Offset(1168, 568),
-      color: const Color(0xFF9333EA),
-    );
+    if (currentRoom == LobbyRoomId.mainLobby) {
+      _drawFloorPlaque(
+        canvas,
+        text: '📌 BULLETIN WALL',
+        center: const Offset(268, 250),
+        color: const Color(0xFF0284C7),
+      );
+      _drawFloorPlaque(
+        canvas,
+        text: '⚔️ QUEST COUNTER',
+        center: const Offset(768, 256),
+        color: const Color(0xFFD97706),
+      );
+      _drawFloorPlaque(
+        canvas,
+        text: "🎓 TEACHER'S CORNER",
+        center: const Offset(1248, 256),
+        color: const Color(0xFFB45309),
+      );
+      _drawFloorPlaque(
+        canvas,
+        text: '🛋️ STUDENT LOUNGE (SIT / NAP / SLEEP)',
+        center: const Offset(416, 420),
+        color: const Color(0xFF059669),
+      );
+      _drawFloorPlaque(
+        canvas,
+        text: '💎 ENROLLED REVIEWER TREASURE VAULT',
+        center: const Offset(1168, 568),
+        color: const Color(0xFF9333EA),
+      );
+    } else if (currentRoom == LobbyRoomId.park) {
+      _drawFloorPlaque(
+        canvas,
+        text: '🌳 CAMPUS NATURE PARK & POND',
+        center: const Offset(768, 360),
+        color: const Color(0xFF059669),
+      );
+      _drawFloorPlaque(
+        canvas,
+        text: '🛌 PICNIC NAP & SLEEPING LAWN',
+        center: const Offset(420, 650),
+        color: const Color(0xFF0D9488),
+      );
+    } else if (currentRoom == LobbyRoomId.classroom) {
+      _drawFloorPlaque(
+        canvas,
+        text: '🏫 SHS LECTURE STAGE & CHALKBOARD',
+        center: const Offset(768, 265),
+        color: const Color(0xFFD97706),
+      );
+      _drawFloorPlaque(
+        canvas,
+        text: '🪑 STUDENT DESKS (TAP INTERACT TO SIT OR NAP)',
+        center: const Offset(768, 345),
+        color: const Color(0xFF0284C7),
+      );
+    } else if (currentRoom == LobbyRoomId.canteen) {
+      _drawFloorPlaque(
+        canvas,
+        text: '🍱 STUDENT CANTEEN & MERIENDA COUNTER',
+        center: const Offset(1084, 255),
+        color: const Color(0xFFEA580C),
+      );
+      _drawFloorPlaque(
+        canvas,
+        text: '🪑 DINING TABLES & COZY NAP BOOTH',
+        center: const Offset(600, 430),
+        color: const Color(0xFFD97706),
+      );
+    } else if (currentRoom == LobbyRoomId.facultyRoom) {
+      _drawFloorPlaque(
+        canvas,
+        text: '🎓 FACULTY CONSULTATION & ADVISORY ROOM',
+        center: const Offset(768, 270),
+        color: const Color(0xFF7C3AED),
+      );
+    }
+
+    // Render glowing Campus Door Portals (`🚪`) in the current room
+    final allZones =
+        buildActiveInteractiveZones(subjectChests, room: currentRoom);
+    for (final z in allZones) {
+      if (z.kind == InteractiveZoneKind.doorPortal) {
+        _drawDoorPortal(
+          canvas,
+          zone: z,
+          isHighlighted: highlightedZone?.id == z.id,
+        );
+      } else if (z.kind == InteractiveZoneKind.restSpot) {
+        _drawRestSpotIndicator(
+          canvas,
+          zone: z,
+          isHighlighted: highlightedZone?.id == z.id,
+        );
+      }
+    }
 
     // Draw interactive highlight ring around the currently active zone
     if (highlightedZone != null) {
@@ -655,6 +866,122 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
           ..strokeWidth = 2.2,
       );
     }
+  }
+
+  /// Renders a glowing pixel Doorway / Portal (`🚪`) that students can walk up to and enter!
+  void _drawDoorPortal(
+    Canvas canvas, {
+    required InteractiveZone zone,
+    required bool isHighlighted,
+  }) {
+    final pos = zone.center;
+    final doorColor = Color(zone.accentColor);
+    final pulse = 0.5 + 0.5 * math.sin(animTick * 0.3);
+
+    // Welcome mat / portal threshold
+    final matRect = RRect.fromRectAndRadius(
+      Rect.fromCenter(center: pos, width: 78, height: 42),
+      const Radius.circular(8),
+    );
+    canvas.drawRRect(
+      matRect,
+      Paint()..color = const Color(0xFF0F172A).withOpacity(0.88),
+    );
+    canvas.drawRRect(
+      matRect,
+      Paint()
+        ..color =
+            doorColor.withOpacity(isHighlighted ? 0.98 : (0.65 + 0.25 * pulse))
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = isHighlighted ? 2.8 : 2.0,
+    );
+
+    // Inner timber door arch
+    final innerArch = RRect.fromRectAndRadius(
+      Rect.fromCenter(center: pos, width: 64, height: 30),
+      const Radius.circular(5),
+    );
+    canvas.drawRRect(
+      innerArch,
+      Paint()
+        ..color = Color.lerp(const Color(0xFF78350F), doorColor, 0.32)!,
+    );
+
+    // Floating Door Banner overhead
+    final tp = TextPainter(
+      text: TextSpan(
+        text: '🚪 ${zone.label}',
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 9.0,
+          fontWeight: FontWeight.w900,
+          letterSpacing: 0.4,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+
+    final pillCenter = Offset(pos.dx, pos.dy - 30);
+    final pillRect = RRect.fromRectAndRadius(
+      Rect.fromCenter(
+        center: pillCenter,
+        width: tp.width + 14,
+        height: tp.height + 6,
+      ),
+      const Radius.circular(8),
+    );
+    canvas.drawRRect(
+      pillRect,
+      Paint()..color = const Color(0xFF0F172A).withOpacity(0.92),
+    );
+    canvas.drawRRect(
+      pillRect,
+      Paint()
+        ..color = doorColor
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.5,
+    );
+    tp.paint(
+      canvas,
+      Offset(pillCenter.dx - tp.width / 2, pillCenter.dy - tp.height / 2),
+    );
+  }
+
+  /// Subtle seat cushion marker for interactive Rest Spots (`🪑 Sit / 😪 Nap / 🛌 Sleep`).
+  void _drawRestSpotIndicator(
+    Canvas canvas, {
+    required InteractiveZone zone,
+    required bool isHighlighted,
+  }) {
+    if (!isHighlighted) return;
+    final pos = zone.center;
+    final tp = TextPainter(
+      text: const TextSpan(
+        text: '🪑 Sit • 😪 Nap • 🛌 Sleep',
+        style: TextStyle(
+          color: Colors.white,
+          fontSize: 8.2,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    final pill = RRect.fromRectAndRadius(
+      Rect.fromCenter(
+        center: Offset(pos.dx, pos.dy - 26),
+        width: tp.width + 12,
+        height: tp.height + 5,
+      ),
+      const Radius.circular(99),
+    );
+    canvas.drawRRect(
+      pill,
+      Paint()..color = const Color(0xFF065F46).withOpacity(0.92),
+    );
+    tp.paint(
+      canvas,
+      Offset(pos.dx - tp.width / 2, pos.dy - 26 - tp.height / 2),
+    );
   }
 
   void _drawFloorPlaque(
@@ -692,7 +1019,6 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
   }
 
   void _paintNavigationOverlay(Canvas canvas) {
-    // Path breadcrumbs when Tap-to-Walk is active
     if (activePath.isNotEmpty) {
       final pathPaint = Paint()
         ..color = const Color(0xFF38BDF8).withOpacity(0.55)
@@ -702,7 +1028,6 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
       }
     }
 
-    // Tap target ring (`pulseTile` from `MovementManager.ts`)
     if (tapPulseTarget != null && tapPulseProgress < 1.0) {
       final radius = 8.0 + 16.0 * tapPulseProgress;
       final alpha = (1.0 - tapPulseProgress).clamp(0.0, 1.0);
@@ -731,9 +1056,8 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
   void _drawNpc(Canvas canvas, LobbyNpc npc, Paint pixelPaint) {
     final sheet = assets.npcSheets[npc.id];
     if (sheet != null) {
-      // Idle facing down (frame 18..23)
       final frameIdx = computeCharacterFrameIndex(
-        facing: AvatarFacing.down,
+        facing: npc.facing,
         isWalking: false,
         stepFrame: (animTick ~/ 2) % kCharFramesPerDirection,
       );
@@ -749,7 +1073,6 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
         kCharFrameWidth,
         kCharFrameHeight,
       );
-      // Ground shadow
       canvas.drawOval(
         Rect.fromCenter(center: Offset(npc.x, npc.y + 4), width: 22, height: 8),
         Paint()..color = Colors.black.withOpacity(0.28),
@@ -757,7 +1080,6 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
       canvas.drawImageRect(sheet, src, dst, pixelPaint);
     }
 
-    // Floating NPC Nameplate
     _drawFloatingNameplate(
       canvas,
       anchor: Offset(npc.x, npc.y - 54),
@@ -766,8 +1088,171 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
       isGoldTag: npc.isGoldTag,
       badgeIcon: npc.id == 'npc_receptionist'
           ? '✨'
-          : (npc.id == 'npc_teacher' ? '🎓' : '📚'),
+          : (npc.isGoldTag ? '🎓' : '📚'),
     );
+  }
+
+  /// Renders a Classmate Peer Student with their Sit/Nap/Sleep pose and Cloud Thought Bubble (`💭`)!
+  void _drawPeerStudent(
+    Canvas canvas,
+    LobbyPeerStudent peer,
+    Paint pixelPaint,
+  ) {
+    final sheet = assets.npcSheets[peer.id];
+    final pos = peer.position;
+
+    _drawCharacterWithRestState(
+      canvas,
+      sheet: sheet,
+      pos: pos,
+      facing: peer.facing,
+      isWalking: false,
+      restState: peer.restState,
+      pixelPaint: pixelPaint,
+    );
+
+    final statusSuffix = peer.restState.isResting
+        ? '${peer.restState.emoji} ${peer.restState.label}'
+        : peer.roleTag;
+
+    _drawFloatingNameplate(
+      canvas,
+      anchor: Offset(pos.dx, pos.dy - 54),
+      name: peer.name,
+      roleTag: statusSuffix,
+      isGoldTag: false,
+      badgeIcon: '💭',
+    );
+
+    // Show Cloud Thought Bubble when player is within 210px or when a custom reply is active
+    final customReply = activePeerThoughts[peer.id];
+    final distToPlayer = (playerPos - pos).distance;
+    if (customReply != null || distToPlayer <= 210.0) {
+      final bubbleText = customReply ?? peer.defaultThought;
+      _drawCloudThoughtBubble(
+        canvas,
+        anchor: Offset(pos.dx, pos.dy - 76),
+        text: bubbleText,
+        isHighlighted: highlightedZone?.peerStudentId == peer.id,
+      );
+    }
+  }
+
+  /// Shared character sprite + rest pose renderer (recycled & expanded from `SeatManager.ts`).
+  void _drawCharacterWithRestState(
+    Canvas canvas, {
+    required ui.Image? sheet,
+    required Offset pos,
+    required AvatarFacing facing,
+    required bool isWalking,
+    required PlayerRestState restState,
+    required Paint pixelPaint,
+  }) {
+    // Ground shadow
+    canvas.drawOval(
+      Rect.fromCenter(
+        center: Offset(pos.dx, pos.dy + 4),
+        width: restState == PlayerRestState.sleeping ? 38 : 24,
+        height: restState == PlayerRestState.sleeping ? 12 : 9,
+      ),
+      Paint()..color = Colors.black.withOpacity(0.35),
+    );
+
+    if (sheet == null) return;
+
+    final stepFrame = restState.isResting
+        ? (animTick ~/ 3) % kCharFramesPerDirection
+        : animTick % kCharFramesPerDirection;
+    final frameIdx = computeCharacterFrameIndex(
+      facing: restState == PlayerRestState.sleeping ? AvatarFacing.down : facing,
+      isWalking: isWalking && !restState.isResting,
+      stepFrame: stepFrame,
+    );
+    final src = Rect.fromLTWH(
+      frameIdx * kCharFrameWidth,
+      0,
+      kCharFrameWidth,
+      kCharFrameHeight,
+    );
+
+    if (restState == PlayerRestState.sleeping) {
+      // Cozy pixel pillow underneath the sleeping student's head
+      final pillowRect = RRect.fromRectAndRadius(
+        Rect.fromCenter(
+          center: Offset(pos.dx - 14, pos.dy - 4),
+          width: 18,
+          height: 13,
+        ),
+        const Radius.circular(4),
+      );
+      canvas.drawRRect(pillowRect, Paint()..color = const Color(0xFFF8FAFC));
+      canvas.drawRRect(
+        pillowRect,
+        Paint()
+          ..color = const Color(0xFF94A3B8)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.2,
+      );
+
+      // Rotate character sprite horizontally (-90 deg) for lying down sleep pose
+      canvas.save();
+      canvas.translate(pos.dx, pos.dy - 6);
+      canvas.rotate(-math.pi / 2);
+      final dst = Rect.fromCenter(
+        center: Offset.zero,
+        width: kCharFrameWidth,
+        height: kCharFrameHeight,
+      );
+      canvas.drawImageRect(sheet, src, dst, pixelPaint);
+      canvas.restore();
+
+      // Animated rising `💤 Zzz...` sleep particles
+      final floatOffset = (animTick % 12) * 1.4;
+      final zzzTp = TextPainter(
+        text: const TextSpan(
+          text: '🛌 💤 Zzz...',
+          style: TextStyle(
+            color: Color(0xFFC4B5FD),
+            fontSize: 9.5,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      zzzTp.paint(
+        canvas,
+        Offset(pos.dx + 10, pos.dy - 36 - floatOffset),
+      );
+    } else {
+      // Standing, Sitting (`+6px` seat drop), or Napping (`+7px` seat drop + gentle nod)
+      final seatDropY = restState == PlayerRestState.sitting
+          ? 6.0
+          : (restState == PlayerRestState.napping
+              ? 7.0 + math.sin(animTick * 0.25) * 1.2
+              : 0.0);
+      final dst = Rect.fromLTWH(
+        pos.dx - kCharFrameWidth / 2,
+        pos.dy - kCharFrameHeight + 8 + seatDropY,
+        kCharFrameWidth,
+        kCharFrameHeight,
+      );
+      canvas.drawImageRect(sheet, src, dst, pixelPaint);
+
+      if (restState == PlayerRestState.napping) {
+        final floatOffset = (animTick % 10) * 1.1;
+        final napTp = TextPainter(
+          text: const TextSpan(
+            text: '😪 💤',
+            style: TextStyle(fontSize: 10.5),
+          ),
+          textDirection: TextDirection.ltr,
+        )..layout();
+        napTp.paint(
+          canvas,
+          Offset(pos.dx + 12, pos.dy - 42 - floatOffset),
+        );
+      }
+    }
   }
 
   /// Renders a Subject-Labeled Large Treasure Chest in the Reviewer Treasure Corner
@@ -781,7 +1266,6 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
     final subjectColor = Color(chest.colorValue);
     final bob = math.sin((animTick + pos.dx) * 0.25) * 1.5;
 
-    // 1. Chest Ground Shadow & Glow
     if (isHighlighted) {
       canvas.drawOval(
         Rect.fromCenter(
@@ -794,20 +1278,16 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
       Paint()..color = Colors.black.withOpacity(0.45),
     );
 
-    // 2. Pixel Art Large Ornate Treasure Chest (36x28 px)
     final chestRect =
         Rect.fromCenter(center: Offset(pos.dx, pos.dy - 6), width: 38, height: 28);
-    // Outer dark pixel border
     canvas.drawRRect(
       RRect.fromRectAndRadius(chestRect.inflate(1.5), const Radius.circular(4)),
       Paint()..color = const Color(0xFF1E1B18),
     );
-    // Rich timber base
     canvas.drawRRect(
       RRect.fromRectAndRadius(chestRect, const Radius.circular(3)),
       Paint()..color = const Color(0xFF78350F),
     );
-    // Chest lid (top half tinted with subject color + gold trim)
     final lidRect = Rect.fromLTWH(
         chestRect.left, chestRect.top, chestRect.width, chestRect.height * 0.48);
     canvas.drawRRect(
@@ -815,7 +1295,6 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
       Paint()
         ..color = Color.lerp(const Color(0xFF92400E), subjectColor, 0.38)!,
     );
-    // Gold vertical bands
     final goldPaint = Paint()..color = const Color(0xFFFACC15);
     canvas.drawRect(
       Rect.fromLTWH(chestRect.left + 5, chestRect.top, 4, chestRect.height),
@@ -825,10 +1304,8 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
       Rect.fromLTWH(chestRect.right - 9, chestRect.top, 4, chestRect.height),
       goldPaint,
     );
-    // Gold horizontal seam & center lock plate
     canvas.drawRect(
-      Rect.fromLTWH(
-          chestRect.left, chestRect.top + 12, chestRect.width, 3),
+      Rect.fromLTWH(chestRect.left, chestRect.top + 12, chestRect.width, 3),
       goldPaint,
     );
     canvas.drawRRect(
@@ -845,7 +1322,7 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
       Paint()..color = Colors.white,
     );
 
-    // 3. Permanent Floating Pixel Banner Directly Above the Chest
+    // Permanent Floating Pixel Banner Directly Above the Chest
     final bannerCenter = Offset(pos.dx, pos.dy - 34 + bob);
     final tp = TextPainter(
       text: TextSpan(
@@ -884,12 +1361,10 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
       ),
       const Radius.circular(7),
     );
-    // Banner shadow
     canvas.drawRRect(
       bannerRect.shift(const Offset(0, 2)),
       Paint()..color = Colors.black.withOpacity(0.5),
     );
-    // Banner fill & subject color border
     canvas.drawRRect(
       bannerRect,
       Paint()..color = const Color(0xFF0F172A).withOpacity(0.92),
@@ -907,9 +1382,7 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
     );
   }
 
-  /// Renders a Small Mystery Chest (`small_chest_1..4`) with either:
-  /// - Closed chest sprite + bobbing `✨ ?` indicator overhead (when ready), OR
-  /// - Open chest sprite + live cooldown timer (`1:45`) overhead (when on 2-min cooldown).
+  /// Renders a Small Mystery Chest (`small_chest_1..8`).
   void _drawSmallMysteryChest(
     Canvas canvas, {
     required InteractiveZone zone,
@@ -920,7 +1393,6 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
     final isOnCooldown = remainingCooldownSec > 0;
     final bob = math.sin((animTick + pos.dy) * 0.35) * 2.0;
 
-    // Shadow
     canvas.drawOval(
       Rect.fromCenter(center: Offset(pos.dx, pos.dy + 4), width: 28, height: 10),
       Paint()..color = Colors.black.withOpacity(0.38),
@@ -929,33 +1401,28 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
     final boxRect =
         Rect.fromCenter(center: Offset(pos.dx, pos.dy - 4), width: 24, height: 18);
 
-    // Outer pixel outline
     canvas.drawRRect(
       RRect.fromRectAndRadius(boxRect.inflate(1.2), const Radius.circular(3)),
       Paint()..color = const Color(0xFF1E1B18),
     );
 
     if (isOnCooldown) {
-      // OPEN CHEST SPRITE (dark interior + tilted open lid behind)
       final openLid =
           Rect.fromLTWH(boxRect.left, boxRect.top - 6, boxRect.width, 8);
       canvas.drawRRect(
         RRect.fromRectAndRadius(openLid, const Radius.circular(2)),
         Paint()..color = const Color(0xFF6B7280),
       );
-      // Dark interior hollow
       canvas.drawRect(
         Rect.fromLTWH(boxRect.left + 2, boxRect.top, boxRect.width - 4, 7),
         Paint()..color = const Color(0xFF111827),
       );
-      // Lower wooden base
       canvas.drawRect(
         Rect.fromLTWH(
             boxRect.left, boxRect.top + 7, boxRect.width, boxRect.height - 7),
         Paint()..color = const Color(0xFF78350F),
       );
 
-      // Cooldown timer tag overhead
       final mins = remainingCooldownSec ~/ 60;
       final secs = (remainingCooldownSec % 60).toString().padLeft(2, '0');
       final tp = TextPainter(
@@ -984,12 +1451,10 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
         Offset(pos.dx - tp.width / 2, pos.dy - 24 - tp.height / 2),
       );
     } else {
-      // CLOSED MYSTERY CHEST SPRITE (purple-gold RPG mini chest + sparkling `✨ ?`)
       canvas.drawRRect(
         RRect.fromRectAndRadius(boxRect, const Radius.circular(2.5)),
         Paint()..color = const Color(0xFF6D28D9),
       );
-      // Gold trim & clasp
       final gold = Paint()..color = const Color(0xFFFACC15);
       canvas.drawRect(
         Rect.fromLTWH(boxRect.left, boxRect.top + 7, boxRect.width, 2.5),
@@ -1001,7 +1466,6 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
         gold,
       );
 
-      // Bobbing `✨ ?` overhead indicator
       final badgeY = pos.dy - 25 + bob;
       final tp = TextPainter(
         text: const TextSpan(
@@ -1043,43 +1507,40 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
   }
 
   void _drawPlayer(Canvas canvas, Paint pixelPaint) {
-    // Ground shadow
-    canvas.drawOval(
-      Rect.fromCenter(
-          center: Offset(playerPos.dx, playerPos.dy + 4), width: 24, height: 9),
-      Paint()..color = Colors.black.withOpacity(0.35),
+    _drawCharacterWithRestState(
+      canvas,
+      sheet: playerSheet,
+      pos: playerPos,
+      facing: playerFacing,
+      isWalking: playerIsWalking,
+      restState: playerRestState,
+      pixelPaint: pixelPaint,
     );
 
-    if (playerSheet != null) {
-      final frameIdx = computeCharacterFrameIndex(
-        facing: playerFacing,
-        isWalking: playerIsWalking,
-        stepFrame: animTick % kCharFramesPerDirection,
-      );
-      final src = Rect.fromLTWH(
-        frameIdx * kCharFrameWidth,
-        0,
-        kCharFrameWidth,
-        kCharFrameHeight,
-      );
-      final dst = Rect.fromLTWH(
-        playerPos.dx - kCharFrameWidth / 2,
-        playerPos.dy - kCharFrameHeight + 8,
-        kCharFrameWidth,
-        kCharFrameHeight,
-      );
-      canvas.drawImageRect(playerSheet!, src, dst, pixelPaint);
-    }
+    final baseRole = isFaculty ? 'Teacher' : 'Student';
+    final roleWithRest = playerRestState.isResting
+        ? '${playerRestState.emoji} ${playerRestState.label}'
+        : baseRole;
 
-    // Floating Nameplate at `TAG_OFFSET_Y = -52` (recycled from `PlayerManager.ts` / `SceneLabel.ts`)
+    // Floating Nameplate
     _drawFloatingNameplate(
       canvas,
       anchor: Offset(playerPos.dx, playerPos.dy - 54),
       name: playerName,
-      roleTag: isFaculty ? 'Teacher' : 'Student',
+      roleTag: roleWithRest,
       isGoldTag: isFaculty,
       badgeIcon: equippedBadgeIcon,
     );
+
+    // Player Cloud Thought Bubble (`💭`) if active!
+    if (playerThoughtText != null && playerThoughtText!.trim().isNotEmpty) {
+      _drawCloudThoughtBubble(
+        canvas,
+        anchor: Offset(playerPos.dx, playerPos.dy - 78),
+        text: playerThoughtText!,
+        isHighlighted: true,
+      );
+    }
 
     // Wave Emote Bubble (`👋`) if active
     if (waveBubbleProgress > 0.0 && waveBubbleProgress < 1.0) {
@@ -1096,6 +1557,75 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
         Offset(playerPos.dx + 14, playerPos.dy - 68 - rise),
       );
     }
+  }
+
+  /// Renders a crisp RPG Cloud Thought Bubble (`💭`) with trailing thought circles (`o` `O`)
+  /// above a student's head for in-lobby communication!
+  void _drawCloudThoughtBubble(
+    Canvas canvas, {
+    required Offset anchor,
+    required String text,
+    bool isHighlighted = false,
+  }) {
+    final clean = text.trim();
+    if (clean.isEmpty) return;
+    final display = clean.length > 56 ? '${clean.substring(0, 54)}…' : clean;
+
+    final tp = TextPainter(
+      text: TextSpan(
+        text: display.startsWith('💭') ? display : '💭 $display',
+        style: const TextStyle(
+          color: Color(0xFF0F172A),
+          fontSize: 9.0,
+          fontWeight: FontWeight.w800,
+          height: 1.2,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+      maxLines: 2,
+    )..layout(maxWidth: 165);
+
+    final bubbleRect = RRect.fromRectAndRadius(
+      Rect.fromCenter(
+        center: Offset(anchor.dx, anchor.dy - tp.height / 2 - 4),
+        width: tp.width + 18,
+        height: tp.height + 10,
+      ),
+      const Radius.circular(14),
+    );
+
+    // Drop shadow
+    canvas.drawRRect(
+      bubbleRect.shift(const Offset(0, 2)),
+      Paint()..color = Colors.black.withOpacity(0.35),
+    );
+
+    // Cloud fill & border
+    final fillPaint = Paint()..color = const Color(0xFFF8FAFC).withOpacity(0.96);
+    final borderPaint = Paint()
+      ..color =
+          isHighlighted ? const Color(0xFF0284C7) : const Color(0xFF64748B)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.6;
+
+    canvas.drawRRect(bubbleRect, fillPaint);
+    canvas.drawRRect(bubbleRect, borderPaint);
+
+    // Trailing thought cloud circles (`O` then `o`) pointing down to the avatar's head
+    final c1 = Offset(anchor.dx - 4, bubbleRect.bottom + 4);
+    final c2 = Offset(anchor.dx - 8, bubbleRect.bottom + 9);
+    canvas.drawCircle(c1, 3.2, fillPaint);
+    canvas.drawCircle(c1, 3.2, borderPaint);
+    canvas.drawCircle(c2, 2.0, fillPaint);
+    canvas.drawCircle(c2, 2.0, borderPaint);
+
+    tp.paint(
+      canvas,
+      Offset(
+        bubbleRect.center.dx - tp.width / 2,
+        bubbleRect.center.dy - tp.height / 2,
+      ),
+    );
   }
 
   void _drawFloatingNameplate(

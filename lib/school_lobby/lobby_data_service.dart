@@ -409,6 +409,7 @@ class StudentLobbyProgress {
   final List<EarnedStudentBadge> earnedBadges;
   final String? equippedBadgeId;
   final Map<String, int> smallChestCooldownUntilMs;
+  final int smallChestsSolvedCount;
 
   const StudentLobbyProgress({
     this.xp = 0,
@@ -417,6 +418,7 @@ class StudentLobbyProgress {
     this.earnedBadges = const [],
     this.equippedBadgeId,
     this.smallChestCooldownUntilMs = const {},
+    this.smallChestsSolvedCount = 0,
   });
 
   int get level => (xp ~/ 100) + 1;
@@ -439,6 +441,7 @@ class StudentLobbyProgress {
     List<EarnedStudentBadge>? earnedBadges,
     String? equippedBadgeId,
     Map<String, int>? smallChestCooldownUntilMs,
+    int? smallChestsSolvedCount,
   }) {
     return StudentLobbyProgress(
       xp: xp ?? this.xp,
@@ -448,6 +451,8 @@ class StudentLobbyProgress {
       equippedBadgeId: equippedBadgeId ?? this.equippedBadgeId,
       smallChestCooldownUntilMs:
           smallChestCooldownUntilMs ?? this.smallChestCooldownUntilMs,
+      smallChestsSolvedCount:
+          smallChestsSolvedCount ?? this.smallChestsSolvedCount,
     );
   }
 
@@ -481,6 +486,8 @@ class StudentLobbyProgress {
       earnedBadges: badges,
       equippedBadgeId: json['equippedBadgeId']?.toString(),
       smallChestCooldownUntilMs: cooldowns,
+      smallChestsSolvedCount:
+          (json['smallChestsSolvedCount'] as num?)?.toInt() ?? 0,
     );
   }
 
@@ -491,6 +498,7 @@ class StudentLobbyProgress {
         'earnedBadges': earnedBadges.map((b) => b.toJson()).toList(),
         'equippedBadgeId': equippedBadgeId,
         'smallChestCooldownUntilMs': smallChestCooldownUntilMs,
+        'smallChestsSolvedCount': smallChestsSolvedCount,
       };
 }
 
@@ -526,6 +534,7 @@ class LobbyDataService extends ChangeNotifier {
   StudentLobbyProgress _progress = const StudentLobbyProgress();
   final List<LobbyThoughtMessage> _thoughtMessages = [];
 
+  bool get isInitialized => _initialized;
   bool get isSyncingDriveReviewers => _isSyncingDriveReviewers;
   List<SubjectEnrollmentStatus> get controlSheetSubjects =>
       List.unmodifiable(_controlSheetSubjects);
@@ -534,6 +543,18 @@ class LobbyDataService extends ChangeNotifier {
   StudentLobbyProgress get progress => _progress;
   List<LobbyThoughtMessage> get thoughtMessages =>
       List.unmodifiable(_thoughtMessages);
+
+  /// Visible subject names (plus legacy `'KASAYSAYAN'` alias when `'PKLP TERM 2'` is visible).
+  List<String> get subjectNames {
+    final names = subjectChests.map((c) => c.subjectName).toList();
+    if (names.contains('PKLP TERM 2') && !names.contains('KASAYSAYAN')) {
+      names.add('KASAYSAYAN');
+    }
+    return names;
+  }
+
+  /// Alias for `quizQuestions` used by tests.
+  List<MiniQuizQuestion> get allReviewerQuestions => quizQuestions;
 
   /// Normalizes a subject code or alias to match the MIS Control Sheet `Subject Enrollment` codes.
   static String normalizeSubjectCode(String rawCode, [String rawName = '']) {
@@ -956,7 +977,7 @@ class LobbyDataService extends ChangeNotifier {
     required int xpReward,
     required String badgeName,
     required String badgeIcon,
-    required int badgeColor,
+    int badgeColor = 0xFFFACC15,
     required String postedBy,
   }) async {
     final now = DateTime.now().millisecondsSinceEpoch;
@@ -1140,6 +1161,54 @@ class LobbyDataService extends ChangeNotifier {
     return pool[rng.nextInt(pool.length)];
   }
 
+  MiniQuizQuestion? drawRandomMysteryQuestion() {
+    final pool = quizQuestions;
+    if (pool.isEmpty) return null;
+    final rng = math.Random();
+    return pool[rng.nextInt(pool.length)];
+  }
+
+  /// Records a successful Small Mystery Chest Pop-Quiz answer, starts the 2-minute cooldown,
+  /// and unlocks the `🏆 Treasure Hunter` badge on the 5th solved chest!
+  Future<EarnedStudentBadge?> recordSmallChestSuccess({
+    required String smallChestId,
+    required MiniQuizQuestion question,
+  }) async {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final nextCooldowns =
+        Map<String, int>.from(_progress.smallChestCooldownUntilMs);
+    nextCooldowns[smallChestId] = now + kSmallChestCooldownMs;
+    final nextSolved = _progress.smallChestsSolvedCount + 1;
+
+    EarnedStudentBadge? unlockedBadge;
+    var nextBadges = List<EarnedStudentBadge>.from(_progress.earnedBadges);
+    final alreadyHasHunter =
+        nextBadges.any((b) => b.id == 'badge_treasure_hunter');
+    if (nextSolved >= 5 && !alreadyHasHunter) {
+      unlockedBadge = EarnedStudentBadge(
+        id: 'badge_treasure_hunter',
+        badgeName: 'Treasure Hunter',
+        badgeIcon: '🏆',
+        badgeColor: 0xFFFACC15,
+        subject: question.subject,
+        sourceTitle: 'Solved 5 Small Mystery Chests',
+        earnedAtMs: now,
+      );
+      nextBadges = [unlockedBadge, ...nextBadges];
+    }
+
+    _progress = _progress.copyWith(
+      xp: _progress.xp + question.xpReward,
+      smallChestCooldownUntilMs: nextCooldowns,
+      smallChestsSolvedCount: nextSolved,
+      earnedBadges: nextBadges,
+      equippedBadgeId: _progress.equippedBadgeId ?? unlockedBadge?.id,
+    );
+    await _saveProgress();
+    notifyListeners();
+    return unlockedBadge;
+  }
+
   /// Feature 3: Submits an answer to a Small Mystery Chest Pop-Quiz.
   /// Correct -> awards `question.xpReward` (+25 XP) and starts the 2-minute cooldown on `smallChestId`.
   Future<bool> submitSmallChestQuizAnswer({
@@ -1150,17 +1219,10 @@ class LobbyDataService extends ChangeNotifier {
     if (selectedIndex != question.correctIndex) {
       return false;
     }
-    final now = DateTime.now().millisecondsSinceEpoch;
-    final nextCooldowns =
-        Map<String, int>.from(_progress.smallChestCooldownUntilMs);
-    nextCooldowns[smallChestId] = now + kSmallChestCooldownMs;
-
-    _progress = _progress.copyWith(
-      xp: _progress.xp + question.xpReward,
-      smallChestCooldownUntilMs: nextCooldowns,
+    await recordSmallChestSuccess(
+      smallChestId: smallChestId,
+      question: question,
     );
-    await _saveProgress();
-    notifyListeners();
     return true;
   }
 
