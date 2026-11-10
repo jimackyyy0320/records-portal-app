@@ -157,14 +157,53 @@ class AnnouncementItem {
       };
 }
 
+class SubjectEnrollmentStatus {
+  final String name;
+  final String code;
+  final String sheetId;
+  final String status;
+
+  const SubjectEnrollmentStatus({
+    required this.name,
+    required this.code,
+    required this.sheetId,
+    required this.status,
+  });
+
+  bool get isActive {
+    final upper = status.trim().toUpperCase();
+    return upper == 'ACTIVE' && upper != 'FINISHED' && upper != 'INACTIVE';
+  }
+
+  bool get isFinished => status.trim().toUpperCase() == 'FINISHED';
+
+  factory SubjectEnrollmentStatus.fromJson(Map<String, dynamic> json) {
+    return SubjectEnrollmentStatus(
+      name: json['name']?.toString() ?? '',
+      code: json['code']?.toString() ?? '',
+      sheetId: json['sheetId']?.toString() ?? '',
+      status: json['status']?.toString() ?? 'Active',
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'name': name,
+        'code': code,
+        'sheetId': sheetId,
+        'status': status,
+      };
+}
+
 class SystemStatus {
   final String status;
   final List<String> releasedSubjects;
+  final List<SubjectEnrollmentStatus> subjectEnrollments;
   final List<AnnouncementItem> announcements;
 
   const SystemStatus({
     required this.status,
     required this.releasedSubjects,
+    this.subjectEnrollments = const [],
     required this.announcements,
   });
 
@@ -176,6 +215,15 @@ class SystemStatus {
             ?.map((e) => e.toString())
             .toList() ??
         const <String>[];
+    final enrollments = (json['subjectEnrollments'] as List?)
+            ?.whereType<Map>()
+            .map(
+              (e) => SubjectEnrollmentStatus.fromJson(
+                Map<String, dynamic>.from(e),
+              ),
+            )
+            .toList() ??
+        const <SubjectEnrollmentStatus>[];
     final ann = (json['announcements'] as List?)
             ?.whereType<Map>()
             .map((e) => AnnouncementItem.fromJson(Map<String, dynamic>.from(e)))
@@ -184,6 +232,7 @@ class SystemStatus {
     return SystemStatus(
       status: json['status']?.toString() ?? 'OPEN',
       releasedSubjects: rel,
+      subjectEnrollments: enrollments,
       announcements: ann,
     );
   }
@@ -191,6 +240,8 @@ class SystemStatus {
   Map<String, dynamic> toJson() => {
         'status': status,
         'releasedSubjects': releasedSubjects,
+        'subjectEnrollments':
+            subjectEnrollments.map((s) => s.toJson()).toList(),
         'announcements': announcements.map((a) => a.toJson()).toList(),
       };
 }
