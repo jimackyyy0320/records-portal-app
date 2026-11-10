@@ -8,7 +8,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 import '../services/api_service.dart';
-import '../services/reviewer_outline_extractor.dart';
+import '../utils/reviewer_outline_extractor.dart';
 import 'lobby_data_service.dart';
 import 'school_lobby_config.dart';
 
@@ -2274,8 +2274,9 @@ class _LobbyReviewerOutlineDialogState
       final rawHtml = await ApiService.instance
           .fetchRawHtmlContent(widget.item.driveFileId!);
       final extracted = ReviewerOutlineExtractor.extractOutline(
-        rawHtml,
-        widget.item.title,
+        rawHtml: rawHtml,
+        reviewerTitle: widget.item.title,
+        subjectName: widget.item.subject,
       );
       if (mounted) {
         setState(() {
@@ -2298,7 +2299,7 @@ class _LobbyReviewerOutlineDialogState
     try {
       final dir = await getTemporaryDirectory();
       final cleanName =
-          ReviewerOutlineExtractor.cleanFilename(widget.item.title);
+          ReviewerOutlineExtractor.buildTxtFileName(widget.item.title);
       final file = File('${dir.path}/$cleanName');
       await file.writeAsString(_outlineText);
       await Share.shareXFiles([XFile(file.path)], text: widget.item.title);
