@@ -222,6 +222,10 @@ class SchoolLobbyInteractCluster extends StatelessWidget {
       case InteractiveZoneKind.subjectChest:
       case InteractiveZoneKind.smallMysteryChest:
         return Icons.inventory_2_rounded;
+      case InteractiveZoneKind.vendingMachine:
+        return Icons.local_cafe_rounded;
+      case InteractiveZoneKind.classroomPodium:
+        return Icons.co_present_rounded;
       default:
         return Icons.auto_awesome_rounded;
     }
@@ -235,6 +239,10 @@ class SchoolLobbyInteractCluster extends StatelessWidget {
         return 'SIT / NAP / SLEEP 🪑';
       case InteractiveZoneKind.peerStudent:
         return 'THOUGHT CHAT 💭';
+      case InteractiveZoneKind.vendingMachine:
+        return 'GET DRINK / SNACK 🥤';
+      case InteractiveZoneKind.classroomPodium:
+        return 'OPEN PODIUM 🎤';
       default:
         return 'INTERACT [E]';
     }

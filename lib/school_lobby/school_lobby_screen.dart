@@ -78,6 +78,12 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
   // Proximity state
   InteractiveZone? _highlightedZone;
 
+  // Cached per-room collision & zone lists to avoid 60 FPS GC churn
+  LobbyRoomId? _cachedRoomForSolids;
+  int _cachedChestCountForSolids = -1;
+  List<Rect> _cachedSolids = const [];
+  List<InteractiveZone> _cachedZones = const [];
+
   Timer? _gameLoopTimer;
 
   @override
@@ -370,7 +376,15 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
 
     final service = LobbyDataService.instance;
     final chests = service.subjectChests;
-    final solids = buildLobbySolids(chests, room: _currentRoom);
+
+    if (_cachedRoomForSolids != _currentRoom ||
+        _cachedChestCountForSolids != chests.length) {
+      _cachedRoomForSolids = _currentRoom;
+      _cachedChestCountForSolids = chests.length;
+      _cachedSolids = buildLobbySolids(chests, room: _currentRoom);
+      _cachedZones = buildActiveInteractiveZones(chests, room: _currentRoom);
+    }
+    final solids = _cachedSolids;
 
     // 1. Determine movement vector: Keyboard / Joystick overrides Tap-to-Walk path
     final kbVec = _readKeyboardVector();
@@ -420,27 +434,34 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
       }
     }
 
+    final wasWalking = _playerIsWalking;
     _playerIsWalking = walking;
 
     // 2. Smooth camera follow clamped to world bounds
     final desiredCamera =
         _clampCameraToWorld(_playerPos, _lastViewportSize, _cameraZoom);
+    final prevCamera = _cameraCenter;
     _cameraCenter =
         Offset.lerp(_cameraCenter, desiredCamera, 0.16) ?? desiredCamera;
+    final cameraMoved = (_cameraCenter - prevCamera).distanceSquared > 0.04;
 
     // 3. Advance 10 FPS sprite animation counter & visual effects
     _frameCounter++;
+    var animChanged = false;
     if (_frameCounter % 6 == 0) {
       _animTick++;
+      animChanged = true;
     }
     if (_tapPulseProgress < 1.0) {
       _tapPulseProgress = (_tapPulseProgress + dt * 2.2).clamp(0.0, 1.0);
+      animChanged = true;
     }
     if (_waveBubbleProgress > 0.0) {
       _waveBubbleProgress = (_waveBubbleProgress + dt * 0.9).clamp(0.0, 1.0);
       if (_waveBubbleProgress >= 1.0) {
         _waveBubbleProgress = 0.0;
       }
+      animChanged = true;
     }
 
     // Expire player Thought Bubble after timer
@@ -449,10 +470,11 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
         DateTime.now().millisecondsSinceEpoch >= _playerThoughtUntilMs) {
       _playerThoughtText = null;
       _playerThoughtUntilMs = 0;
+      animChanged = true;
     }
 
     // 4. Update nearest InteractiveZone within radius in `_currentRoom`
-    final allZones = buildActiveInteractiveZones(chests, room: _currentRoom);
+    final allZones = _cachedZones;
     InteractiveZone? nearest;
     var bestDist = 999999.0;
     for (final z in allZones) {
@@ -462,9 +484,12 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
         nearest = z;
       }
     }
+    final zoneChanged = _highlightedZone?.id != nearest?.id;
     _highlightedZone = nearest;
 
-    setState(() {});
+    if (walking || wasWalking || cameraMoved || animChanged || zoneChanged) {
+      setState(() {});
+    }
   }
 
   void _handleCanvasTapUp(TapUpDetails details, Size viewportSize) {
@@ -628,14 +653,201 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              '💎 Walk up to any of your ${LobbyDataService.instance.subjectChests.length} enrolled Subject Chest(s) to open Google Drive reviewers!',
+              '💎 Walk up to any of your ${LobbyDataService.instance.subjectChests.length} enrolled Subject Chest(s) to open Reviewer Links!',
             ),
             behavior: SnackBarBehavior.floating,
             duration: const Duration(seconds: 2),
           ),
         );
         break;
+      case InteractiveZoneKind.vendingMachine:
+        final pickedItem = await showCanteenVendingModal(context: context);
+        if (pickedItem != null && mounted) {
+          HapticFeedback.mediumImpact();
+          final nowMs = DateTime.now().millisecondsSinceEpoch;
+          setState(() {
+            _playerThoughtText = pickedItem;
+            _playerThoughtUntilMs = nowMs + 12000;
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(pickedItem),
+              behavior: SnackBarBehavior.floating,
+              duration: const Duration(seconds: 2),
+            ),
+          );
+        }
+        break;
+      case InteractiveZoneKind.classroomPodium:
+        if (widget.session.isFaculty) {
+          await showTeacherLinkManagerModal(
+            context: context,
+            teacherName: _playerNickname,
+          );
+        } else {
+          await showCharacterProgressModal(
+            context: context,
+            playerName: _playerNickname,
+            isFaculty: false,
+          );
+        }
+        break;
     }
+  }
+
+  void _guideToDestination(Offset target, String destinationName) {
+    HapticFeedback.selectionClick();
+    final chests = LobbyDataService.instance.subjectChests;
+    final solids = buildLobbySolids(chests, room: _currentRoom);
+    final nav = LobbyNavGrid(
+      cols: kLobbyCols,
+      rows: kLobbyRows,
+      solids: solids,
+    );
+    final path = nav.findPath(_playerPos, target);
+    setState(() {
+      _tapPulseTarget = target;
+      _tapPulseProgress = 0.0;
+      if (path.isNotEmpty) {
+        _playerRestState = PlayerRestState.none;
+        _activePath = path;
+      }
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          '🧭 Guiding you along the walk path to $destinationName...',
+        ),
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(milliseconds: 1600),
+      ),
+    );
+  }
+
+  void _showGuidedWayfinderMenu() {
+    final chests = LobbyDataService.instance.subjectChests;
+    final zones = buildActiveInteractiveZones(chests, room: _currentRoom);
+    // Filter to primary destinations (doors, quest counter, chests, podium, vending, lounge)
+    final destinations = zones
+        .where((z) => z.kind != InteractiveZoneKind.restSpot)
+        .toList();
+
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Container(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(ctx).size.height * 0.78,
+        ),
+        margin: const EdgeInsets.all(14),
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          color: const Color(0xFF0F172A),
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(
+            color: const Color(0xFFFACC15).withOpacity(0.75),
+            width: 1.6,
+          ),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Text('🧭', style: TextStyle(fontSize: 22)),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Campus Walk-Path Wayfinder (${_currentRoom.shortLabel})',
+                        style: GoogleFonts.outfit(
+                          color: Colors.white,
+                          fontSize: 16.5,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      Text(
+                        'Tap any station below and follow the Golden Guide Trail!',
+                        style: GoogleFonts.inter(
+                          color: Colors.white70,
+                          fontSize: 11.5,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  onPressed: () => Navigator.of(ctx).pop(),
+                  icon: const Icon(Icons.close_rounded, color: Colors.white70),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Flexible(
+              child: ListView.separated(
+                shrinkWrap: true,
+                itemCount: destinations.length,
+                separatorBuilder: (_, __) => const SizedBox(height: 8),
+                itemBuilder: (context, idx) {
+                  final z = destinations[idx];
+                  final accent = Color(z.accentColor);
+                  return ListTile(
+                    dense: true,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                      side: BorderSide(color: accent.withOpacity(0.55)),
+                    ),
+                    tileColor: const Color(0xFF1E293B),
+                    leading: Icon(Icons.near_me_rounded, color: accent),
+                    title: Text(
+                      z.label,
+                      style: GoogleFonts.outfit(
+                        color: Colors.white,
+                        fontSize: 13.5,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    subtitle: Text(
+                      z.subtitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: GoogleFonts.inter(
+                        color: Colors.white60,
+                        fontSize: 11,
+                      ),
+                    ),
+                    trailing: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFACC15).withOpacity(0.20),
+                        borderRadius: BorderRadius.circular(99),
+                        border: Border.all(color: const Color(0xFFFACC15)),
+                      ),
+                      child: const Text(
+                        'Guide Me ➔',
+                        style: TextStyle(
+                          color: Color(0xFFFDE047),
+                          fontSize: 10.5,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                    onTap: () {
+                      Navigator.of(ctx).pop();
+                      _guideToDestination(z.center, z.label);
+                    },
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   void _showRoomQuickTravelMenu() {
@@ -896,6 +1108,17 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
                                         ),
                                         const SizedBox(width: 6),
 
+                                        // 1-Tap Guided Walk-Path Wayfinder Button
+                                        _HudPillButton(
+                                          icon: Icons.explore_rounded,
+                                          iconColor: const Color(0xFFFACC15),
+                                          label: '🧭 Guide',
+                                          borderColor: const Color(0xFFFACC15)
+                                              .withOpacity(0.65),
+                                          onTap: _showGuidedWayfinderMenu,
+                                        ),
+                                        const SizedBox(width: 6),
+
                                         // Thought Bubble Chat Quick Button
                                         _HudPillButton(
                                           icon: Icons.cloud_outlined,
@@ -908,16 +1131,20 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
                                         ),
                                         const SizedBox(width: 6),
 
-                                        // Level & XP Status Pill
+                                        // Level, Rank & XP Character Progress Pill
                                         _HudPillButton(
                                           icon: Icons.bolt_rounded,
                                           iconColor: const Color(0xFFFACC15),
                                           label:
-                                              'LVL ${progress.level} • ${progress.xp} XP',
+                                              '${progress.rankEmoji} LVL ${progress.level} • ${progress.xp} XP',
                                           borderColor: const Color(0xFFFACC15)
                                               .withOpacity(0.5),
-                                          onTap: () => showMyBadgesModal(
-                                              context: context),
+                                          onTap: () =>
+                                              showCharacterProgressModal(
+                                            context: context,
+                                            playerName: _playerNickname,
+                                            isFaculty: widget.session.isFaculty,
+                                          ),
                                         ),
                                         const SizedBox(width: 6),
 
@@ -936,8 +1163,21 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
                                         ),
                                         const SizedBox(width: 6),
 
-                                        // Teacher Quick "+ Post Activity" HUD Button
+                                        // Teacher Quick "Manage Links" & "+ Post Activity" HUD Buttons
                                         if (widget.session.isFaculty) ...[
+                                          _HudPillButton(
+                                            icon: Icons.link_rounded,
+                                            iconColor: const Color(0xFFFACC15),
+                                            label: '🔗 Manage Links',
+                                            borderColor:
+                                                const Color(0xFFFACC15),
+                                            onTap: () =>
+                                                showTeacherLinkManagerModal(
+                                              context: context,
+                                              teacherName: _playerNickname,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 6),
                                           _HudPillButton(
                                             icon: Icons.add_task_rounded,
                                             iconColor: const Color(0xFFF59E0B),
@@ -1341,6 +1581,19 @@ class _MiniMapRadarPainter extends CustomPainter {
         Rect.fromLTWH(40 * sx, 90 * sy, (kLobbyWorldWidth - 80) * sx,
             (kLobbyWorldHeight - 130) * sy),
         Paint()..color = Color(currentRoom.accentColor).withOpacity(0.22),
+      );
+    }
+
+    // Draw guided walk paths on the Mini-Map Radar
+    for (final seg in walkPathsForRoom(currentRoom)) {
+      canvas.drawRect(
+        Rect.fromLTWH(
+          seg.rect.left * sx,
+          seg.rect.top * sy,
+          seg.rect.width * sx,
+          seg.rect.height * sy,
+        ),
+        Paint()..color = const Color(0xFFFACC15).withOpacity(0.28),
       );
     }
 

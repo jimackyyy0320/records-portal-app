@@ -875,14 +875,18 @@ class _QuestCounterModalSheet extends StatelessWidget {
                 ),
               ),
 
-              // Action Bar (Teacher "+ Post an Activity" + Student "My Badges")
+              // Action Bar (Teacher "+ Manage Links" & "+ Post Activity" + Student "My Badges")
               Padding(
                 padding:
                     const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                child: Row(
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  alignment: WrapAlignment.spaceBetween,
                   children: [
                     Text(
-                      'ENROLLED QUESTS (${activities.length})',
+                      'ENROLLED QUEST LINKS (${activities.length})',
                       style: GoogleFonts.outfit(
                         color: Colors.white70,
                         fontSize: 12,
@@ -890,44 +894,70 @@ class _QuestCounterModalSheet extends StatelessWidget {
                         letterSpacing: 0.8,
                       ),
                     ),
-                    const Spacer(),
-                    OutlinedButton.icon(
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: const Color(0xFF38BDF8),
-                        side: const BorderSide(color: Color(0xFF38BDF8)),
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 10, vertical: 6),
-                      ),
-                      onPressed: () => showMyBadgesModal(context: context),
-                      icon: const Icon(Icons.workspace_premium_rounded,
-                          size: 16),
-                      label: Text(
-                        'My Badges (${progress.earnedBadges.length})',
-                        style: const TextStyle(
-                            fontSize: 11.5, fontWeight: FontWeight.w700),
-                      ),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        OutlinedButton.icon(
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: const Color(0xFF38BDF8),
+                            side: const BorderSide(color: Color(0xFF38BDF8)),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 10, vertical: 6),
+                          ),
+                          onPressed: () => showMyBadgesModal(context: context),
+                          icon: const Icon(Icons.workspace_premium_rounded,
+                              size: 15),
+                          label: Text(
+                            'Badges (${progress.earnedBadges.length})',
+                            style: const TextStyle(
+                                fontSize: 11, fontWeight: FontWeight.w700),
+                          ),
+                        ),
+                        if (isFaculty) ...[
+                          const SizedBox(width: 6),
+                          OutlinedButton.icon(
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: const Color(0xFFFACC15),
+                              side: const BorderSide(color: Color(0xFFFACC15)),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 10, vertical: 6),
+                            ),
+                            onPressed: () {
+                              Navigator.of(context).pop();
+                              showTeacherLinkManagerModal(
+                                context: context,
+                                teacherName: userName,
+                              );
+                            },
+                            icon: const Icon(Icons.link_rounded, size: 15),
+                            label: const Text(
+                              'Manage Links',
+                              style: TextStyle(
+                                  fontSize: 11, fontWeight: FontWeight.w800),
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFFF59E0B),
+                              foregroundColor: const Color(0xFF0F172A),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 10, vertical: 7),
+                            ),
+                            onPressed: () => showPostActivityModal(
+                              context: context,
+                              postedBy: userName,
+                            ),
+                            icon: const Icon(Icons.add_rounded, size: 16),
+                            label: const Text(
+                              '+ Post Activity',
+                              style: TextStyle(
+                                  fontSize: 11, fontWeight: FontWeight.w800),
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
-                    if (isFaculty) ...[
-                      const SizedBox(width: 8),
-                      ElevatedButton.icon(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFFF59E0B),
-                          foregroundColor: const Color(0xFF0F172A),
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 12, vertical: 8),
-                        ),
-                        onPressed: () => showPostActivityModal(
-                          context: context,
-                          postedBy: userName,
-                        ),
-                        icon: const Icon(Icons.add_rounded, size: 17),
-                        label: const Text(
-                          '+ Post an Activity',
-                          style: TextStyle(
-                              fontSize: 11.5, fontWeight: FontWeight.w800),
-                        ),
-                      ),
-                    ],
                   ],
                 ),
               ),
@@ -937,9 +967,40 @@ class _QuestCounterModalSheet extends StatelessWidget {
                 child: activities.isEmpty
                     ? Padding(
                         padding: const EdgeInsets.all(24),
-                        child: Text(
-                          'No active quests posted for your enrolled subjects yet.',
-                          style: GoogleFonts.inter(color: Colors.white60),
+                        child: Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(20),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF1E293B).withOpacity(0.65),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: Colors.white12),
+                          ),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Text('🎯', style: TextStyle(fontSize: 34)),
+                              const SizedBox(height: 8),
+                              Text(
+                                'No Active Quest Links Posted Yet',
+                                style: GoogleFonts.outfit(
+                                  color: Colors.white,
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                isFaculty
+                                    ? 'Tap "+ Post Activity" or "Manage Links" above to add an Activity Link that students can launch and Mark as Done (+XP & Badge).'
+                                    : 'When your teacher posts an Activity Link for your enrolled subjects, it will appear here so you can launch it and Mark as Done to level up!',
+                                textAlign: TextAlign.center,
+                                style: GoogleFonts.inter(
+                                  color: Colors.white60,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                       )
                     : ListView.separated(
@@ -1014,6 +1075,22 @@ class _QuestCounterModalSheet extends StatelessWidget {
                                         color: Color(0xFF34D399),
                                         size: 20,
                                       ),
+                                    if (isFaculty) ...[
+                                      const SizedBox(width: 6),
+                                      InkWell(
+                                        onTap: () => LobbyDataService.instance
+                                            .deleteActivity(act.id),
+                                        borderRadius: BorderRadius.circular(8),
+                                        child: const Padding(
+                                          padding: EdgeInsets.all(4),
+                                          child: Icon(
+                                            Icons.delete_outline_rounded,
+                                            color: Colors.redAccent,
+                                            size: 18,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
                                   ],
                                 ),
                                 const SizedBox(height: 8),
@@ -1669,9 +1746,12 @@ class _SubjectChestModalSheet extends StatelessWidget {
     LobbyReviewerItem item,
     Color accentColor,
   ) async {
+    await LobbyDataService.instance.markReviewerLaunched(item.id);
+
     // 1. If this is an HTML Reviewer from the Google Drive Reviewer Folder (`1EFX9aylAeSRmDWU7OeFIPa0llAMD8wC5`),
     //    stream it directly inside the In-App HTML Presentation Streamer!
     if (item.isFromDrive && item.isHtmlReviewer && item.driveFileId != null) {
+      if (!context.mounted) return;
       await showDialog<void>(
         context: context,
         builder: (ctx) => _LobbyHtmlReviewerStreamerDialog(
@@ -1693,6 +1773,7 @@ class _SubjectChestModalSheet extends StatelessWidget {
     }
 
     // 3. Otherwise show the built-in RPG Study Scroll Reader Dialog
+    if (!context.mounted) return;
     await showDialog<void>(
       context: context,
       builder: (ctx) => Dialog(
@@ -1769,6 +1850,26 @@ class _SubjectChestModalSheet extends StatelessWidget {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _completeReviewerItem(
+    BuildContext context,
+    LobbyReviewerItem item,
+  ) async {
+    final earned = await LobbyDataService.instance.completeReviewer(item);
+    if (!earned || !context.mounted) return;
+    HapticFeedback.heavyImpact();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        backgroundColor: const Color(0xFF065F46),
+        behavior: SnackBarBehavior.floating,
+        content: Text(
+          '🎉 Reviewer Done! +${item.xpReward} XP added to your character progress!',
+          style: const TextStyle(
+              color: Colors.white, fontWeight: FontWeight.w800),
         ),
       ),
     );
@@ -1900,9 +2001,9 @@ class _SubjectChestModalSheet extends StatelessWidget {
                           builder: (_) =>
                               _AddReviewerToChestSheet(chest: chest),
                         ),
-                        icon: const Icon(Icons.upload_file_rounded, size: 17),
+                        icon: const Icon(Icons.add_link_rounded, size: 17),
                         label: const Text(
-                          '+ Upload Reviewer',
+                          '+ Add Reviewer Link',
                           style: TextStyle(
                               fontSize: 12, fontWeight: FontWeight.w800),
                         ),
@@ -1930,168 +2031,297 @@ class _SubjectChestModalSheet extends StatelessWidget {
               ],
               const SizedBox(height: 12),
               Flexible(
-                child: ListView.separated(
-                  shrinkWrap: true,
-                  itemCount: chest.reviewers.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 10),
-                  itemBuilder: (context, index) {
-                    final rev = chest.reviewers[index];
-                    final isHtmlDrive = rev.isFromDrive && rev.isHtmlReviewer;
-
-                    return InkWell(
-                      onTap: () => _openReviewerItem(context, rev, accent),
-                      borderRadius: BorderRadius.circular(16),
-                      child: Container(
-                        padding: const EdgeInsets.all(14),
+                child: chest.reviewers.isEmpty
+                    ? Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(22),
                         decoration: BoxDecoration(
-                          color: const Color(0xFF1E293B),
+                          color: const Color(0xFF1E293B).withOpacity(0.65),
                           borderRadius: BorderRadius.circular(16),
-                          border: Border.all(
-                            color: accent.withOpacity(0.45),
-                          ),
+                          border: Border.all(color: Colors.white12),
                         ),
                         child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
                           children: [
-                            Row(
+                            const Text('📦', style: TextStyle(fontSize: 34)),
+                            const SizedBox(height: 8),
+                            Text(
+                              'No Reviewer Links in ${chest.subjectName} Yet',
+                              style: GoogleFonts.outfit(
+                                color: Colors.white,
+                                fontSize: 15,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              isFaculty
+                                  ? 'Tap "+ Add Reviewer Link" above to post a Reviewer URL or Study Notes that students can launch and Mark as Done (+XP).'
+                                  : 'When your teacher posts a Reviewer Link for ${chest.subjectName}, you can launch it here and Mark as Done to level up your character!',
+                              textAlign: TextAlign.center,
+                              style: GoogleFonts.inter(
+                                color: Colors.white60,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
+                        ),
+                      )
+                    : ListView.separated(
+                        shrinkWrap: true,
+                        itemCount: chest.reviewers.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: 10),
+                        itemBuilder: (context, index) {
+                          final rev = chest.reviewers[index];
+                          final isHtmlDrive =
+                              rev.isFromDrive && rev.isHtmlReviewer;
+                          final isLaunched = service.progress.launchedReviewerIds
+                              .contains(rev.id);
+                          final isDone = service.progress.completedReviewerIds
+                              .contains(rev.id);
+
+                          return Container(
+                            padding: const EdgeInsets.all(14),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF1E293B),
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(
+                                color: isDone
+                                    ? const Color(0xFF10B981).withOpacity(0.65)
+                                    : accent.withOpacity(0.45),
+                                width: 1.3,
+                              ),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Container(
-                                  width: 40,
-                                  height: 40,
-                                  alignment: Alignment.center,
-                                  decoration: BoxDecoration(
-                                    color: accent.withOpacity(0.18),
-                                    borderRadius: BorderRadius.circular(10),
-                                  ),
-                                  child: Text(
-                                    isHtmlDrive
-                                        ? '📺'
-                                        : (rev.fileType == 'PDF' ||
-                                                rev.fileType == 'PPTX'
-                                            ? '📄'
-                                            : (rev.fileType == 'LINK'
-                                                ? '🔗'
-                                                : '📜')),
-                                    style: const TextStyle(fontSize: 20),
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Row(
+                                Row(
+                                  children: [
+                                    Container(
+                                      width: 40,
+                                      height: 40,
+                                      alignment: Alignment.center,
+                                      decoration: BoxDecoration(
+                                        color: accent.withOpacity(0.18),
+                                        borderRadius: BorderRadius.circular(10),
+                                      ),
+                                      child: Text(
+                                        isHtmlDrive
+                                            ? '📺'
+                                            : (rev.fileType == 'PDF' ||
+                                                    rev.fileType == 'PPTX'
+                                                ? '📄'
+                                                : (rev.fileType == 'LINK'
+                                                    ? '🔗'
+                                                    : '📜')),
+                                        style: const TextStyle(fontSize: 20),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
                                         children: [
-                                          if (rev.weekGroup != null &&
-                                              rev.weekGroup!.isNotEmpty) ...[
-                                            Container(
-                                              padding:
-                                                  const EdgeInsets.symmetric(
-                                                      horizontal: 6,
-                                                      vertical: 2),
-                                              decoration: BoxDecoration(
-                                                color: accent.withOpacity(0.22),
-                                                borderRadius:
-                                                    BorderRadius.circular(6),
-                                              ),
-                                              child: Text(
-                                                rev.weekGroup!,
-                                                style: GoogleFonts.inter(
-                                                  color: Colors.white,
-                                                  fontSize: 9.5,
-                                                  fontWeight: FontWeight.w800,
+                                          Row(
+                                            children: [
+                                              if (rev.weekGroup != null &&
+                                                  rev.weekGroup!.isNotEmpty) ...[
+                                                Container(
+                                                  padding:
+                                                      const EdgeInsets.symmetric(
+                                                          horizontal: 6,
+                                                          vertical: 2),
+                                                  decoration: BoxDecoration(
+                                                    color:
+                                                        accent.withOpacity(0.22),
+                                                    borderRadius:
+                                                        BorderRadius.circular(6),
+                                                  ),
+                                                  child: Text(
+                                                    rev.weekGroup!,
+                                                    style: GoogleFonts.inter(
+                                                      color: Colors.white,
+                                                      fontSize: 9.5,
+                                                      fontWeight:
+                                                          FontWeight.w800,
+                                                    ),
+                                                  ),
+                                                ),
+                                                const SizedBox(width: 6),
+                                              ],
+                                              Expanded(
+                                                child: Text(
+                                                  rev.title,
+                                                  style: GoogleFonts.outfit(
+                                                    color: Colors.white,
+                                                    fontSize: 14.5,
+                                                    fontWeight: FontWeight.w700,
+                                                  ),
                                                 ),
                                               ),
-                                            ),
-                                            const SizedBox(width: 6),
-                                          ],
-                                          Expanded(
-                                            child: Text(
-                                              rev.title,
-                                              style: GoogleFonts.outfit(
-                                                color: Colors.white,
-                                                fontSize: 14.5,
-                                                fontWeight: FontWeight.w700,
+                                              Container(
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                        horizontal: 7,
+                                                        vertical: 2),
+                                                decoration: BoxDecoration(
+                                                  color: const Color(0xFFFACC15)
+                                                      .withOpacity(0.18),
+                                                  borderRadius:
+                                                      BorderRadius.circular(8),
+                                                ),
+                                                child: Text(
+                                                  '+${rev.xpReward} XP',
+                                                  style: GoogleFonts.inter(
+                                                    color:
+                                                        const Color(0xFFFDE047),
+                                                    fontSize: 10,
+                                                    fontWeight: FontWeight.w800,
+                                                  ),
+                                                ),
                                               ),
+                                              if (isDone) ...[
+                                                const SizedBox(width: 5),
+                                                const Icon(
+                                                  Icons.check_circle_rounded,
+                                                  color: Color(0xFF34D399),
+                                                  size: 18,
+                                                ),
+                                              ],
+                                              if (isFaculty) ...[
+                                                const SizedBox(width: 4),
+                                                InkWell(
+                                                  onTap: () => service
+                                                      .deleteReviewerFromChest(
+                                                    chestId: chest.id,
+                                                    reviewerId: rev.id,
+                                                  ),
+                                                  borderRadius:
+                                                      BorderRadius.circular(8),
+                                                  child: const Padding(
+                                                    padding: EdgeInsets.all(4),
+                                                    child: Icon(
+                                                      Icons
+                                                          .delete_outline_rounded,
+                                                      color: Colors.redAccent,
+                                                      size: 18,
+                                                    ),
+                                                  ),
+                                                ),
+                                              ],
+                                            ],
+                                          ),
+                                          const SizedBox(height: 3),
+                                          Text(
+                                            rev.summary,
+                                            maxLines: 2,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: GoogleFonts.inter(
+                                              color: Colors.white70,
+                                              fontSize: 11.5,
                                             ),
                                           ),
                                         ],
                                       ),
-                                      const SizedBox(height: 3),
-                                      Text(
-                                        rev.summary,
-                                        maxLines: 2,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: GoogleFonts.inter(
-                                          color: Colors.white70,
-                                          fontSize: 11.5,
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 10),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: OutlinedButton.icon(
+                                        style: OutlinedButton.styleFrom(
+                                          foregroundColor: accent,
+                                          side: BorderSide(color: accent),
+                                          padding: const EdgeInsets.symmetric(
+                                              vertical: 8),
+                                        ),
+                                        onPressed: () => _openReviewerItem(
+                                            context, rev, accent),
+                                        icon: Icon(
+                                          isHtmlDrive
+                                              ? Icons.play_circle_fill_rounded
+                                              : Icons.open_in_new_rounded,
+                                          size: 15,
+                                        ),
+                                        label: Text(
+                                          isHtmlDrive
+                                              ? 'Stream Slides'
+                                              : 'Launch Reviewer',
+                                          style: const TextStyle(
+                                              fontSize: 11.5,
+                                              fontWeight: FontWeight.w800),
+                                        ),
+                                      ),
+                                    ),
+                                    if (isHtmlDrive) ...[
+                                      const SizedBox(width: 6),
+                                      OutlinedButton(
+                                        style: OutlinedButton.styleFrom(
+                                          foregroundColor:
+                                              const Color(0xFF38BDF8),
+                                          side: const BorderSide(
+                                              color: Color(0xFF38BDF8)),
+                                          padding: const EdgeInsets.symmetric(
+                                              horizontal: 8, vertical: 8),
+                                        ),
+                                        onPressed: () =>
+                                            _openOutlineExtractorForDriveItem(
+                                                context, rev, accent),
+                                        child: const Text(
+                                          '.TXT',
+                                          style: TextStyle(
+                                              fontSize: 11,
+                                              fontWeight: FontWeight.w800),
                                         ),
                                       ),
                                     ],
-                                  ),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: ElevatedButton.icon(
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: isDone
+                                              ? const Color(0xFF065F46)
+                                              : (isLaunched
+                                                  ? const Color(0xFF10B981)
+                                                  : const Color(0xFF334155)),
+                                          foregroundColor: Colors.white,
+                                          padding: const EdgeInsets.symmetric(
+                                              vertical: 8),
+                                        ),
+                                        onPressed: (!isDone && isLaunched)
+                                            ? () => _completeReviewerItem(
+                                                context, rev)
+                                            : null,
+                                        icon: Icon(
+                                          isDone
+                                              ? Icons.verified_rounded
+                                              : (isLaunched
+                                                  ? Icons.task_alt_rounded
+                                                  : Icons.lock_outline_rounded),
+                                          size: 15,
+                                        ),
+                                        label: Text(
+                                          isDone
+                                              ? 'Completed'
+                                              : (isLaunched
+                                                  ? 'Mark as Done'
+                                                  : 'Launch First'),
+                                          style: const TextStyle(
+                                              fontSize: 11.5,
+                                              fontWeight: FontWeight.w800),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ],
                             ),
-                            if (isHtmlDrive) ...[
-                              const SizedBox(height: 10),
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: ElevatedButton.icon(
-                                      style: ElevatedButton.styleFrom(
-                                        backgroundColor: accent,
-                                        foregroundColor: Colors.white,
-                                        padding: const EdgeInsets.symmetric(
-                                            vertical: 8),
-                                      ),
-                                      onPressed: () => _openReviewerItem(
-                                          context, rev, accent),
-                                      icon: const Icon(
-                                          Icons.play_circle_fill_rounded,
-                                          size: 16),
-                                      label: const Text(
-                                        'Stream HTML Slides',
-                                        style: TextStyle(
-                                            fontSize: 11.5,
-                                            fontWeight: FontWeight.w800),
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Expanded(
-                                    child: OutlinedButton.icon(
-                                      style: OutlinedButton.styleFrom(
-                                        foregroundColor:
-                                            const Color(0xFF38BDF8),
-                                        side: const BorderSide(
-                                            color: Color(0xFF38BDF8)),
-                                        padding: const EdgeInsets.symmetric(
-                                            vertical: 8),
-                                      ),
-                                      onPressed: () =>
-                                          _openOutlineExtractorForDriveItem(
-                                              context, rev, accent),
-                                      icon: const Icon(
-                                          Icons.description_outlined,
-                                          size: 16),
-                                      label: const Text(
-                                        'Extract .TXT Outline',
-                                        style: TextStyle(
-                                            fontSize: 11.5,
-                                            fontWeight: FontWeight.w700),
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ],
-                        ),
+                          );
+                        },
                       ),
-                    );
-                  },
-                ),
               ),
             ],
           ),
@@ -2436,15 +2666,17 @@ class _AddReviewerToChestSheet extends StatefulWidget {
 
 class _AddReviewerToChestSheetState extends State<_AddReviewerToChestSheet> {
   final _titleCtrl = TextEditingController();
-  final _contentCtrl = TextEditingController();
+  final _contentCtrl = TextEditingController(text: 'https://');
   final _summaryCtrl = TextEditingController();
-  String _fileType = 'NOTES';
+  final _xpCtrl = TextEditingController(text: '50');
+  String _fileType = 'LINK';
 
   @override
   void dispose() {
     _titleCtrl.dispose();
     _contentCtrl.dispose();
     _summaryCtrl.dispose();
+    _xpCtrl.dispose();
     super.dispose();
   }
 
@@ -2452,15 +2684,17 @@ class _AddReviewerToChestSheetState extends State<_AddReviewerToChestSheet> {
     if (_titleCtrl.text.trim().isEmpty || _contentCtrl.text.trim().isEmpty) {
       return;
     }
+    final xp = int.tryParse(_xpCtrl.text.trim()) ?? 50;
     await LobbyDataService.instance.addReviewerToChest(
       chestId: widget.chest.id,
       title: _titleCtrl.text.trim(),
       fileType: _fileType,
       urlOrContent: _contentCtrl.text.trim(),
       summary: _summaryCtrl.text.trim().isEmpty
-          ? 'Teacher uploaded reviewer for ${widget.chest.subjectName}.'
+          ? 'Teacher added reviewer link for ${widget.chest.subjectName}.'
           : _summaryCtrl.text.trim(),
       uploadedBy: 'Faculty',
+      xpReward: xp,
     );
     if (mounted) Navigator.of(context).pop();
   }
@@ -2482,7 +2716,7 @@ class _AddReviewerToChestSheetState extends State<_AddReviewerToChestSheet> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              '📦 Add Reviewer to ${widget.chest.subjectName} Chest',
+              '📦 Add Reviewer Link to ${widget.chest.subjectName} Chest',
               style: GoogleFonts.outfit(
                 color: Colors.white,
                 fontSize: 17,
@@ -2496,28 +2730,48 @@ class _AddReviewerToChestSheetState extends State<_AddReviewerToChestSheet> {
               hint: 'e.g., Week 4 Legislative Branch Reviewer',
             ),
             const SizedBox(height: 10),
-            DropdownButtonFormField<String>(
-              value: _fileType,
-              dropdownColor: const Color(0xFF1E293B),
-              style: const TextStyle(color: Colors.white),
-              decoration: _inputDecoration('Reviewer Type'),
-              items: const [
-                DropdownMenuItem(
-                    value: 'NOTES', child: Text('Study Notes (In-App Reader)')),
-                DropdownMenuItem(
-                    value: 'PDF', child: Text('PDF / Drive Document Link')),
-                DropdownMenuItem(value: 'LINK', child: Text('External Web Link')),
+            Row(
+              children: [
+                Expanded(
+                  flex: 3,
+                  child: DropdownButtonFormField<String>(
+                    value: _fileType,
+                    dropdownColor: const Color(0xFF1E293B),
+                    style: const TextStyle(color: Colors.white, fontSize: 13),
+                    decoration: _inputDecoration('Reviewer Type'),
+                    items: const [
+                      DropdownMenuItem(
+                          value: 'LINK',
+                          child: Text('Reviewer Web / Drive Link')),
+                      DropdownMenuItem(
+                          value: 'PDF', child: Text('PDF / Document Link')),
+                      DropdownMenuItem(
+                          value: 'NOTES',
+                          child: Text('Study Notes (In-App Reader)')),
+                    ],
+                    onChanged: (v) {
+                      if (v != null) setState(() => _fileType = v);
+                    },
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  flex: 2,
+                  child: _buildTextField(
+                    controller: _xpCtrl,
+                    label: 'XP Reward',
+                    hint: '50',
+                    keyboardType: TextInputType.number,
+                  ),
+                ),
               ],
-              onChanged: (v) {
-                if (v != null) setState(() => _fileType = v);
-              },
             ),
             const SizedBox(height: 10),
             _buildTextField(
               controller: _contentCtrl,
               label: _fileType == 'NOTES'
                   ? 'Study Notes Content'
-                  : 'Document / Reviewer URL',
+                  : 'Reviewer URL Link',
               hint: _fileType == 'NOTES'
                   ? 'Paste key bullet points and definitions...'
                   : 'https://drive.google.com/...',
@@ -2532,15 +2786,16 @@ class _AddReviewerToChestSheetState extends State<_AddReviewerToChestSheet> {
             const SizedBox(height: 14),
             SizedBox(
               width: double.infinity,
-              child: ElevatedButton(
+              child: ElevatedButton.icon(
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Color(widget.chest.colorValue),
                   foregroundColor: Colors.white,
                   padding: const EdgeInsets.symmetric(vertical: 12),
                 ),
                 onPressed: _save,
-                child: const Text(
-                  'Save Reviewer to Chest',
+                icon: const Icon(Icons.cloud_upload_rounded, size: 18),
+                label: const Text(
+                  'Save & Sync Reviewer Link to Chest',
                   style: TextStyle(fontWeight: FontWeight.w800),
                 ),
               ),
@@ -3057,11 +3312,33 @@ class _TeacherCornerSheet extends StatelessWidget {
                 ),
                 onPressed: () {
                   Navigator.of(context).pop();
+                  showTeacherLinkManagerModal(
+                    context: context,
+                    teacherName: userName,
+                  );
+                },
+                icon: const Icon(Icons.link_rounded),
+                label: const Text(
+                  '🔗 Open Teacher Content & Link Manager',
+                  style: TextStyle(fontWeight: FontWeight.w800),
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: const Color(0xFFFACC15),
+                  side: const BorderSide(color: Color(0xFFFACC15)),
+                ),
+                onPressed: () {
+                  Navigator.of(context).pop();
                   showPostActivityModal(context: context, postedBy: userName);
                 },
                 icon: const Icon(Icons.add_task_rounded),
                 label: const Text(
-                  '+ Post New Quest Activity',
+                  '+ Quick Post Quest Activity',
                   style: TextStyle(fontWeight: FontWeight.w800),
                 ),
               ),
@@ -3232,3 +3509,1148 @@ Widget _buildTextField({
     decoration: _inputDecoration(label, hint: hint),
   );
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  PHASE 4: UNIFIED TEACHER CONTENT & LINK MANAGER (REVIEWERS & ACTIVITIES)
+// ═══════════════════════════════════════════════════════════════════════════
+
+Future<void> showTeacherLinkManagerModal({
+  required BuildContext context,
+  required String teacherName,
+}) async {
+  await showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    builder: (ctx) => _TeacherLinkManagerSheet(teacherName: teacherName),
+  );
+}
+
+class _TeacherLinkManagerSheet extends StatefulWidget {
+  final String teacherName;
+
+  const _TeacherLinkManagerSheet({required this.teacherName});
+
+  @override
+  State<_TeacherLinkManagerSheet> createState() =>
+      _TeacherLinkManagerSheetState();
+}
+
+class _TeacherLinkManagerSheetState extends State<_TeacherLinkManagerSheet> {
+  int _activeTab = 0; // 0 = Reviewer Links, 1 = Activity Links
+  bool _isSyncingCloud = false;
+
+  // Reviewer Link fields
+  String? _selectedChestId;
+  final _revTitleCtrl = TextEditingController();
+  final _revUrlCtrl = TextEditingController(text: 'https://');
+  final _revSummaryCtrl = TextEditingController();
+  final _revXpCtrl = TextEditingController(text: '50');
+  String _revType = 'LINK';
+
+  // Activity Link fields
+  String _actSubject = 'PGP';
+  final _actTitleCtrl = TextEditingController();
+  final _actUrlCtrl = TextEditingController(text: 'https://');
+  final _actXpCtrl = TextEditingController(text: '100');
+  final _actBadgeNameCtrl = TextEditingController(text: 'Quiz Conqueror');
+  int _actPresetIdx = 1;
+
+  @override
+  void initState() {
+    super.initState();
+    final chests = LobbyDataService.instance.subjectChests;
+    if (chests.isNotEmpty) {
+      _selectedChestId = chests.first.id;
+      _actSubject = chests.first.subjectName;
+    }
+  }
+
+  @override
+  void dispose() {
+    _revTitleCtrl.dispose();
+    _revUrlCtrl.dispose();
+    _revSummaryCtrl.dispose();
+    _revXpCtrl.dispose();
+    _actTitleCtrl.dispose();
+    _actUrlCtrl.dispose();
+    _actXpCtrl.dispose();
+    _actBadgeNameCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _addReviewerLink() async {
+    final title = _revTitleCtrl.text.trim();
+    final url = _revUrlCtrl.text.trim();
+    final chests = LobbyDataService.instance.subjectChests;
+    final chestId =
+        _selectedChestId ?? (chests.isNotEmpty ? chests.first.id : null);
+    if (title.isEmpty || url.isEmpty || chestId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('Please enter a Reviewer Title and Link URL.')),
+      );
+      return;
+    }
+    final xp = int.tryParse(_revXpCtrl.text.trim()) ?? 50;
+    await LobbyDataService.instance.addReviewerToChest(
+      chestId: chestId,
+      title: title,
+      fileType: _revType,
+      urlOrContent: url,
+      summary: _revSummaryCtrl.text.trim().isEmpty
+          ? 'Teacher added Reviewer Link (+$xp XP on completion).'
+          : _revSummaryCtrl.text.trim(),
+      uploadedBy: widget.teacherName,
+      xpReward: xp,
+    );
+    _revTitleCtrl.clear();
+    _revUrlCtrl.text = 'https://';
+    _revSummaryCtrl.clear();
+    if (!mounted) return;
+    HapticFeedback.mediumImpact();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        backgroundColor: const Color(0xFF065F46),
+        content: Text('✅ Added Reviewer Link "$title" (+$xp XP) & synced!'),
+      ),
+    );
+  }
+
+  Future<void> _addActivityLink() async {
+    final title = _actTitleCtrl.text.trim();
+    final url = _actUrlCtrl.text.trim();
+    if (title.isEmpty || url.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('Please enter an Activity Title and Link URL.')),
+      );
+      return;
+    }
+    final xp = int.tryParse(_actXpCtrl.text.trim()) ?? 100;
+    final preset = kLobbyBadgePresets[_actPresetIdx];
+    await LobbyDataService.instance.postActivity(
+      title: title,
+      subject: _actSubject,
+      activityUrl: url,
+      xpReward: xp,
+      badgeName: _actBadgeNameCtrl.text.trim().isEmpty
+          ? preset.defaultTitle
+          : _actBadgeNameCtrl.text.trim(),
+      badgeIcon: preset.icon,
+      badgeColor: preset.accentColor,
+      postedBy: widget.teacherName,
+    );
+    _actTitleCtrl.clear();
+    _actUrlCtrl.text = 'https://';
+    if (!mounted) return;
+    HapticFeedback.mediumImpact();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        backgroundColor: const Color(0xFF065F46),
+        content: Text('✅ Posted Activity Link "$title" (+$xp XP) & synced!'),
+      ),
+    );
+  }
+
+  Future<void> _syncCloudNow() async {
+    setState(() => _isSyncingCloud = true);
+    await LobbyDataService.instance.pushCloudManifest();
+    if (!mounted) return;
+    setState(() => _isSyncingCloud = false);
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        backgroundColor: Color(0xFF0284C7),
+        content: Text(
+            '☁️ Synced all Reviewer & Activity Links to Google Drive Cloud!'),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+    return AnimatedBuilder(
+      animation: LobbyDataService.instance,
+      builder: (context, _) {
+        final service = LobbyDataService.instance;
+        final chests = service.subjectChests;
+        final activities = service.activities;
+
+        if (chests.isNotEmpty &&
+            (_selectedChestId == null ||
+                !chests.any((c) => c.id == _selectedChestId))) {
+          _selectedChestId = chests.first.id;
+        }
+        final subjectNames =
+            chests.map((c) => c.subjectName).toSet().toList();
+        if (subjectNames.isEmpty) {
+          subjectNames.addAll(['PGP', 'UCSP', 'PPG', 'PKLP TERM 2', 'PHILO']);
+        }
+        if (!subjectNames.contains(_actSubject)) {
+          _actSubject = subjectNames.first;
+        }
+
+        final totalReviewers = chests.fold<int>(
+          0,
+          (sum, c) => sum + c.reviewers.length,
+        );
+
+        return Container(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(context).size.height * 0.88,
+          ),
+          margin: EdgeInsets.fromLTRB(12, 24, 12, 12 + bottomInset),
+          padding: const EdgeInsets.all(18),
+          decoration: BoxDecoration(
+            color: const Color(0xFF0F172A),
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: const Color(0xFFFACC15), width: 1.8),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Header
+              Row(
+                children: [
+                  Container(
+                    width: 42,
+                    height: 42,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFACC15).withOpacity(0.18),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: const Color(0xFFFACC15)),
+                    ),
+                    child: const Text('🔗', style: TextStyle(fontSize: 20)),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Teacher Content & Link Manager',
+                          style: GoogleFonts.outfit(
+                            color: Colors.white,
+                            fontSize: 17.5,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        Text(
+                          'Add Reviewer & Activity Links that students can Launch & Mark as Done (+XP)',
+                          style: GoogleFonts.inter(
+                            color: Colors.white70,
+                            fontSize: 11,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Sync to Cloud',
+                    onPressed: _isSyncingCloud ? null : _syncCloudNow,
+                    icon: _isSyncingCloud
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Color(0xFF38BDF8),
+                            ),
+                          )
+                        : const Icon(
+                            Icons.cloud_upload_rounded,
+                            color: Color(0xFF38BDF8),
+                          ),
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    icon:
+                        const Icon(Icons.close_rounded, color: Colors.white70),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+
+              // 2-Tab Selector
+              Row(
+                children: [
+                  Expanded(
+                    child: InkWell(
+                      onTap: () => setState(() => _activeTab = 0),
+                      borderRadius: BorderRadius.circular(12),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: _activeTab == 0
+                              ? const Color(0xFF0284C7).withOpacity(0.28)
+                              : const Color(0xFF1E293B),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: _activeTab == 0
+                                ? const Color(0xFF38BDF8)
+                                : Colors.white24,
+                            width: _activeTab == 0 ? 1.8 : 1.0,
+                          ),
+                        ),
+                        child: Text(
+                          '📚 Reviewer Links ($totalReviewers)',
+                          style: GoogleFonts.outfit(
+                            color: Colors.white,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: InkWell(
+                      onTap: () => setState(() => _activeTab = 1),
+                      borderRadius: BorderRadius.circular(12),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: _activeTab == 1
+                              ? const Color(0xFFF59E0B).withOpacity(0.25)
+                              : const Color(0xFF1E293B),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: _activeTab == 1
+                                ? const Color(0xFFFACC15)
+                                : Colors.white24,
+                            width: _activeTab == 1 ? 1.8 : 1.0,
+                          ),
+                        ),
+                        child: Text(
+                          '🎯 Activity Links (${activities.length})',
+                          style: GoogleFonts.outfit(
+                            color: Colors.white,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+
+              // Scrollable Tab Body
+              Flexible(
+                child: SingleChildScrollView(
+                  child: _activeTab == 0
+                      ? _buildReviewerLinksTab(chests, service)
+                      : _buildActivityLinksTab(
+                          subjectNames, activities, service),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildReviewerLinksTab(
+    List<SubjectChest> chests,
+    LobbyDataService service,
+  ) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: const Color(0xFF1E293B).withOpacity(0.75),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: const Color(0xFF38BDF8).withOpacity(0.4)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '➕ Add New Reviewer Link to Subject Chest',
+                style: GoogleFonts.outfit(
+                  color: const Color(0xFF38BDF8),
+                  fontSize: 14,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
+                    flex: 3,
+                    child: DropdownButtonFormField<String>(
+                      value: _selectedChestId,
+                      dropdownColor: const Color(0xFF1E293B),
+                      style:
+                          const TextStyle(color: Colors.white, fontSize: 12.5),
+                      decoration: _inputDecoration('Subject Chest'),
+                      items: chests
+                          .map(
+                            (c) => DropdownMenuItem(
+                              value: c.id,
+                              child: Text(c.subjectName),
+                            ),
+                          )
+                          .toList(),
+                      onChanged: (v) {
+                        if (v != null) setState(() => _selectedChestId = v);
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    flex: 2,
+                    child: _buildTextField(
+                      controller: _revXpCtrl,
+                      label: 'XP Reward',
+                      hint: '50',
+                      keyboardType: TextInputType.number,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              _buildTextField(
+                controller: _revTitleCtrl,
+                label: 'Reviewer Title',
+                hint: 'e.g., Week 3 UCSP Cultural Relativism Slides',
+              ),
+              const SizedBox(height: 8),
+              _buildTextField(
+                controller: _revUrlCtrl,
+                label: 'Reviewer URL Link (Google Drive / Canva / Docs / Web)',
+                hint: 'https://drive.google.com/...',
+              ),
+              const SizedBox(height: 8),
+              _buildTextField(
+                controller: _revSummaryCtrl,
+                label: 'Short Study Guide Note (Optional)',
+                hint: 'Read before taking the Week 3 Quiz',
+              ),
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF0284C7),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 11),
+                  ),
+                  onPressed: _addReviewerLink,
+                  icon: const Icon(Icons.add_link_rounded, size: 18),
+                  label: const Text(
+                    '+ Add Reviewer Link to Chest',
+                    style: TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 14),
+        Text(
+          'CURRENT REVIEWER LINKS BY SUBJECT CHEST',
+          style: GoogleFonts.outfit(
+            color: Colors.white70,
+            fontSize: 11.5,
+            fontWeight: FontWeight.w800,
+            letterSpacing: 0.7,
+          ),
+        ),
+        const SizedBox(height: 8),
+        ...chests.map((chest) {
+          final accent = Color(chest.colorValue);
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFF1E293B),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: accent.withOpacity(0.45)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Text(
+                        '📦 ${chest.subjectName}',
+                        style: GoogleFonts.outfit(
+                          color: Colors.white,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const Spacer(),
+                      Text(
+                        '${chest.reviewers.length} link(s)',
+                        style: GoogleFonts.inter(
+                          color: Colors.white60,
+                          fontSize: 11,
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (chest.reviewers.isEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 6),
+                      child: Text(
+                        'Empty — no Reviewer Links added yet.',
+                        style: GoogleFonts.inter(
+                          color: Colors.white54,
+                          fontSize: 11.5,
+                        ),
+                      ),
+                    )
+                  else ...[
+                    const SizedBox(height: 8),
+                    ...chest.reviewers.map((rev) {
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 6),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.link_rounded,
+                                color: Color(0xFF38BDF8), size: 16),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    '${rev.title} (+${rev.xpReward} XP)',
+                                    style: GoogleFonts.inter(
+                                      color: Colors.white,
+                                      fontSize: 12.5,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                  Text(
+                                    rev.urlOrContent,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: GoogleFonts.inter(
+                                      color: Colors.white54,
+                                      fontSize: 10.5,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            IconButton(
+                              onPressed: () => service.deleteReviewerFromChest(
+                                chestId: chest.id,
+                                reviewerId: rev.id,
+                              ),
+                              icon: const Icon(
+                                Icons.delete_outline_rounded,
+                                color: Colors.redAccent,
+                                size: 18,
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    }),
+                  ],
+                ],
+              ),
+            ),
+          );
+        }),
+      ],
+    );
+  }
+
+  Widget _buildActivityLinksTab(
+    List<String> subjectNames,
+    List<LobbyActivity> activities,
+    LobbyDataService service,
+  ) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: const Color(0xFF1E293B).withOpacity(0.75),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: const Color(0xFFFACC15).withOpacity(0.4)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '➕ Post New Activity Link to Quest Counter',
+                style: GoogleFonts.outfit(
+                  color: const Color(0xFFFACC15),
+                  fontSize: 14,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
+                    flex: 3,
+                    child: DropdownButtonFormField<String>(
+                      value: _actSubject,
+                      dropdownColor: const Color(0xFF1E293B),
+                      style:
+                          const TextStyle(color: Colors.white, fontSize: 12.5),
+                      decoration: _inputDecoration('Subject'),
+                      items: subjectNames
+                          .map(
+                            (s) => DropdownMenuItem(
+                              value: s,
+                              child: Text(s),
+                            ),
+                          )
+                          .toList(),
+                      onChanged: (v) {
+                        if (v != null) setState(() => _actSubject = v);
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    flex: 2,
+                    child: _buildTextField(
+                      controller: _actXpCtrl,
+                      label: 'XP Reward',
+                      hint: '100',
+                      keyboardType: TextInputType.number,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              _buildTextField(
+                controller: _actTitleCtrl,
+                label: 'Activity / Task Title',
+                hint: 'e.g., Week 3 Google Form Quiz / Worksheet',
+              ),
+              const SizedBox(height: 8),
+              _buildTextField(
+                controller: _actUrlCtrl,
+                label: 'Activity URL Link (Google Forms / Quizizz / Docs)',
+                hint: 'https://forms.gle/...',
+              ),
+              const SizedBox(height: 8),
+              _buildTextField(
+                controller: _actBadgeNameCtrl,
+                label: 'Badge Reward Title',
+                hint: 'e.g., Quiz Conqueror',
+              ),
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFF59E0B),
+                    foregroundColor: const Color(0xFF0F172A),
+                    padding: const EdgeInsets.symmetric(vertical: 11),
+                  ),
+                  onPressed: _addActivityLink,
+                  icon: const Icon(Icons.publish_rounded, size: 18),
+                  label: const Text(
+                    '+ Post Activity Link to Quest Counter',
+                    style: TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 14),
+        Text(
+          'POSTED ACTIVITY LINKS (${activities.length})',
+          style: GoogleFonts.outfit(
+            color: Colors.white70,
+            fontSize: 11.5,
+            fontWeight: FontWeight.w800,
+            letterSpacing: 0.7,
+          ),
+        ),
+        const SizedBox(height: 8),
+        if (activities.isEmpty)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: const Color(0xFF1E293B),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Text(
+              'Empty — no Activity Links posted yet.',
+              style: GoogleFonts.inter(color: Colors.white54, fontSize: 12),
+            ),
+          )
+        else
+          ...activities.map((act) {
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF1E293B),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                      color: Color(act.badgeColor).withOpacity(0.45)),
+                ),
+                child: Row(
+                  children: [
+                    Text(act.badgeIcon, style: const TextStyle(fontSize: 20)),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '[${act.subject}] ${act.title} (+${act.xpReward} XP)',
+                            style: GoogleFonts.inter(
+                              color: Colors.white,
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          Text(
+                            act.activityUrl,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: GoogleFonts.inter(
+                              color: Colors.white54,
+                              fontSize: 10.5,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () => service.deleteActivity(act.id),
+                      icon: const Icon(
+                        Icons.delete_outline_rounded,
+                        color: Colors.redAccent,
+                        size: 18,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }),
+      ],
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  PHASE 4: CHARACTER PROGRESS & RANK MODAL + CANTEEN VENDING MODAL
+// ═══════════════════════════════════════════════════════════════════════════
+
+Future<void> showCharacterProgressModal({
+  required BuildContext context,
+  required String playerName,
+  required bool isFaculty,
+}) async {
+  await showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    builder: (ctx) => _CharacterProgressSheet(
+      playerName: playerName,
+      isFaculty: isFaculty,
+    ),
+  );
+}
+
+class _CharacterProgressSheet extends StatelessWidget {
+  final String playerName;
+  final bool isFaculty;
+
+  const _CharacterProgressSheet({
+    required this.playerName,
+    required this.isFaculty,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: LobbyDataService.instance,
+      builder: (context, _) {
+        final service = LobbyDataService.instance;
+        final progress = service.progress;
+        final totalReviewers = service.subjectChests.fold<int>(
+          0,
+          (sum, c) => sum + c.reviewers.length,
+        );
+        final totalActivities = service.activities.length;
+
+        return Container(
+          margin: const EdgeInsets.fromLTRB(12, 24, 12, 16),
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: const Color(0xFF0F172A),
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: const Color(0xFFFACC15), width: 1.8),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 52,
+                    height: 52,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFACC15).withOpacity(0.18),
+                      borderRadius: BorderRadius.circular(16),
+                      border:
+                          Border.all(color: const Color(0xFFFACC15), width: 1.6),
+                    ),
+                    child: Text(
+                      progress.rankEmoji,
+                      style: const TextStyle(fontSize: 28),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '$playerName • Level ${progress.level}',
+                          style: GoogleFonts.outfit(
+                            color: Colors.white,
+                            fontSize: 18,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        Text(
+                          '${progress.rankTitle} • ${progress.xp} Total XP',
+                          style: GoogleFonts.inter(
+                            color: const Color(0xFFFDE047),
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    icon:
+                        const Icon(Icons.close_rounded, color: Colors.white70),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              // XP Progress Bar
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF1E293B),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          'Progress to Level ${progress.level + 1}',
+                          style: GoogleFonts.inter(
+                            color: Colors.white,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        Text(
+                          '${progress.currentLevelXp} / 100 XP',
+                          style: GoogleFonts.outfit(
+                            color: const Color(0xFF38BDF8),
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(99),
+                      child: LinearProgressIndicator(
+                        value: progress.levelProgressFraction,
+                        minHeight: 10,
+                        backgroundColor: Colors.white12,
+                        valueColor: const AlwaysStoppedAnimation<Color>(
+                            Color(0xFF10B981)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: _StatCard(
+                      icon: '📚',
+                      label: 'Reviewers Done',
+                      value:
+                          '${progress.completedReviewerIds.length} / $totalReviewers',
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _StatCard(
+                      icon: '🎯',
+                      label: 'Activities Done',
+                      value:
+                          '${progress.completedActivityIds.length} / $totalActivities',
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _StatCard(
+                      icon: '🏅',
+                      label: 'Badges Earned',
+                      value: '${progress.earnedBadges.length}',
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: const Color(0xFF38BDF8),
+                        side: const BorderSide(color: Color(0xFF38BDF8)),
+                        padding: const EdgeInsets.symmetric(vertical: 11),
+                      ),
+                      onPressed: () {
+                        Navigator.of(context).pop();
+                        showMyBadgesModal(context: context);
+                      },
+                      icon: const Icon(Icons.workspace_premium_rounded,
+                          size: 17),
+                      label: const Text(
+                        'My Badges',
+                        style: TextStyle(fontWeight: FontWeight.w800),
+                      ),
+                    ),
+                  ),
+                  if (isFaculty) ...[
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFFF59E0B),
+                          foregroundColor: const Color(0xFF0F172A),
+                          padding: const EdgeInsets.symmetric(vertical: 11),
+                        ),
+                        onPressed: () {
+                          Navigator.of(context).pop();
+                          showTeacherLinkManagerModal(
+                            context: context,
+                            teacherName: playerName,
+                          );
+                        },
+                        icon: const Icon(Icons.link_rounded, size: 17),
+                        label: const Text(
+                          'Manage Links',
+                          style: TextStyle(fontWeight: FontWeight.w800),
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _StatCard extends StatelessWidget {
+  final String icon;
+  final String label;
+  final String value;
+
+  const _StatCard({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1E293B),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.white12),
+      ),
+      child: Column(
+        children: [
+          Text(icon, style: const TextStyle(fontSize: 20)),
+          const SizedBox(height: 4),
+          Text(
+            value,
+            style: GoogleFonts.outfit(
+              color: Colors.white,
+              fontSize: 15,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          Text(
+            label,
+            textAlign: TextAlign.center,
+            style: GoogleFonts.inter(
+              color: Colors.white60,
+              fontSize: 10.5,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+Future<String?> showCanteenVendingModal({
+  required BuildContext context,
+}) async {
+  const items = <Map<String, String>>[
+    {'emoji': '🧋', 'name': 'Iced Wintermelon Milktea', 'tag': 'Chilled Drink'},
+    {'emoji': '🥤', 'name': 'Fresh Calamansi Cooler', 'tag': 'Brain Booster'},
+    {'emoji': '☕', 'name': 'Iced Caramel Macchiato', 'tag': 'Study Fuel'},
+    {'emoji': '🍫', 'name': 'Crispy Choco Wafer Bar', 'tag': 'Sweet Snack'},
+    {'emoji': '🥟', 'name': 'Steamed Siomai Cup (4pcs)', 'tag': 'Canteen Favorite'},
+    {'emoji': '🥪', 'name': 'Toasted Clubhouse Sandwich', 'tag': 'Heavy Merienda'},
+  ];
+
+  return showModalBottomSheet<String>(
+    context: context,
+    backgroundColor: Colors.transparent,
+    builder: (ctx) => Container(
+      margin: const EdgeInsets.all(14),
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: const Color(0xFF0F172A),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: const Color(0xFFFB923C), width: 1.8),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Text('🥤', style: TextStyle(fontSize: 26)),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'SHS Canteen Vending & Merienda Bar',
+                      style: GoogleFonts.outfit(
+                        color: Colors.white,
+                        fontSize: 17,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    Text(
+                      'Pick a drink or snack to enjoy at the Canteen tables!',
+                      style: GoogleFonts.inter(
+                        color: Colors.white70,
+                        fontSize: 11.5,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              IconButton(
+                onPressed: () => Navigator.of(ctx).pop(),
+                icon: const Icon(Icons.close_rounded, color: Colors.white70),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: items.map((item) {
+              final emoji = item['emoji']!;
+              final name = item['name']!;
+              final tag = item['tag']!;
+              return InkWell(
+                onTap: () =>
+                    Navigator.of(ctx).pop('$emoji Enjoying $name! 😋'),
+                borderRadius: BorderRadius.circular(14),
+                child: Container(
+                  width: (MediaQuery.of(ctx).size.width - 72) / 2,
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF1E293B),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                        color: const Color(0xFFFB923C).withOpacity(0.45)),
+                  ),
+                  child: Row(
+                    children: [
+                      Text(emoji, style: const TextStyle(fontSize: 22)),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: GoogleFonts.outfit(
+                                color: Colors.white,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            Text(
+                              tag,
+                              style: GoogleFonts.inter(
+                                color: const Color(0xFFFDBA74),
+                                fontSize: 10,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+

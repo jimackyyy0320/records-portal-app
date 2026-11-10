@@ -1,3 +1,5 @@
+import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -254,14 +256,21 @@ void main() {
         42,
       );
 
-      // 2. LobbyDataService initialization & seed data
+      // 2. LobbyDataService initialization & empty default Reviewer/Activity containers
       final service = LobbyDataService.instance;
       await service.init('2024-00142');
       expect(service.isInitialized, isTrue);
-      expect(service.subjectNames, containsAll(['UCSP', 'PPG', 'PHILO', 'KASAYSAYAN']));
+      expect(service.subjectNames,
+          containsAll(['PGP', 'UCSP', 'PPG', 'PKLP TERM 2', 'PHILO']));
       expect(service.allReviewerQuestions.length, greaterThanOrEqualTo(8));
 
-      // 3. Teacher posts an activity -> Student launches & marks as done -> Badge & XP unlocked
+      // Verify all Subject Chests and Quest Counter start empty by default (Phase 4 requirement)
+      expect(service.activities, isEmpty);
+      for (final chest in service.subjectChests) {
+        expect(chest.reviewers, isEmpty);
+      }
+
+      // 3. Teacher posts an Activity Link -> Student launches & marks as done -> Badge & XP unlocked
       final posted = await service.postActivity(
         title: 'Unit 3 Constitutional Rights Analysis',
         subject: 'PPG',
@@ -279,6 +288,32 @@ void main() {
       expect(earnedBadge!.badgeName, 'Quiz Conqueror');
       expect(service.progress.xp, 150);
       expect(service.progress.equippedBadge?.badgeIcon, '👑');
+
+      // 3b. Teacher adds a Reviewer Link -> Student launches & marks as done -> +75 XP added!
+      final pgpChest =
+          service.subjectChests.firstWhere((c) => c.subjectName == 'PGP');
+      final addedRev = await service.addReviewerToChest(
+        chestId: pgpChest.id,
+        title: 'Week 4 Executive Branch Slide Deck Link',
+        fileType: 'LINK',
+        urlOrContent: 'https://drive.google.com/example-pgp-w4',
+        summary: 'Read before the Week 4 quiz',
+        uploadedBy: 'Sir Jim Mark',
+        xpReward: 75,
+      );
+      expect(addedRev.isLink, isTrue);
+      expect(addedRev.xpReward, 75);
+
+      await service.markReviewerLaunched(addedRev.id);
+      expect(
+          service.progress.launchedReviewerIds.contains(addedRev.id), isTrue);
+      final completedRev = await service.completeReviewer(addedRev);
+      expect(completedRev, isTrue);
+      expect(
+          service.progress.completedReviewerIds.contains(addedRev.id), isTrue);
+      expect(service.progress.xp, 225); // 150 + 75 XP
+      expect(service.progress.level, 3);
+      expect(service.progress.rankTitle, isNotEmpty);
 
       // 4. Small Mystery Chest Pop-Quiz: +20 XP, 2-minute cooldown, and 5-question Treasure Hunter badge
       final q = service.drawRandomMysteryQuestion();
@@ -408,6 +443,54 @@ void main() {
       expect(
         service.thoughtMessages.first.text,
         'Studying PGP under the Campus Park trees!',
+      );
+
+      // 8. Phase 4: Only Lobbyist NPC remains; Class Room Podium & Chairs; Park Trees;
+      //    Canteen Vending Machines; Guided Walk Paths; 100% Atlas Sprite Key Verification
+      expect(kLobbyNpcs.length, 1);
+      expect(kLobbyNpcs.first.id, 'npc_receptionist');
+      expect(kLobbyPeerStudents, isNotEmpty);
+
+      final atlasFile = File('assets/school_lobby/catalog/atlas.json');
+      expect(atlasFile.existsSync(), isTrue);
+      final atlasJson =
+          jsonDecode(atlasFile.readAsStringSync()) as Map<String, dynamic>;
+      final validSprites =
+          (atlasJson['frames'] as Map<String, dynamic>).keys.toSet();
+
+      for (final room in LobbyRoomId.values) {
+        final pieces = furnitureForRoom(room);
+        expect(pieces, isNotEmpty);
+        for (final piece in pieces) {
+          expect(
+            validSprites.contains(piece.spriteKey),
+            isTrue,
+            reason:
+                'Room $room piece "${piece.id}" uses missing spriteKey "${piece.spriteKey}"',
+          );
+        }
+        expect(walkPathsForRoom(room), isNotEmpty);
+        expect(floorSignpostsForRoom(room), isNotEmpty);
+      }
+
+      // Verify Class Room has Teacher Podium zone & Canteen has Vending Machine zones
+      final classroomZones = buildActiveInteractiveZones(
+        service.subjectChests,
+        room: LobbyRoomId.classroom,
+      );
+      expect(
+        classroomZones
+            .any((z) => z.kind == InteractiveZoneKind.classroomPodium),
+        isTrue,
+      );
+
+      final canteenZones = buildActiveInteractiveZones(
+        service.subjectChests,
+        room: LobbyRoomId.canteen,
+      );
+      expect(
+        canteenZones.any((z) => z.kind == InteractiveZoneKind.vendingMachine),
+        isTrue,
       );
     },
   );

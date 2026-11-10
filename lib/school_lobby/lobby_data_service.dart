@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
@@ -233,11 +234,12 @@ class LobbyReviewerItem {
   final String id;
   final String title;
   final String subject;
-  final String fileType; // 'HTML' | 'PDF' | 'PPTX' | 'LINK' | 'NOTES'
+  final String fileType; // 'LINK' | 'HTML' | 'PDF' | 'PPTX' | 'NOTES'
   final String urlOrContent;
   final String summary;
   final String uploadedBy;
   final int createdAtMs;
+  final int xpReward;
   final String? driveFileId;
   final String? mimeType;
   final String? weekGroup;
@@ -251,12 +253,20 @@ class LobbyReviewerItem {
     required this.summary,
     required this.uploadedBy,
     required this.createdAtMs,
+    this.xpReward = 50,
     this.driveFileId,
     this.mimeType,
     this.weekGroup,
   });
 
   bool get isFromDrive => driveFileId != null && driveFileId!.trim().isNotEmpty;
+
+  bool get isLink {
+    final trimmed = urlOrContent.trim().toLowerCase();
+    return fileType.toUpperCase() == 'LINK' ||
+        trimmed.startsWith('http://') ||
+        trimmed.startsWith('https://');
+  }
 
   bool get isHtmlReviewer {
     final lowerTitle = title.toLowerCase();
@@ -274,11 +284,12 @@ class LobbyReviewerItem {
       id: json['id']?.toString() ?? '',
       title: json['title']?.toString() ?? '',
       subject: json['subject']?.toString() ?? '',
-      fileType: json['fileType']?.toString() ?? 'NOTES',
+      fileType: json['fileType']?.toString() ?? 'LINK',
       urlOrContent: json['urlOrContent']?.toString() ?? '',
       summary: json['summary']?.toString() ?? '',
       uploadedBy: json['uploadedBy']?.toString() ?? 'Teacher',
       createdAtMs: (json['createdAtMs'] as num?)?.toInt() ?? 0,
+      xpReward: ((json['xpReward'] as num?)?.toInt() ?? 50).clamp(10, 1000),
       driveFileId: json['driveFileId']?.toString(),
       mimeType: json['mimeType']?.toString(),
       weekGroup: json['weekGroup']?.toString(),
@@ -294,6 +305,7 @@ class LobbyReviewerItem {
         'summary': summary,
         'uploadedBy': uploadedBy,
         'createdAtMs': createdAtMs,
+        'xpReward': xpReward,
         if (driveFileId != null) 'driveFileId': driveFileId,
         if (mimeType != null) 'mimeType': mimeType,
         if (weekGroup != null) 'weekGroup': weekGroup,
@@ -401,11 +413,13 @@ class MiniQuizQuestion {
       };
 }
 
-/// Per-student RPG state (XP, Level, Launched/Completed Activities, Earned Badges, Equipped Badge, Cooldowns).
+/// Per-student RPG state (XP, Level, Rank Title, Launched/Completed Activities & Reviewers, Earned Badges, Equipped Badge, Cooldowns).
 class StudentLobbyProgress {
   final int xp;
   final Set<String> launchedActivityIds;
   final Set<String> completedActivityIds;
+  final Set<String> launchedReviewerIds;
+  final Set<String> completedReviewerIds;
   final List<EarnedStudentBadge> earnedBadges;
   final String? equippedBadgeId;
   final Map<String, int> smallChestCooldownUntilMs;
@@ -415,6 +429,8 @@ class StudentLobbyProgress {
     this.xp = 0,
     this.launchedActivityIds = const {},
     this.completedActivityIds = const {},
+    this.launchedReviewerIds = const {},
+    this.completedReviewerIds = const {},
     this.earnedBadges = const [],
     this.equippedBadgeId,
     this.smallChestCooldownUntilMs = const {},
@@ -423,6 +439,28 @@ class StudentLobbyProgress {
 
   int get level => (xp ~/ 100) + 1;
   int get currentLevelXp => xp % 100;
+
+  String get rankTitle {
+    final lv = level;
+    if (lv >= 10) return 'Grand Academician';
+    if (lv >= 7) return 'Campus Luminary';
+    if (lv >= 5) return "Dean's Lister";
+    if (lv >= 4) return 'Quiz Vanguard';
+    if (lv >= 3) return 'Honor Scholar';
+    if (lv >= 2) return 'Campus Explorer';
+    return 'Campus Freshman';
+  }
+
+  String get rankEmoji {
+    final lv = level;
+    if (lv >= 10) return '👑';
+    if (lv >= 7) return '🌟';
+    if (lv >= 5) return '🎓';
+    if (lv >= 4) return '🛡️';
+    if (lv >= 3) return '⚡';
+    if (lv >= 2) return '🧭';
+    return '🌱';
+  }
 
   EarnedStudentBadge? get equippedBadge {
     if (earnedBadges.isEmpty) return null;
@@ -438,6 +476,8 @@ class StudentLobbyProgress {
     int? xp,
     Set<String>? launchedActivityIds,
     Set<String>? completedActivityIds,
+    Set<String>? launchedReviewerIds,
+    Set<String>? completedReviewerIds,
     List<EarnedStudentBadge>? earnedBadges,
     String? equippedBadgeId,
     Map<String, int>? smallChestCooldownUntilMs,
@@ -447,6 +487,8 @@ class StudentLobbyProgress {
       xp: xp ?? this.xp,
       launchedActivityIds: launchedActivityIds ?? this.launchedActivityIds,
       completedActivityIds: completedActivityIds ?? this.completedActivityIds,
+      launchedReviewerIds: launchedReviewerIds ?? this.launchedReviewerIds,
+      completedReviewerIds: completedReviewerIds ?? this.completedReviewerIds,
       earnedBadges: earnedBadges ?? this.earnedBadges,
       equippedBadgeId: equippedBadgeId ?? this.equippedBadgeId,
       smallChestCooldownUntilMs:
@@ -462,6 +504,14 @@ class StudentLobbyProgress {
             .toSet() ??
         <String>{};
     final completed = (json['completedActivityIds'] as List?)
+            ?.map((e) => e.toString())
+            .toSet() ??
+        <String>{};
+    final launchedRevs = (json['launchedReviewerIds'] as List?)
+            ?.map((e) => e.toString())
+            .toSet() ??
+        <String>{};
+    final completedRevs = (json['completedReviewerIds'] as List?)
             ?.map((e) => e.toString())
             .toSet() ??
         <String>{};
@@ -483,6 +533,8 @@ class StudentLobbyProgress {
       xp: (json['xp'] as num?)?.toInt() ?? 0,
       launchedActivityIds: launched,
       completedActivityIds: completed,
+      launchedReviewerIds: launchedRevs,
+      completedReviewerIds: completedRevs,
       earnedBadges: badges,
       equippedBadgeId: json['equippedBadgeId']?.toString(),
       smallChestCooldownUntilMs: cooldowns,
@@ -495,6 +547,8 @@ class StudentLobbyProgress {
         'xp': xp,
         'launchedActivityIds': launchedActivityIds.toList(),
         'completedActivityIds': completedActivityIds.toList(),
+        'launchedReviewerIds': launchedReviewerIds.toList(),
+        'completedReviewerIds': completedReviewerIds.toList(),
         'earnedBadges': earnedBadges.map((b) => b.toJson()).toList(),
         'equippedBadgeId': equippedBadgeId,
         'smallChestCooldownUntilMs': smallChestCooldownUntilMs,
@@ -505,16 +559,17 @@ class StudentLobbyProgress {
 /// Central reactive service managing:
 /// - MIS Control Sheet (`Subject Enrollment`) active vs. finished subject filtering
 /// - Strict Student Enrollment filtering for Subject Chests, Quest Activities, Reviewers & Quizzes
-/// - Real Google Drive Reviewer Folder (`1EFX9aylAeSRmDWU7OeFIPa0llAMD8wC5`) synchronization
+/// - Teacher Content & Link Manager with Live Google Drive Cloud Manifest Sync (`999999001`)
 /// - Thought Bubble Chat history & peer replies
 class LobbyDataService extends ChangeNotifier {
   LobbyDataService._();
   static final LobbyDataService instance = LobbyDataService._();
 
-  static const String _kActivitiesKey = 'mis_school_lobby_activities_v2';
-  static const String _kSubjectChestsKey = 'mis_school_lobby_subject_chests_v3';
+  static const String _kActivitiesKey = 'mis_school_lobby_activities_v4';
+  static const String _kSubjectChestsKey = 'mis_school_lobby_subject_chests_v4';
   static const String _kQuizQuestionsKey = 'mis_school_lobby_quiz_questions_v2';
   static const String _kProgressPrefix = 'mis_school_lobby_progress_v1_';
+  static const String _kCloudManifestId = '999999001';
 
   static const int kSmallChestCooldownMs = 120 * 1000; // 2 minutes
 
@@ -786,9 +841,10 @@ class LobbyDataService extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Synchronizes the MIS Control Sheet status (`getSystemStatus`) and fetches live
-  /// Google Drive Reviewer files (`REVIEWER_FOLDER_ID = 1EFX9aylAeSRmDWU7OeFIPa0llAMD8wC5`)
-  /// for each active subject the student is enrolled in!
+  /// Synchronizes the MIS Control Sheet status (`getSystemStatus`) and pulls the
+  /// Teacher's live Reviewer Links & Activity Links manifest from Google Drive (`999999001`).
+  /// Does NOT auto-inject random Drive files so chests remain clean and strictly
+  /// contain links curated by the Teacher!
   Future<void> syncDriveReviewersForSession(UserSession session) async {
     applyUserEnrollmentFilter(
       isFaculty: session.isFaculty,
@@ -814,7 +870,10 @@ class LobbyDataService extends ChangeNotifier {
         // Offline or unreachable; keep default MIS Control Sheet catalog
       }
 
-      // 2. Ensure every enrolled active subject has a SubjectChest ready
+      // 2. Pull Teacher's live Cloud Manifest (Activities & Reviewer Links)
+      await _pullCloudManifest();
+
+      // 3. Ensure every enrolled active subject has a SubjectChest ready
       var chestsChanged = false;
       final targetCodes = session.isFaculty
           ? _controlSheetSubjects
@@ -851,29 +910,6 @@ class LobbyDataService extends ChangeNotifier {
         }
       }
 
-      // 3. Fetch live Google Drive reviewer files (`fetchReviewerFiles`) per active visible chest
-      final visibleChests = List<SubjectChest>.from(subjectChests);
-      for (final chest in visibleChests) {
-        final code = normalizeSubjectCode(chest.subjectName);
-        if (!isSubjectActiveInControlSheet(code)) continue;
-        try {
-          final driveFiles = await ApiService.instance.fetchReviewerFiles(code);
-          if (driveFiles.isNotEmpty) {
-            MergeResult merged = _mergeDriveFilesIntoChest(chest, driveFiles);
-            if (merged.changed) {
-              final idx = _subjectChests.indexWhere((c) => c.id == chest.id);
-              if (idx >= 0) {
-                _subjectChests[idx] = merged.chest;
-                chestsChanged = true;
-                notifyListeners();
-              }
-            }
-          }
-        } catch (_) {
-          // Keep cached/built-in reviewers if offline
-        }
-      }
-
       if (chestsChanged) {
         final prefs = await SharedPreferences.getInstance();
         await _saveSubjectChests(prefs);
@@ -884,44 +920,73 @@ class LobbyDataService extends ChangeNotifier {
     }
   }
 
-  MergeResult _mergeDriveFilesIntoChest(
-    SubjectChest chest,
-    List<ReviewerFile> driveFiles,
-  ) {
-    final driveItems = driveFiles.map((f) {
-      final isHtml = f.isHtml;
-      final lowerName = f.name.toLowerCase();
-      final fType = isHtml
-          ? 'HTML'
-          : (lowerName.endsWith('.pptx') || lowerName.endsWith('.ppt')
-              ? 'PPTX'
-              : (lowerName.endsWith('.pdf') ? 'PDF' : f.shortTypeLabel));
-      return LobbyReviewerItem(
-        id: 'drive_${f.id}',
-        title: f.name,
-        subject: chest.subjectName,
-        fileType: fType,
-        urlOrContent: f.url,
-        summary: isHtml
-            ? 'Official MIS-SHS Interactive HTML Reviewer (${f.weekGroup}) from Google Drive. Tap to stream slides or extract a .TXT study outline.'
-            : 'Official MIS-SHS ${fType.toUpperCase()} Reviewer (${f.weekGroup}) from Google Drive.',
-        uploadedBy: 'MIS-SHS Reviewer Vault',
-        createdAtMs: 1710000000000,
-        driveFileId: f.id,
-        mimeType: f.mimeType,
-        weekGroup: f.weekGroup,
+  /// Pushes the Teacher's current Activities and Subject Chest Reviewer Links
+  /// to Google Drive (`_kCloudManifestId = '999999001'`) so all Student APKs
+  /// automatically receive the Teacher's links across devices.
+  Future<bool> pushCloudManifest() async {
+    try {
+      final manifest = <String, dynamic>{
+        'version': 4,
+        'updatedAtMs': DateTime.now().millisecondsSinceEpoch,
+        'activities': _activities.map((a) => a.toJson()).toList(),
+        'subjectChests': _subjectChests.map((c) => c.toJson()).toList(),
+      };
+      final rawJson = jsonEncode(manifest);
+      final encoded = base64Encode(utf8.encode(rawJson));
+      final dataUrl = 'data:application/json;base64,$encoded';
+      final res = await ApiService.instance.uploadStudentAvatar(
+        id: _kCloudManifestId,
+        dataUrl: dataUrl,
       );
-    }).toList();
+      return res['success'] == true;
+    } catch (_) {
+      return false;
+    }
+  }
 
-    // Keep any non-drive (custom teacher or offline summary) reviewers
-    final nonDriveItems =
-        chest.reviewers.where((r) => !r.id.startsWith('drive_')).toList();
-    final combined = <LobbyReviewerItem>[...driveItems, ...nonDriveItems];
+  /// Pulls the Teacher's latest Activities and Subject Chest Reviewer Links
+  /// from Google Drive (`_kCloudManifestId = '999999001'`).
+  Future<bool> _pullCloudManifest() async {
+    try {
+      final rawDataUrl =
+          await ApiService.instance.getStudentAvatar(_kCloudManifestId);
+      if (rawDataUrl == null || !rawDataUrl.contains(',')) return false;
+      final b64 = rawDataUrl.split(',').last.trim();
+      if (b64.isEmpty) return false;
+      final decodedStr = utf8.decode(base64Decode(b64));
+      final map = jsonDecode(decodedStr);
+      if (map is! Map) return false;
 
-    return MergeResult(
-      chest: chest.copyWith(reviewers: combined),
-      changed: true,
-    );
+      var updated = false;
+      if (map['activities'] is List) {
+        _activities = (map['activities'] as List)
+            .whereType<Map>()
+            .map(
+              (e) => LobbyQuestActivity.fromJson(Map<String, dynamic>.from(e)),
+            )
+            .toList();
+        updated = true;
+      }
+      if (map['subjectChests'] is List) {
+        final cloudChests = (map['subjectChests'] as List)
+            .whereType<Map>()
+            .map((e) => SubjectChest.fromJson(Map<String, dynamic>.from(e)))
+            .toList();
+        if (cloudChests.isNotEmpty) {
+          _subjectChests = cloudChests;
+          updated = true;
+        }
+      }
+      if (updated) {
+        final prefs = await SharedPreferences.getInstance();
+        await _saveActivities(prefs);
+        await _saveSubjectChests(prefs);
+        notifyListeners();
+      }
+      return updated;
+    } catch (_) {
+      return false;
+    }
   }
 
   static int _colorForSubjectCode(String code) {
@@ -969,7 +1034,7 @@ class LobbyDataService extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Feature 1: Teacher posts a new Quest Counter Activity.
+  /// Feature 1: Teacher posts a new Quest Counter Activity Link.
   Future<LobbyQuestActivity> postActivity({
     required String title,
     required String subject,
@@ -997,7 +1062,17 @@ class LobbyDataService extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     await _saveActivities(prefs);
     notifyListeners();
+    unawaited(pushCloudManifest());
     return activity;
+  }
+
+  /// Teacher deletes a posted Activity Link from the Quest Counter.
+  Future<void> deleteActivity(String activityId) async {
+    _activities = _activities.where((a) => a.id != activityId).toList();
+    final prefs = await SharedPreferences.getInstance();
+    await _saveActivities(prefs);
+    notifyListeners();
+    unawaited(pushCloudManifest());
   }
 
   /// Feature 1: Student clicks "Launch Activity" -> unlocks "Mark as Done".
@@ -1010,7 +1085,7 @@ class LobbyDataService extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Feature 1: Student clicks "Mark as Done" -> awards XP + Badge and equips if first badge.
+  /// Feature 1: Student clicks "Mark as Done" on an Activity -> awards XP + Badge and equips if first badge.
   Future<EarnedStudentBadge?> completeActivity(
       LobbyQuestActivity activity) async {
     if (_progress.completedActivityIds.contains(activity.id)) return null;
@@ -1042,6 +1117,69 @@ class LobbyDataService extends ChangeNotifier {
     return badge;
   }
 
+  /// Feature 2: Student clicks "Launch Reviewer Link" -> unlocks "Mark as Done (+XP)".
+  Future<void> markReviewerLaunched(String reviewerId) async {
+    if (_progress.launchedReviewerIds.contains(reviewerId)) return;
+    final nextLaunched = Set<String>.from(_progress.launchedReviewerIds)
+      ..add(reviewerId);
+    _progress = _progress.copyWith(launchedReviewerIds: nextLaunched);
+    await _saveProgress();
+    notifyListeners();
+  }
+
+  /// Feature 2: Student clicks "Mark as Done (+XP)" on a Reviewer Link -> awards XP
+  /// and unlocks a Reviewer Scholar badge on their 1st and 3rd completed reviewers!
+  Future<EarnedStudentBadge?> completeReviewer(
+      LobbyReviewerItem reviewer) async {
+    if (_progress.completedReviewerIds.contains(reviewer.id)) return null;
+
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final nextCompleted = Set<String>.from(_progress.completedReviewerIds)
+      ..add(reviewer.id);
+    final nextLaunched = Set<String>.from(_progress.launchedReviewerIds)
+      ..add(reviewer.id);
+
+    EarnedStudentBadge? unlockedBadge;
+    var nextBadges = List<EarnedStudentBadge>.from(_progress.earnedBadges);
+
+    if (nextCompleted.length == 1 &&
+        !nextBadges.any((b) => b.id == 'badge_reviewer_scholar')) {
+      unlockedBadge = EarnedStudentBadge(
+        id: 'badge_reviewer_scholar',
+        badgeName: 'Reviewer Scholar',
+        badgeIcon: '📚',
+        badgeColor: 0xFF38BDF8,
+        subject: reviewer.subject,
+        sourceTitle: reviewer.title,
+        earnedAtMs: now,
+      );
+      nextBadges = [unlockedBadge, ...nextBadges];
+    } else if (nextCompleted.length >= 3 &&
+        !nextBadges.any((b) => b.id == 'badge_vault_master')) {
+      unlockedBadge = EarnedStudentBadge(
+        id: 'badge_vault_master',
+        badgeName: 'Vault Master',
+        badgeIcon: '💎',
+        badgeColor: 0xFFA855F7,
+        subject: reviewer.subject,
+        sourceTitle: 'Completed 3 Reviewer Links',
+        earnedAtMs: now,
+      );
+      nextBadges = [unlockedBadge, ...nextBadges];
+    }
+
+    _progress = _progress.copyWith(
+      xp: _progress.xp + reviewer.xpReward,
+      launchedReviewerIds: nextLaunched,
+      completedReviewerIds: nextCompleted,
+      earnedBadges: nextBadges,
+      equippedBadgeId: _progress.equippedBadgeId ?? unlockedBadge?.id,
+    );
+    await _saveProgress();
+    notifyListeners();
+    return unlockedBadge;
+  }
+
   /// Feature 1: Equip a badge next to the student's floating avatar nameplate.
   Future<void> equipBadge(String badgeId) async {
     _progress = _progress.copyWith(equippedBadgeId: badgeId);
@@ -1049,7 +1187,7 @@ class LobbyDataService extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Feature 2: Teacher adds a Reviewer item to a Subject Chest.
+  /// Feature 2: Teacher adds a Reviewer Link or study item to a Subject Chest.
   Future<LobbyReviewerItem> addReviewerToChest({
     required String chestId,
     required String title,
@@ -1057,6 +1195,7 @@ class LobbyDataService extends ChangeNotifier {
     required String urlOrContent,
     required String summary,
     required String uploadedBy,
+    int xpReward = 50,
   }) async {
     final idx = _subjectChests.indexWhere((c) => c.id == chestId);
     if (idx < 0) {
@@ -1073,6 +1212,7 @@ class LobbyDataService extends ChangeNotifier {
       summary: summary.trim(),
       uploadedBy: uploadedBy.trim().isEmpty ? 'Teacher' : uploadedBy.trim(),
       createdAtMs: now,
+      xpReward: xpReward.clamp(10, 1000),
     );
 
     final updatedChest = chest.copyWith(
@@ -1084,10 +1224,29 @@ class LobbyDataService extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     await _saveSubjectChests(prefs);
     notifyListeners();
+    unawaited(pushCloudManifest());
     return item;
   }
 
-  /// Feature 2: Teacher renames an existing Subject Chest or adds a new Subject Chest.
+  /// Teacher deletes a Reviewer Link from a Subject Chest.
+  Future<void> deleteReviewerFromChest({
+    required String chestId,
+    required String reviewerId,
+  }) async {
+    final idx = _subjectChests.indexWhere((c) => c.id == chestId);
+    if (idx < 0) return;
+    final chest = _subjectChests[idx];
+    final updated = chest.copyWith(
+      reviewers: chest.reviewers.where((r) => r.id != reviewerId).toList(),
+    );
+    _subjectChests = List<SubjectChest>.from(_subjectChests)..[idx] = updated;
+    final prefs = await SharedPreferences.getInstance();
+    await _saveSubjectChests(prefs);
+    notifyListeners();
+    unawaited(pushCloudManifest());
+  }
+
+  /// Feature 2: Teacher renames an existing Subject Chest or adds a new Subject Chest (starts empty).
   Future<SubjectChest> addOrRenameSubjectChest({
     String? existingChestId,
     required String subjectName,
@@ -1107,6 +1266,7 @@ class LobbyDataService extends ChangeNotifier {
         final prefs = await SharedPreferences.getInstance();
         await _saveSubjectChests(prefs);
         notifyListeners();
+        unawaited(pushCloudManifest());
         return updated;
       }
     }
@@ -1117,24 +1277,13 @@ class LobbyDataService extends ChangeNotifier {
       subjectName: cleanName,
       fullTitle: fullTitle ?? cleanName,
       colorValue: colorValue,
-      reviewers: [
-        LobbyReviewerItem(
-          id: 'rev_seed_$now',
-          title: '$cleanName Core Study Guide & Key Concepts',
-          subject: cleanName,
-          fileType: 'NOTES',
-          urlOrContent:
-              'Key definitions, core competencies, and exam pointers for $cleanName.',
-          summary: 'Starter reviewer notes for $cleanName.',
-          uploadedBy: 'Faculty',
-          createdAtMs: now,
-        ),
-      ],
+      reviewers: const [],
     );
     _subjectChests = [..._subjectChests, newChest];
     final prefs = await SharedPreferences.getInstance();
     await _saveSubjectChests(prefs);
     notifyListeners();
+    unawaited(pushCloudManifest());
     return newChest;
   }
 
@@ -1279,189 +1428,52 @@ class LobbyDataService extends ChangeNotifier {
     );
   }
 
+  /// Phase 4: All Subject Chests start completely empty (`reviewers: const []`)
+  /// so the Teacher has 100% control over adding Reviewer Links for each subject!
   static List<SubjectChest> _defaultSubjectChests() {
-    const seedTime = 1710000000000;
     return const [
       SubjectChest(
         id: 'chest_pgp',
         subjectName: 'PGP',
         fullTitle: 'Philippine Governance and Politics',
         colorValue: 0xFF38BDF8,
-        reviewers: [
-          LobbyReviewerItem(
-            id: 'rev_pgp_1',
-            title: 'PGP Weeks 1–10 Master Reviewer & Branches of Government',
-            subject: 'PGP',
-            fileType: 'NOTES',
-            urlOrContent:
-                '• Politics vs. Governance: Power, Authority, and Legitimacy\n'
-                '• 1987 Philippine Constitution: Executive (Art. VII), Legislative (Art. VI), Judicial (Art. VIII)\n'
-                '• Decentralization & Local Governance (RA 7160 Local Government Code)\n'
-                '• Suffrage, Elections, Political Parties & Civil Society Organizations.',
-            summary:
-                'Comprehensive PGP study summary synced with the MIS-SHS Google Drive Reviewer Folder (39 files).',
-            uploadedBy: 'MIS-SHS Social Science Dept.',
-            createdAtMs: seedTime,
-          ),
-        ],
+        reviewers: [],
       ),
       SubjectChest(
         id: 'chest_ucsp',
         subjectName: 'UCSP',
         fullTitle: 'Understanding Culture, Society and Politics',
         colorValue: 0xFF10B981,
-        reviewers: [
-          LobbyReviewerItem(
-            id: 'rev_ucsp_1',
-            title: 'UCSP Weeks 1–6 Master Reviewer: Culture, Society & Kinship',
-            subject: 'UCSP',
-            fileType: 'NOTES',
-            urlOrContent:
-                '• Anthropology, Sociology, and Political Science Perspectives\n'
-                '• Ethnocentrism vs. Cultural Relativism\n'
-                '• Socialization, Conformity, Deviance & Human Dignity\n'
-                '• Kinship, Marriage, Social Stratification & Cultural Change.',
-            summary:
-                'Core UCSP reviewer notes paired with the 24 interactive HTML decks in the Google Drive Reviewer Folder.',
-            uploadedBy: 'MIS-SHS Social Science Dept.',
-            createdAtMs: seedTime,
-          ),
-        ],
+        reviewers: [],
       ),
       SubjectChest(
         id: 'chest_ppg',
         subjectName: 'PPG',
         fullTitle: 'Philippine Politics and Governance',
         colorValue: 0xFFF59E0B,
-        reviewers: [
-          LobbyReviewerItem(
-            id: 'rev_ppg_1',
-            title: 'PPG Weeks 1–2 Ideologies, Power & State Elements',
-            subject: 'PPG',
-            fileType: 'NOTES',
-            urlOrContent:
-                '• Four Elements of a State: People, Territory, Government, Sovereignty\n'
-                '• Faces of Power & Political Ideologies (Liberalism, Conservatism, Socialism)\n'
-                '• Evolution of Philippine Politics from Pre-Colonial Barangay to Republic.',
-            summary:
-                'Essential PPG reviewer notes paired with the Google Drive Reviewer Folder.',
-            uploadedBy: 'MIS-SHS Social Science Dept.',
-            createdAtMs: seedTime,
-          ),
-        ],
+        reviewers: [],
       ),
       SubjectChest(
         id: 'chest_pklp_term_2',
         subjectName: 'PKLP TERM 2',
         fullTitle: 'Pag-aaral ng Kasaysayan at Lipunang Pilipino (Term 2)',
         colorValue: 0xFFF97316,
-        reviewers: [
-          LobbyReviewerItem(
-            id: 'rev_pklp_t2_1',
-            title: 'PKLP Term 2 Weeks 11–12: Kasaysayan at Kontemporaryong Lipunan',
-            subject: 'PKLP TERM 2',
-            fileType: 'NOTES',
-            urlOrContent:
-                '• Batis Pangkasaysayan: Primarya at Sekundaryang Sanggunian\n'
-                '• Pantayong Pananaw (Zeus Salazar) at Sikolohiyang Pilipino\n'
-                '• Hamon ng Makabagong Lipunang Pilipino, Karapatang Pantao at Pakikilahok.',
-            summary:
-                'Active Term 2 PKLP reviewer guide paired with Weeks 11–12 HTML decks from Google Drive.',
-            uploadedBy: 'MIS-SHS Araling Panlipunan Dept.',
-            createdAtMs: seedTime,
-          ),
-        ],
+        reviewers: [],
       ),
       SubjectChest(
         id: 'chest_philo',
         subjectName: 'PHILO',
         fullTitle: 'Introduction to Philosophy of Human Person',
         colorValue: 0xFFA855F7,
-        reviewers: [
-          LobbyReviewerItem(
-            id: 'rev_philo_1',
-            title: 'Holistic Perspective, Methods of Philosophizing & Embodiment',
-            subject: 'PHILO',
-            fileType: 'NOTES',
-            urlOrContent:
-                '• Holistic Thinking vs. Partial Point of View\n'
-                '• Socratic Dialectic, Phenomenology & Existentialism\n'
-                '• Truth vs. Opinion & Logical Fallacies\n'
-                '• The Human Person as an Embodied Spirit & Environmental Ethics.',
-            summary:
-                'Complete Philosophy of the Human Person reviewer guide.',
-            uploadedBy: 'MIS-SHS Humanities Dept.',
-            createdAtMs: seedTime,
-          ),
-        ],
+        reviewers: [],
       ),
     ];
   }
 
+  /// Phase 4: Quest Counter Activities start completely empty (`const []`)
+  /// so the Teacher can add Activity Links directly from their Teacher account!
   static List<LobbyQuestActivity> _defaultActivities() {
-    const seedTime = 1710000000000;
-    return const [
-      LobbyQuestActivity(
-        id: 'act_seed_pgp',
-        title: 'Unit 2 Policy & Constitutional Analysis Quest',
-        subject: 'PGP',
-        activityUrl: 'https://www.officialgazette.gov.ph/constitutions/1987-constitution/',
-        xpReward: 100,
-        badgeName: 'Policy Vanguard',
-        badgeIcon: '🛡️',
-        badgeColor: 0xFF38BDF8,
-        postedBy: 'Sir Jim Mark',
-        createdAtMs: seedTime,
-      ),
-      LobbyQuestActivity(
-        id: 'act_seed_ucsp',
-        title: 'Cultural Relativism Case Reflection',
-        subject: 'UCSP',
-        activityUrl: 'https://en.wikipedia.org/wiki/Cultural_relativism',
-        xpReward: 100,
-        badgeName: 'Social Scientist',
-        badgeIcon: '🏛️',
-        badgeColor: 0xFF10B981,
-        postedBy: 'Sir Jim Mark',
-        createdAtMs: seedTime - 1000,
-      ),
-      LobbyQuestActivity(
-        id: 'act_seed_ppg',
-        title: 'Branches of Government & Checks and Balances',
-        subject: 'PPG',
-        activityUrl: 'https://www.officialgazette.gov.ph/constitutions/1987-constitution/',
-        xpReward: 100,
-        badgeName: 'Quiz Conqueror',
-        badgeIcon: '👑',
-        badgeColor: 0xFFFACC15,
-        postedBy: 'Sir Jim Mark',
-        createdAtMs: seedTime - 1500,
-      ),
-      LobbyQuestActivity(
-        id: 'act_seed_pklp_t2',
-        title: 'Pagsusuri ng Batis sa Lipunang Pilipino (Term 2)',
-        subject: 'PKLP TERM 2',
-        activityUrl: 'https://nhcp.gov.ph/',
-        xpReward: 110,
-        badgeName: 'Kasaysayan Keeper',
-        badgeIcon: '📜',
-        badgeColor: 0xFFF97316,
-        postedBy: 'Sir Jim Mark',
-        createdAtMs: seedTime - 1800,
-      ),
-      LobbyQuestActivity(
-        id: 'act_seed_philo',
-        title: 'Socratic Dialogue & Truth vs. Opinion Challenge',
-        subject: 'PHILO',
-        activityUrl: 'https://plato.stanford.edu/entries/socrates/',
-        xpReward: 120,
-        badgeName: 'Philo Sage',
-        badgeIcon: '🦉',
-        badgeColor: 0xFFA855F7,
-        postedBy: 'Sir Jim Mark',
-        createdAtMs: seedTime - 2000,
-      ),
-    ];
+    return const [];
   }
 
   static List<MiniQuizQuestion> _defaultQuizQuestions() {
@@ -1594,14 +1606,4 @@ class LobbyDataService extends ChangeNotifier {
       ),
     ];
   }
-}
-
-class MergeResult {
-  final SubjectChest chest;
-  final bool changed;
-
-  const MergeResult({
-    required this.chest,
-    required this.changed,
-  });
 }

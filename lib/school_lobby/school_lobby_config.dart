@@ -6,6 +6,7 @@ import 'school_lobby_avatar.dart';
 /// - `_reference_tinyfloor/web-shared/src/lib/characterSheet.ts`
 /// - `_reference_tinyfloor/app-frontend/src/lib/MovementManager.ts`
 /// - `_reference_tinyfloor/app-frontend/src/lib/SeatManager.ts`
+/// - `_reference_tinyfloor/shared-protocol/src/shell.ts`
 const double kTileSize = 32.0;
 
 /// Expanded 4x Campus World (`48 x 34` tiles = `1536 x 1088` px).
@@ -14,10 +15,10 @@ const int kLobbyRows = 34;
 const double kLobbyWorldWidth = kLobbyCols * kTileSize; // 1536 px
 const double kLobbyWorldHeight = kLobbyRows * kTileSize; // 1088 px
 
-const double kPlayerMoveSpeed = 205.0; // Smooth campus walking speed
+const double kPlayerMoveSpeed = 215.0; // Crisp campus walking speed
 const double kPlayerHalfWidth = 11.0;
 
-/// Player default spawn point in the Grand Central Courtyard of the Main Lobby.
+/// Player default spawn point in the Grand Central Crossroads Hub of the Main Lobby.
 const Offset kPlayerSpawnPoint = Offset(768, 560);
 
 /// The 5 explorable Campus Rooms connected via interactive Doors (`🚪`):
@@ -95,18 +96,19 @@ extension LobbyRoomIdExt on LobbyRoomId {
     }
   }
 
+  /// Spawn coordinate placed directly on each room's main entrance walk path.
   Offset get defaultSpawn {
     switch (this) {
       case LobbyRoomId.mainLobby:
         return kPlayerSpawnPoint;
       case LobbyRoomId.park:
-        return const Offset(768, 920);
+        return const Offset(1360, 544);
       case LobbyRoomId.classroom:
         return const Offset(768, 920);
       case LobbyRoomId.canteen:
-        return const Offset(768, 920);
+        return const Offset(768, 200);
       case LobbyRoomId.facultyRoom:
-        return const Offset(768, 920);
+        return const Offset(180, 544);
     }
   }
 }
@@ -159,6 +161,8 @@ enum InteractiveZoneKind {
   doorPortal,
   restSpot,
   peerStudent,
+  vendingMachine,
+  classroomPodium,
 }
 
 /// Interactive zone definition (recycled from TinyFloor's `ProximityManager.ts`).
@@ -198,6 +202,35 @@ class InteractiveZone {
   Offset get center => Offset(x, y);
 }
 
+/// Guided Walk Path segment rendered on the floor (`floor-sheet.png` tiles + border trim + directional chevrons)
+/// so students are clearly guided to every door, chest, desk, and counter instead of wandering aimlessly.
+class LobbyWalkPathSegment {
+  final Rect rect;
+  final String style; // 'paving' | 'carpet_gold' | 'carpet_blue' | 'carpet_royal' | 'wood_aisle' | 'checker'
+  final int borderColor;
+  final String? arrowDir; // 'up' | 'down' | 'left' | 'right'
+
+  const LobbyWalkPathSegment({
+    required this.rect,
+    this.style = 'paving',
+    this.borderColor = 0xFF38BDF8,
+    this.arrowDir,
+  });
+}
+
+/// Painted floor directional signpost placed along walk paths & crossroads.
+class LobbyFloorSignpost {
+  final Offset center;
+  final String text;
+  final int colorValue;
+
+  const LobbyFloorSignpost({
+    required this.center,
+    required this.text,
+    required this.colorValue,
+  });
+}
+
 /// Interactive Rest Spot (Chair, Sofa, Park Bench, Classroom Desk, Canteen Seat, Nap Couch)
 /// where students can Sit (`🪑`), Nap (`😪`), or Sleep (`🛌`).
 class LobbyRestSpot {
@@ -222,7 +255,7 @@ class LobbyRestSpot {
   Offset get position => Offset(x, y);
 }
 
-/// Classmate / Peer Student NPC in a room whom the player can approach to chat via Thought Bubbles (`💭`).
+/// Classmate / Peer Student in a room whom the player can approach to chat via Thought Bubbles (`💭`).
 class LobbyPeerStudent {
   final String id;
   final String name;
@@ -253,13 +286,362 @@ class LobbyPeerStudent {
   Offset get position => Offset(x, y);
 }
 
+/// Guided Walk Paths per Room (`walkPathsForRoom`).
+const List<LobbyWalkPathSegment> _kMainLobbyWalkPaths = [
+  // Central Crossroads Plaza at Spawn (768, 560)
+  LobbyWalkPathSegment(
+    rect: Rect.fromLTWH(688, 488, 160, 144),
+    style: 'carpet_gold',
+    borderColor: 0xFFF59E0B,
+  ),
+  // North Royal Runner -> Quest Counter & Lobbyist Aiko (768, 215)
+  LobbyWalkPathSegment(
+    rect: Rect.fromLTWH(728, 210, 80, 282),
+    style: 'carpet_gold',
+    borderColor: 0xFFF59E0B,
+    arrowDir: 'up',
+  ),
+  // Upper West Academic Corridor -> Class Room Door (520, 108) & Bulletin Board (268, 175)
+  LobbyWalkPathSegment(
+    rect: Rect.fromLTWH(240, 144, 492, 64),
+    style: 'paving',
+    borderColor: 0xFFF59E0B,
+    arrowDir: 'left',
+  ),
+  // Upper East Faculty Corridor -> Teacher's Corner (1248, 210) & Faculty Door (1468, 340)
+  LobbyWalkPathSegment(
+    rect: Rect.fromLTWH(804, 176, 484, 64),
+    style: 'carpet_royal',
+    borderColor: 0xFFA855F7,
+    arrowDir: 'right',
+  ),
+  LobbyWalkPathSegment(
+    rect: Rect.fromLTWH(1224, 236, 240, 136),
+    style: 'carpet_royal',
+    borderColor: 0xFFA855F7,
+    arrowDir: 'right',
+  ),
+  // West Garden Walk Path -> Campus Park Door (68, 544) & Student Lounge
+  LobbyWalkPathSegment(
+    rect: Rect.fromLTWH(68, 512, 624, 68),
+    style: 'paving',
+    borderColor: 0xFF10B981,
+    arrowDir: 'left',
+  ),
+  LobbyWalkPathSegment(
+    rect: Rect.fromLTWH(384, 576, 64, 160),
+    style: 'carpet_blue',
+    borderColor: 0xFF38BDF8,
+    arrowDir: 'down',
+  ),
+  // East Vault Walk Path -> Enrolled Subject Reviewer Chests (920..1420, 620..940)
+  LobbyWalkPathSegment(
+    rect: Rect.fromLTWH(844, 512, 360, 68),
+    style: 'carpet_royal',
+    borderColor: 0xFFA855F7,
+    arrowDir: 'right',
+  ),
+  LobbyWalkPathSegment(
+    rect: Rect.fromLTWH(1136, 576, 68, 360),
+    style: 'carpet_royal',
+    borderColor: 0xFFA855F7,
+    arrowDir: 'down',
+  ),
+  // South Promenade -> Student Canteen Door (768, 1030)
+  LobbyWalkPathSegment(
+    rect: Rect.fromLTWH(728, 628, 80, 402),
+    style: 'paving',
+    borderColor: 0xFFF97316,
+    arrowDir: 'down',
+  ),
+];
+
+const List<LobbyWalkPathSegment> _kParkWalkPaths = [
+  // East-West Main Cobblestone Nature Trail from Lobby Gate (1456, 544)
+  LobbyWalkPathSegment(
+    rect: Rect.fromLTWH(896, 508, 560, 72),
+    style: 'paving',
+    borderColor: 0xFF10B981,
+    arrowDir: 'left',
+  ),
+  LobbyWalkPathSegment(
+    rect: Rect.fromLTWH(160, 508, 480, 72),
+    style: 'paving',
+    borderColor: 0xFF10B981,
+    arrowDir: 'left',
+  ),
+  // Pond Promenade Loop around the Central Koi Pond (640..896, 420..600)
+  LobbyWalkPathSegment(
+    rect: Rect.fromLTWH(584, 356, 368, 60),
+    style: 'paving',
+    borderColor: 0xFF0EA5E9,
+  ),
+  LobbyWalkPathSegment(
+    rect: Rect.fromLTWH(584, 604, 368, 60),
+    style: 'paving',
+    borderColor: 0xFF0EA5E9,
+  ),
+  LobbyWalkPathSegment(
+    rect: Rect.fromLTWH(584, 412, 56, 196),
+    style: 'paving',
+    borderColor: 0xFF0EA5E9,
+  ),
+  LobbyWalkPathSegment(
+    rect: Rect.fromLTWH(896, 412, 56, 196),
+    style: 'paving',
+    borderColor: 0xFF0EA5E9,
+  ),
+  // North Bench Grove Trail & South Picnic Lawn Trails
+  LobbyWalkPathSegment(
+    rect: Rect.fromLTWH(732, 220, 72, 140),
+    style: 'paving',
+    borderColor: 0xFF10B981,
+    arrowDir: 'up',
+  ),
+  LobbyWalkPathSegment(
+    rect: Rect.fromLTWH(388, 576, 64, 160),
+    style: 'paving',
+    borderColor: 0xFF10B981,
+    arrowDir: 'down',
+  ),
+  LobbyWalkPathSegment(
+    rect: Rect.fromLTWH(1068, 576, 64, 160),
+    style: 'paving',
+    borderColor: 0xFF10B981,
+    arrowDir: 'down',
+  ),
+];
+
+const List<LobbyWalkPathSegment> _kClassroomWalkPaths = [
+  // Central Classroom Aisle from South Door (768, 1024) straight up to Teacher Podium (768, 245)
+  LobbyWalkPathSegment(
+    rect: Rect.fromLTWH(728, 248, 80, 776),
+    style: 'carpet_gold',
+    borderColor: 0xFFF59E0B,
+    arrowDir: 'up',
+  ),
+  // Row 1 Desk Aisle (y: 416..464)
+  LobbyWalkPathSegment(
+    rect: Rect.fromLTWH(240, 418, 1056, 48),
+    style: 'wood_aisle',
+    borderColor: 0xFF38BDF8,
+  ),
+  // Row 2 Desk Aisle (y: 596..644)
+  LobbyWalkPathSegment(
+    rect: Rect.fromLTWH(240, 598, 1056, 48),
+    style: 'wood_aisle',
+    borderColor: 0xFF38BDF8,
+  ),
+  // Row 3 Desk & Back Study Lounge Aisle (y: 776..824)
+  LobbyWalkPathSegment(
+    rect: Rect.fromLTWH(240, 778, 1056, 48),
+    style: 'wood_aisle',
+    borderColor: 0xFF38BDF8,
+  ),
+];
+
+const List<LobbyWalkPathSegment> _kCanteenWalkPaths = [
+  // Central Canteen Promenade from North Door (768, 112)
+  LobbyWalkPathSegment(
+    rect: Rect.fromLTWH(728, 112, 80, 820),
+    style: 'checker',
+    borderColor: 0xFFF97316,
+    arrowDir: 'down',
+  ),
+  // North Vending Machine & Coffee Counter Service Lane
+  LobbyWalkPathSegment(
+    rect: Rect.fromLTWH(176, 204, 556, 60),
+    style: 'checker',
+    borderColor: 0xFF0EA5E9,
+    arrowDir: 'left',
+  ),
+  LobbyWalkPathSegment(
+    rect: Rect.fromLTWH(804, 204, 540, 60),
+    style: 'checker',
+    borderColor: 0xFFF97316,
+    arrowDir: 'right',
+  ),
+  // Dining Table Row Aisles
+  LobbyWalkPathSegment(
+    rect: Rect.fromLTWH(220, 488, 1096, 52),
+    style: 'checker',
+    borderColor: 0xFFF59E0B,
+  ),
+  LobbyWalkPathSegment(
+    rect: Rect.fromLTWH(220, 738, 1096, 52),
+    style: 'checker',
+    borderColor: 0xFFF59E0B,
+  ),
+];
+
+const List<LobbyWalkPathSegment> _kFacultyWalkPaths = [
+  // West-to-East Royal Carpet Runner from West Lobby Door (80, 544)
+  LobbyWalkPathSegment(
+    rect: Rect.fromLTWH(80, 508, 1280, 72),
+    style: 'carpet_royal',
+    borderColor: 0xFFA855F7,
+    arrowDir: 'right',
+  ),
+  // Central Adviser Consultation Aisle
+  LobbyWalkPathSegment(
+    rect: Rect.fromLTWH(728, 220, 80, 640),
+    style: 'carpet_gold',
+    borderColor: 0xFFF59E0B,
+    arrowDir: 'up',
+  ),
+];
+
+List<LobbyWalkPathSegment> walkPathsForRoom(LobbyRoomId room) {
+  switch (room) {
+    case LobbyRoomId.mainLobby:
+      return _kMainLobbyWalkPaths;
+    case LobbyRoomId.park:
+      return _kParkWalkPaths;
+    case LobbyRoomId.classroom:
+      return _kClassroomWalkPaths;
+    case LobbyRoomId.canteen:
+      return _kCanteenWalkPaths;
+    case LobbyRoomId.facultyRoom:
+      return _kFacultyWalkPaths;
+  }
+}
+
+/// Painted directional signposts placed right around spawn & intersections so students
+/// immediately see where every walk path leads on mobile screens!
+List<LobbyFloorSignpost> floorSignpostsForRoom(LobbyRoomId room) {
+  switch (room) {
+    case LobbyRoomId.mainLobby:
+      return const [
+        // Immediately visible around Central Spawn (768, 560)
+        LobbyFloorSignpost(
+          center: Offset(768, 462),
+          text: '⬆️ QUEST COUNTER • ↖️ CLASS ROOM 🏫',
+          colorValue: 0xFFD97706,
+        ),
+        LobbyFloorSignpost(
+          center: Offset(585, 546),
+          text: '⬅️ PARK DOOR 🌳 & LOUNGE',
+          colorValue: 0xFF059669,
+        ),
+        LobbyFloorSignpost(
+          center: Offset(955, 546),
+          text: '➡️ SUBJECT CHESTS 📦 & FACULTY 🎓',
+          colorValue: 0xFF7C3AED,
+        ),
+        LobbyFloorSignpost(
+          center: Offset(768, 650),
+          text: '⬇️ CANTEEN DOOR 🍱',
+          colorValue: 0xFFEA580C,
+        ),
+        // Destination plaques
+        LobbyFloorSignpost(
+          center: Offset(768, 256),
+          text: '⚔️ QUEST COUNTER (AIKO)',
+          colorValue: 0xFFD97706,
+        ),
+        LobbyFloorSignpost(
+          center: Offset(268, 232),
+          text: '📌 BULLETIN WALL',
+          colorValue: 0xFF0284C7,
+        ),
+        LobbyFloorSignpost(
+          center: Offset(1248, 256),
+          text: "🎓 TEACHER'S CORNER",
+          colorValue: 0xFFB45309,
+        ),
+        LobbyFloorSignpost(
+          center: Offset(1168, 595),
+          text: '💎 ENROLLED SUBJECT CHEST VAULT',
+          colorValue: 0xFF9333EA,
+        ),
+      ];
+    case LobbyRoomId.park:
+      return const [
+        LobbyFloorSignpost(
+          center: Offset(1195, 544),
+          text: '⬅️ POND LOOP, TREES & PICNIC LAWNS 🌳',
+          colorValue: 0xFF059669,
+        ),
+        LobbyFloorSignpost(
+          center: Offset(768, 385),
+          text: '🌊 CENTRAL PARK KOI POND & SHADED BENCHES',
+          colorValue: 0xFF0284C7,
+        ),
+        LobbyFloorSignpost(
+          center: Offset(420, 668),
+          text: '🛌 WEST PICNIC NAP & SLEEPING LAWN',
+          colorValue: 0xFF0D9488,
+        ),
+        LobbyFloorSignpost(
+          center: Offset(1100, 668),
+          text: '🌸 EAST FLOWER GROVE & SLEEPING LAWN',
+          colorValue: 0xFF059669,
+        ),
+      ];
+    case LobbyRoomId.classroom:
+      return const [
+        LobbyFloorSignpost(
+          center: Offset(768, 855),
+          text: '⬆️ TEACHER PODIUM 🎙️ & 12 STUDENT DESKS 🪑',
+          colorValue: 0xFFD97706,
+        ),
+        LobbyFloorSignpost(
+          center: Offset(768, 268),
+          text: '🎙️ TEACHER PODIUM & LECTURE STAGE',
+          colorValue: 0xFFB45309,
+        ),
+        LobbyFloorSignpost(
+          center: Offset(490, 442),
+          text: '🪑 ROW 1 DESKS (SIT / NAP)',
+          colorValue: 0xFF0284C7,
+        ),
+        LobbyFloorSignpost(
+          center: Offset(490, 622),
+          text: '🪑 ROW 2 DESKS (SIT / NAP)',
+          colorValue: 0xFF0284C7,
+        ),
+      ];
+    case LobbyRoomId.canteen:
+      return const [
+        LobbyFloorSignpost(
+          center: Offset(545, 234),
+          text: '⬅️ DRINK & SNACK VENDING MACHINES 🥤',
+          colorValue: 0xFF0284C7,
+        ),
+        LobbyFloorSignpost(
+          center: Offset(995, 234),
+          text: '➡️ COFFEE & MERIENDA COUNTER 🍱',
+          colorValue: 0xFFEA580C,
+        ),
+        LobbyFloorSignpost(
+          center: Offset(768, 355),
+          text: '⬇️ 6 DINING TABLES & CORNER NAP BOOTH 🪑',
+          colorValue: 0xFFD97706,
+        ),
+      ];
+    case LobbyRoomId.facultyRoom:
+      return const [
+        LobbyFloorSignpost(
+          center: Offset(390, 544),
+          text: '➡️ FACULTY ADVISER DESKS 🎓 & LOUNGE 🛋️',
+          colorValue: 0xFF7C3AED,
+        ),
+        LobbyFloorSignpost(
+          center: Offset(768, 275),
+          text: '🎓 FACULTY CONSULTATION & ADVISORY DESKS',
+          colorValue: 0xFFD97706,
+        ),
+      ];
+  }
+}
+
 /// Core `INTERACTIVE_ZONES` config array in `mainLobby` + Campus Doors.
 const List<InteractiveZone> INTERACTIVE_ZONES = [
   // ── 4 CAMPUS DOORS FROM MAIN LOBBY ──
   InteractiveZone(
     id: 'door_to_park',
     label: '🌳 Door to Campus Park',
-    subtitle: 'Step outside to the Park benches, pond & picnic nap lawn',
+    subtitle: 'Follow the cobblestone trail to the Park trees, pond & picnic lawns',
     kind: InteractiveZoneKind.doorPortal,
     room: LobbyRoomId.mainLobby,
     x: 68,
@@ -267,12 +649,12 @@ const List<InteractiveZone> INTERACTIVE_ZONES = [
     radius: 78,
     accentColor: 0xFF10B981,
     targetRoom: LobbyRoomId.park,
-    targetSpawn: Offset(1380, 544),
+    targetSpawn: Offset(1360, 544),
   ),
   InteractiveZone(
     id: 'door_to_classroom',
     label: '🏫 Door to SHS Class Room',
-    subtitle: 'Enter the Class Room with student desks, blackboards & seats',
+    subtitle: 'Enter the Class Room with Teacher Podium & 12 student desks',
     kind: InteractiveZoneKind.doorPortal,
     room: LobbyRoomId.mainLobby,
     x: 520,
@@ -285,7 +667,7 @@ const List<InteractiveZone> INTERACTIVE_ZONES = [
   InteractiveZone(
     id: 'door_to_canteen',
     label: '🍱 Door to Student Canteen',
-    subtitle: 'Visit the Canteen dining tables, snacks counter & chill seats',
+    subtitle: 'Visit the Canteen vending machines, coffee counter & dining tables',
     kind: InteractiveZoneKind.doorPortal,
     room: LobbyRoomId.mainLobby,
     x: 768,
@@ -293,12 +675,12 @@ const List<InteractiveZone> INTERACTIVE_ZONES = [
     radius: 82,
     accentColor: 0xFFF97316,
     targetRoom: LobbyRoomId.canteen,
-    targetSpawn: Offset(768, 160),
+    targetSpawn: Offset(768, 200),
   ),
   InteractiveZone(
     id: 'door_to_faculty_room',
     label: '🎓 Door to Faculty Room',
-    subtitle: 'Enter the Faculty Consultation Room & quiet lounge sofas',
+    subtitle: 'Enter the Faculty Consultation Room, bookshelves & lounge sofas',
     kind: InteractiveZoneKind.doorPortal,
     room: LobbyRoomId.mainLobby,
     x: 1468,
@@ -306,7 +688,7 @@ const List<InteractiveZone> INTERACTIVE_ZONES = [
     radius: 78,
     accentColor: 0xFFA855F7,
     targetRoom: LobbyRoomId.facultyRoom,
-    targetSpawn: Offset(150, 544),
+    targetSpawn: Offset(180, 544),
   ),
 
   // ── 5 DISTINCT MAIN LOBBY ZONES ──
@@ -326,7 +708,7 @@ const List<InteractiveZone> INTERACTIVE_ZONES = [
   InteractiveZone(
     id: 'quest_counter',
     label: '⚔️ Reception & Quest Counter',
-    subtitle: 'Talk to the Anime Receptionist • View enrolled quests & earn badges',
+    subtitle: 'Talk to Lobbyist Aiko • Launch Activity Links & Mark as Done (+XP)',
     kind: InteractiveZoneKind.questCounter,
     room: LobbyRoomId.mainLobby,
     x: 768,
@@ -338,7 +720,7 @@ const List<InteractiveZone> INTERACTIVE_ZONES = [
   InteractiveZone(
     id: 'teacher_corner',
     label: "🎓 Teacher's Corner",
-    subtitle: 'Faculty advisory desk • Post activities, reviewers & quizzes',
+    subtitle: 'Faculty advisory desk • Manage Reviewer Links & Activity Links',
     kind: InteractiveZoneKind.teacherCorner,
     room: LobbyRoomId.mainLobby,
     x: 1248,
@@ -362,7 +744,7 @@ const List<InteractiveZone> INTERACTIVE_ZONES = [
   InteractiveZone(
     id: 'reviewer_treasure_area',
     label: '💎 Reviewer Treasure Corner',
-    subtitle: 'Walk up to your enrolled Subject Chests to open Google Drive reviewers',
+    subtitle: 'Walk up to your enrolled Subject Chests to open Reviewer Links (+XP)',
     kind: InteractiveZoneKind.reviewerTreasureArea,
     room: LobbyRoomId.mainLobby,
     x: 1168,
@@ -389,7 +771,7 @@ const List<InteractiveZone> INTERACTIVE_ZONES = [
     subtitle: 'Answer 1 enrolled-subject pop-quiz question for +25 XP!',
     kind: InteractiveZoneKind.smallMysteryChest,
     room: LobbyRoomId.mainLobby,
-    x: 688,
+    x: 640,
     y: 448,
     radius: 64,
     accentColor: 0xFFEC4899,
@@ -462,13 +844,13 @@ const List<InteractiveZone> INTERACTIVE_ZONES = [
   ),
 ];
 
-/// Return doors inside the 4 sub-rooms (`Park`, `Class Room`, `Canteen`, `Faculty Room`).
+/// Return doors + interactive stations inside the 4 sub-rooms (`Park`, `Class Room`, `Canteen`, `Faculty Room`).
 const List<InteractiveZone> kSubRoomDoorZones = [
   // Park -> Main Lobby (East Gate)
   InteractiveZone(
     id: 'park_door_to_lobby',
     label: '🏛️ Gate Back to Main School Lobby',
-    subtitle: 'Return to the Main School Lobby courtyard',
+    subtitle: 'Return to the Main School Lobby crossroads',
     kind: InteractiveZoneKind.doorPortal,
     room: LobbyRoomId.park,
     x: 1456,
@@ -492,6 +874,18 @@ const List<InteractiveZone> kSubRoomDoorZones = [
     targetRoom: LobbyRoomId.mainLobby,
     targetSpawn: Offset(520, 175),
   ),
+  // Classroom Teacher Podium & Lecture Board (North Center Stage)
+  InteractiveZone(
+    id: 'classroom_podium_zone',
+    label: '🎙️ Teacher Podium & Lecture Stage',
+    subtitle: 'Check class study links or manage Reviewer & Activity Links',
+    kind: InteractiveZoneKind.classroomPodium,
+    room: LobbyRoomId.classroom,
+    x: 768,
+    y: 235,
+    radius: 96,
+    accentColor: 0xFFF59E0B,
+  ),
   // Canteen -> Main Lobby (North Door)
   InteractiveZone(
     id: 'canteen_door_to_lobby',
@@ -505,6 +899,30 @@ const List<InteractiveZone> kSubRoomDoorZones = [
     accentColor: 0xFF38BDF8,
     targetRoom: LobbyRoomId.mainLobby,
     targetSpawn: Offset(768, 955),
+  ),
+  // Canteen Drink & Snack Vending Machine Bank (North-West)
+  InteractiveZone(
+    id: 'canteen_vending_west',
+    label: '🥤 Drink & Snack Vending Machines',
+    subtitle: 'Tap Interact to grab an iced drink or snack from the vending machine!',
+    kind: InteractiveZoneKind.vendingMachine,
+    room: LobbyRoomId.canteen,
+    x: 340,
+    y: 210,
+    radius: 100,
+    accentColor: 0xFF0EA5E9,
+  ),
+  // Canteen Merienda & Coffee Bar (North-East)
+  InteractiveZone(
+    id: 'canteen_vending_east',
+    label: '🍱 Canteen Coffee & Merienda Counter',
+    subtitle: 'Tap Interact to grab hot coffee, matcha, or study snacks!',
+    kind: InteractiveZoneKind.vendingMachine,
+    room: LobbyRoomId.canteen,
+    x: 1120,
+    y: 210,
+    radius: 100,
+    accentColor: 0xFFF97316,
   ),
   // Faculty Room -> Main Lobby (West Door)
   InteractiveZone(
@@ -520,6 +938,18 @@ const List<InteractiveZone> kSubRoomDoorZones = [
     targetRoom: LobbyRoomId.mainLobby,
     targetSpawn: Offset(1390, 340),
   ),
+  // Faculty Consultation Desk Zone
+  InteractiveZone(
+    id: 'faculty_consultation_desk',
+    label: '🎓 Faculty Advisory & Link Desk',
+    subtitle: 'Consult active subject links or manage Reviewer & Activity Links',
+    kind: InteractiveZoneKind.teacherCorner,
+    room: LobbyRoomId.facultyRoom,
+    x: 768,
+    y: 350,
+    radius: 96,
+    accentColor: 0xFFA855F7,
+  ),
 ];
 
 /// Interactive Rest Spots across all 5 rooms so students can Sit (`🪑`), Nap (`😪`), or Sleep (`🛌`).
@@ -529,8 +959,8 @@ const List<LobbyRestSpot> kLobbyRestSpots = [
     id: 'rest_lobby_sofa_1',
     label: 'Lounge Nap Sofa (West)',
     room: LobbyRoomId.mainLobby,
-    x: 204,
-    y: 516,
+    x: 208,
+    y: 520,
     facing: AvatarFacing.down,
     canSleepFlat: true,
   ),
@@ -538,8 +968,8 @@ const List<LobbyRestSpot> kLobbyRestSpots = [
     id: 'rest_lobby_sofa_2',
     label: 'Lounge Study Sofa (East)',
     room: LobbyRoomId.mainLobby,
-    x: 492,
-    y: 516,
+    x: 496,
+    y: 520,
     facing: AvatarFacing.down,
     canSleepFlat: true,
   ),
@@ -547,8 +977,8 @@ const List<LobbyRestSpot> kLobbyRestSpots = [
     id: 'rest_lobby_chair_1',
     label: 'Study Commons Chair A',
     room: LobbyRoomId.mainLobby,
-    x: 256,
-    y: 668,
+    x: 240,
+    y: 676,
     facing: AvatarFacing.up,
     canSleepFlat: false,
   ),
@@ -556,8 +986,8 @@ const List<LobbyRestSpot> kLobbyRestSpots = [
     id: 'rest_lobby_chair_2',
     label: 'Study Commons Chair B',
     room: LobbyRoomId.mainLobby,
-    x: 544,
-    y: 668,
+    x: 528,
+    y: 676,
     facing: AvatarFacing.up,
     canSleepFlat: false,
   ),
@@ -565,8 +995,8 @@ const List<LobbyRestSpot> kLobbyRestSpots = [
     id: 'rest_lobby_sofa_south',
     label: 'Quiet Reading Daybed Sofa',
     room: LobbyRoomId.mainLobby,
-    x: 348,
-    y: 804,
+    x: 352,
+    y: 816,
     facing: AvatarFacing.down,
     canSleepFlat: true,
   ),
@@ -574,75 +1004,129 @@ const List<LobbyRestSpot> kLobbyRestSpots = [
   // Campus Park Benches & Picnic Nap Lawns
   LobbyRestSpot(
     id: 'rest_park_bench_1',
-    label: 'Shaded Park Bench (North)',
+    label: 'Shaded Tree Bench (North-West)',
     room: LobbyRoomId.park,
-    x: 460,
-    y: 310,
+    x: 452,
+    y: 320,
     facing: AvatarFacing.down,
     canSleepFlat: true,
   ),
   LobbyRestSpot(
     id: 'rest_park_bench_2',
-    label: 'Pondside Park Bench (East)',
+    label: 'Pondside Park Bench (North-East)',
     room: LobbyRoomId.park,
-    x: 1080,
-    y: 310,
+    x: 1076,
+    y: 320,
+    facing: AvatarFacing.down,
+    canSleepFlat: true,
+  ),
+  LobbyRestSpot(
+    id: 'rest_park_bench_3',
+    label: 'Koi Pond Viewing Bench (North)',
+    room: LobbyRoomId.park,
+    x: 768,
+    y: 356,
     facing: AvatarFacing.down,
     canSleepFlat: true,
   ),
   LobbyRestSpot(
     id: 'rest_park_picnic_1',
-    label: 'Soft Grass Picnic Nap Blanket (West)',
+    label: 'Lagoon Picnic Nap Blanket (West)',
     room: LobbyRoomId.park,
     x: 420,
-    y: 720,
+    y: 724,
     facing: AvatarFacing.right,
     canSleepFlat: true,
   ),
   LobbyRestSpot(
     id: 'rest_park_picnic_2',
-    label: 'Starlight Tree Sleeping Lawn (East)',
+    label: 'Sunset Tree Sleeping Lawn (East)',
     room: LobbyRoomId.park,
     x: 1100,
-    y: 720,
+    y: 724,
     facing: AvatarFacing.left,
     canSleepFlat: true,
   ),
 
-  // Class Room Desks & Back-Row Nap Corner
+  // SHS Class Room: 8 Interactive Student Desk Chairs + Teacher Chair + Back-Row Lounge Sofa
   LobbyRestSpot(
-    id: 'rest_classroom_desk_1',
-    label: 'Front Row Student Desk #1',
+    id: 'rest_classroom_r1_c1',
+    label: 'Row 1 Student Desk #1 (West)',
     room: LobbyRoomId.classroom,
-    x: 440,
-    y: 455,
+    x: 340,
+    y: 428,
     facing: AvatarFacing.up,
     canSleepFlat: false,
   ),
   LobbyRestSpot(
-    id: 'rest_classroom_desk_2',
-    label: 'Center Student Desk #2',
+    id: 'rest_classroom_r1_c2',
+    label: 'Row 1 Student Desk #2 (Center-Left)',
     room: LobbyRoomId.classroom,
-    x: 768,
-    y: 455,
+    x: 560,
+    y: 428,
     facing: AvatarFacing.up,
     canSleepFlat: false,
   ),
   LobbyRestSpot(
-    id: 'rest_classroom_desk_3',
-    label: 'East Row Student Desk #3',
+    id: 'rest_classroom_r1_c3',
+    label: 'Row 1 Student Desk #3 (Center-Right)',
     room: LobbyRoomId.classroom,
-    x: 1096,
-    y: 455,
+    x: 960,
+    y: 428,
+    facing: AvatarFacing.up,
+    canSleepFlat: false,
+  ),
+  LobbyRestSpot(
+    id: 'rest_classroom_r1_c4',
+    label: 'Row 1 Student Desk #4 (East)',
+    room: LobbyRoomId.classroom,
+    x: 1180,
+    y: 428,
+    facing: AvatarFacing.up,
+    canSleepFlat: false,
+  ),
+  LobbyRestSpot(
+    id: 'rest_classroom_r2_c1',
+    label: 'Row 2 Student Desk #5 (West)',
+    room: LobbyRoomId.classroom,
+    x: 340,
+    y: 608,
+    facing: AvatarFacing.up,
+    canSleepFlat: false,
+  ),
+  LobbyRestSpot(
+    id: 'rest_classroom_r2_c2',
+    label: 'Row 2 Student Desk #6 (Center-Left)',
+    room: LobbyRoomId.classroom,
+    x: 560,
+    y: 608,
+    facing: AvatarFacing.up,
+    canSleepFlat: false,
+  ),
+  LobbyRestSpot(
+    id: 'rest_classroom_r2_c3',
+    label: 'Row 2 Student Desk #7 (Center-Right)',
+    room: LobbyRoomId.classroom,
+    x: 960,
+    y: 608,
+    facing: AvatarFacing.up,
+    canSleepFlat: false,
+  ),
+  LobbyRestSpot(
+    id: 'rest_classroom_r2_c4',
+    label: 'Row 2 Student Desk #8 (East)',
+    room: LobbyRoomId.classroom,
+    x: 1180,
+    y: 608,
     facing: AvatarFacing.up,
     canSleepFlat: false,
   ),
   LobbyRestSpot(
     id: 'rest_classroom_back_nap',
-    label: 'Back-Row Student Nap Couch',
+    label: 'Back-Row Student Study & Nap Sofa',
     room: LobbyRoomId.classroom,
-    x: 1120,
-    y: 775,
+    x: 1160,
+    y: 855,
     facing: AvatarFacing.up,
     canSleepFlat: true,
   ),
@@ -650,19 +1134,37 @@ const List<LobbyRestSpot> kLobbyRestSpots = [
   // Canteen Dining Booths & Lounge Couches
   LobbyRestSpot(
     id: 'rest_canteen_table_1',
-    label: 'Canteen Dining Seat (West)',
+    label: 'Canteen Dining Table #1 (West)',
     room: LobbyRoomId.canteen,
-    x: 440,
-    y: 540,
+    x: 372,
+    y: 486,
     facing: AvatarFacing.up,
     canSleepFlat: false,
   ),
   LobbyRestSpot(
     id: 'rest_canteen_table_2',
-    label: 'Canteen Dining Seat (Center)',
+    label: 'Canteen Dining Table #2 (Center-West)',
     room: LobbyRoomId.canteen,
-    x: 768,
-    y: 540,
+    x: 590,
+    y: 486,
+    facing: AvatarFacing.up,
+    canSleepFlat: false,
+  ),
+  LobbyRestSpot(
+    id: 'rest_canteen_table_3',
+    label: 'Canteen Dining Table #3 (Center-East)',
+    room: LobbyRoomId.canteen,
+    x: 960,
+    y: 486,
+    facing: AvatarFacing.up,
+    canSleepFlat: false,
+  ),
+  LobbyRestSpot(
+    id: 'rest_canteen_table_4',
+    label: 'Canteen Dining Table #4 (East)',
+    room: LobbyRoomId.canteen,
+    x: 1200,
+    y: 486,
     facing: AvatarFacing.up,
     canSleepFlat: false,
   ),
@@ -670,8 +1172,8 @@ const List<LobbyRestSpot> kLobbyRestSpots = [
     id: 'rest_canteen_booth_nap',
     label: 'Canteen Cozy Corner Sofa Booth',
     room: LobbyRoomId.canteen,
-    x: 1160,
-    y: 780,
+    x: 1180,
+    y: 840,
     facing: AvatarFacing.left,
     canSleepFlat: true,
   ),
@@ -679,19 +1181,19 @@ const List<LobbyRestSpot> kLobbyRestSpots = [
   // Faculty Room Consultation Chairs & Lounge Sofa
   LobbyRestSpot(
     id: 'rest_faculty_consult_1',
-    label: 'Student Consultation Chair',
+    label: 'Student Consultation Chair (Center)',
     room: LobbyRoomId.facultyRoom,
     x: 768,
-    y: 520,
+    y: 440,
     facing: AvatarFacing.up,
     canSleepFlat: false,
   ),
   LobbyRestSpot(
     id: 'rest_faculty_lounge_sofa',
-    label: 'Faculty Guest Rest Sofa',
+    label: 'Faculty Guest Waiting Sofa',
     room: LobbyRoomId.facultyRoom,
-    x: 1160,
-    y: 720,
+    x: 1180,
+    y: 740,
     facing: AvatarFacing.down,
     canSleepFlat: true,
   ),
@@ -710,10 +1212,10 @@ const List<LobbyPeerStudent> kLobbyPeerStudents = [
     y: 590,
     facing: AvatarFacing.right,
     restState: PlayerRestState.none,
-    defaultThought: '💭 Reviewing PGP Week 6 slides before the quiz!',
+    defaultThought: '💭 Follow the purple carpet east to open our Subject Chests!',
     sampleReplies: [
-      '💭 Let\'s review PGP & UCSP together! The HTML slides in the chest are super clear.',
-      '💭 Have you unlocked the Policy Vanguard badge at the Quest Counter yet?',
+      '💭 Follow the walk paths! Each path has floor signposts so you never get lost.',
+      '💭 Whenever our teacher posts a Reviewer or Activity link, we can mark it as done for XP!',
       '💭 Good luck on our recitation today! Kaya natin \'to! ✨',
     ],
   ),
@@ -722,15 +1224,15 @@ const List<LobbyPeerStudent> kLobbyPeerStudents = [
     name: 'Marco (GAS 12)',
     presetName: 'Alex',
     room: LobbyRoomId.mainLobby,
-    x: 492,
-    y: 516,
+    x: 496,
+    y: 520,
     facing: AvatarFacing.down,
     restState: PlayerRestState.napping,
-    defaultThought: '💭 Quick power nap on the sofa before next period... 😪',
+    defaultThought: '💭 Quick power nap on the sofa before heading to the Class Room... 😪',
     sampleReplies: [
-      '💭 *yawns* Just taking a 5-minute nap before we head to the Class Room! 😪',
-      '💭 Try sitting or napping on the sofa too! It\'s super relaxing.',
-      '💭 Let\'s grab snacks at the Canteen door down south after studying!',
+      '💭 *yawns* Just taking a 5-minute nap before we walk up to the Class Room door! 😪',
+      '💭 Try sitting or napping on the sofa too! Just tap Interact when you\'re near a seat.',
+      '💭 Let\'s grab cold drinks from the Canteen vending machines down south!',
     ],
   ),
 
@@ -744,11 +1246,11 @@ const List<LobbyPeerStudent> kLobbyPeerStudents = [
     y: 520,
     facing: AvatarFacing.down,
     restState: PlayerRestState.none,
-    defaultThought: '💭 The breeze by the Campus Park pond is so peaceful 🌿',
+    defaultThought: '💭 The trees and cobblestone trail around the pond are so relaxing 🌳',
     sampleReplies: [
-      '💭 Hi classmate! The Campus Park is my favorite spot to unwind between classes.',
-      '💭 You can lie down and sleep on the picnic blankets by the trees! 🛌',
-      '💭 Fresh air really helps before opening the Reviewer Chests!',
+      '💭 Hi classmate! The Campus Park is full of shade trees and flower bushes now.',
+      '💭 You can lie down and sleep on the picnic rugs under the trees! 🛌',
+      '💭 Fresh air really helps before checking our Subject Chests!',
     ],
   ),
   LobbyPeerStudent(
@@ -757,13 +1259,13 @@ const List<LobbyPeerStudent> kLobbyPeerStudents = [
     presetName: 'Ash',
     room: LobbyRoomId.park,
     x: 1100,
-    y: 720,
+    y: 724,
     facing: AvatarFacing.left,
     restState: PlayerRestState.sleeping,
-    defaultThought: '💭 Zzz... dreaming of 100% attendance & recitation... 💤',
+    defaultThought: '💭 Zzz... resting under the park trees... 💤',
     sampleReplies: [
-      '💭 Zzz... Five more minutes on the park lawn please... 🛌💤',
-      '💭 Woke up refreshed! Time to ace the Mystery Quiz Chests!',
+      '💭 Zzz... Five more minutes on the park picnic blanket please... 🛌💤',
+      '💭 Woke up refreshed! Time to complete our Reviewer & Activity links!',
     ],
   ),
 
@@ -773,15 +1275,15 @@ const List<LobbyPeerStudent> kLobbyPeerStudents = [
     name: 'Jamie (ABM 12)',
     presetName: 'Jenny',
     room: LobbyRoomId.classroom,
-    x: 610,
-    y: 455,
+    x: 560,
+    y: 428,
     facing: AvatarFacing.up,
     restState: PlayerRestState.sitting,
-    defaultThought: '💭 Taking notes on the 1987 Constitution & UCSP kinship 📝',
+    defaultThought: '💭 Sitting in Row 1 right in front of the Teacher Podium! 📝',
     sampleReplies: [
-      '💭 Take a seat at any desk! We\'re reviewing PKLP Term 2 & PGP.',
-      '💭 Extracting the .TXT outline from the HTML reviewer makes note-taking so fast!',
-      '💭 Which subject is your favorite this semester?',
+      '💭 Pick any of the 12 student desks! You can sit or nap at your chair.',
+      '💭 Walk up the center carpet aisle to check the Teacher Podium & Lecture Board!',
+      '💭 Which subject are you studying first today?',
     ],
   ),
 
@@ -791,14 +1293,14 @@ const List<LobbyPeerStudent> kLobbyPeerStudents = [
     name: 'Enzo (TVL 12)',
     presetName: 'Bob',
     room: LobbyRoomId.canteen,
-    x: 610,
-    y: 540,
+    x: 590,
+    y: 486,
     facing: AvatarFacing.down,
     restState: PlayerRestState.sitting,
-    defaultThought: '💭 Nothing beats hot pancit canton & iced tea at break time! 🍱',
+    defaultThought: '💭 The new drink & snack vending machines in the Canteen are awesome! 🥤',
     sampleReplies: [
-      '💭 Pull up a chair! Study group + merienda at the Canteen is the best combo!',
-      '💭 Don\'t forget to check your enrolled Subject Chests back in the Main Lobby.',
+      '💭 Walk up to the Vending Machines on the north wall and tap Interact to grab a drink!',
+      '💭 Study group + snacks at the Canteen tables is the best combo!',
     ],
   ),
 
@@ -812,16 +1314,16 @@ const List<LobbyPeerStudent> kLobbyPeerStudents = [
     y: 520,
     facing: AvatarFacing.right,
     restState: PlayerRestState.none,
-    defaultThought: '💭 Consulting with faculty about our Term 2 project 📌',
+    defaultThought: '💭 Checking if new Reviewer or Activity links were posted 📌',
     sampleReplies: [
-      '💭 Sir Jim Mark uploaded all the active HTML reviewers to Google Drive!',
-      '💭 Only active subjects from the MIS Control Sheet appear in our chests now.',
+      '💭 Whenever our teacher adds a Reviewer or Activity link, we can mark it as done for XP!',
+      '💭 Only active enrolled subjects from the MIS Control Sheet appear in our chests.',
     ],
   ),
 ];
 
 /// Anchor positions for Subject-Labeled Large Treasure Chests inside the
-/// Expanded Reviewer Treasure Corner (`x: 920..1460, y: 490..950` in `mainLobby`).
+/// Expanded Reviewer Treasure Corner (`x: 920..1460, y: 620..950` in `mainLobby`).
 const List<Offset> kSubjectChestAnchorPoints = [
   Offset(980, 660), // Chest 1 (e.g. PGP)
   Offset(1168, 660), // Chest 2 (e.g. UCSP)
@@ -843,6 +1345,7 @@ Offset subjectChestPosition(int index) {
 }
 
 /// Static Furniture & Prop placement using TinyFloor's `floor-items.png` & `atlas.json`.
+/// EVERY `spriteKey` below is verified against `assets/school_lobby/catalog/atlas.json`!
 class LobbyFurniturePiece {
   final String spriteKey;
   final double x;
@@ -861,272 +1364,596 @@ class LobbyFurniturePiece {
   double get sortY => isFloorRug ? -1000 : y + 24;
 }
 
-/// Expanded `48 x 34` (`1536 x 1088` px) Main School Lobby Layout.
+/// 1. MAIN SCHOOL LOBBY (`48 x 34` tiles = `1536 x 1088` px) — 100% Verified `atlas.json` Sprites.
 const List<LobbyFurniturePiece> kSchoolLobbyPieces = [
   // ── FLOOR RUGS (non-collidable, rendered beneath characters) ──
   LobbyFurniturePiece(
-    spriteKey: 'rug_blue_left',
-    x: 180,
-    y: 620,
+    spriteKey: 'rug-red',
+    x: 704,
+    y: 224,
     collidable: false,
     isFloorRug: true,
   ),
   LobbyFurniturePiece(
-    spriteKey: 'rug_blue_right',
-    x: 244,
-    y: 620,
+    spriteKey: 'ours-rug-lagoon',
+    x: 160,
+    y: 600,
     collidable: false,
     isFloorRug: true,
   ),
   LobbyFurniturePiece(
-    spriteKey: 'rug_blue_left',
-    x: 480,
-    y: 620,
+    spriteKey: 'ours-rug-lagoon',
+    x: 448,
+    y: 600,
     collidable: false,
     isFloorRug: true,
   ),
   LobbyFurniturePiece(
-    spriteKey: 'rug_blue_right',
-    x: 544,
-    y: 620,
+    spriteKey: 'ours-rug-sunset',
+    x: 296,
+    y: 780,
     collidable: false,
     isFloorRug: true,
   ),
   LobbyFurniturePiece(
-    spriteKey: 'rug_red_top',
-    x: 748,
-    y: 230,
-    collidable: false,
-    isFloorRug: true,
-  ),
-  LobbyFurniturePiece(
-    spriteKey: 'rug_red_bottom',
-    x: 748,
-    y: 262,
-    collidable: false,
-    isFloorRug: true,
-  ),
-  LobbyFurniturePiece(
-    spriteKey: 'rug_green',
-    x: 1228,
-    y: 235,
+    spriteKey: 'ours-rug-plum',
+    x: 1184,
+    y: 210,
     collidable: false,
     isFloorRug: true,
   ),
 
   // ── 1. SCHOOL BULLETIN BOARD WALL (Top-Left Wing: x 64..480) ──
   LobbyFurniturePiece(
-      spriteKey: 'wall_chart_bars', x: 96, y: 20, collidable: false),
+      spriteKey: 'window-office-3', x: 64, y: 18, collidable: false),
   LobbyFurniturePiece(
-      spriteKey: 'wall_chart_lines', x: 192, y: 20, collidable: false),
+      spriteKey: 'wall-charts', x: 176, y: 18, collidable: false),
   LobbyFurniturePiece(
-      spriteKey: 'wall_notice_board', x: 288, y: 22, collidable: false),
+      spriteKey: 'notice-board', x: 256, y: 24, collidable: false),
   LobbyFurniturePiece(
-      spriteKey: 'wall_Calendar', x: 384, y: 22, collidable: false),
+      spriteKey: 'board-pins', x: 332, y: 24, collidable: false),
   LobbyFurniturePiece(
-      spriteKey: 'wall_clock', x: 448, y: 24, collidable: false),
-  LobbyFurniturePiece(spriteKey: 'bookshelf_wide', x: 96, y: 86),
-  LobbyFurniturePiece(spriteKey: 'bookshelf_tall_1', x: 416, y: 82),
-  LobbyFurniturePiece(spriteKey: 'plant_small', x: 64, y: 98),
+      spriteKey: 'world-map', x: 408, y: 24, collidable: false),
+  LobbyFurniturePiece(
+      spriteKey: 'ours-clock', x: 480, y: 26, collidable: false),
+  LobbyFurniturePiece(spriteKey: 'wall-bookcase', x: 88, y: 52),
+  LobbyFurniturePiece(spriteKey: 'bookshelf', x: 416, y: 78),
+  LobbyFurniturePiece(spriteKey: 'plant-tall', x: 52, y: 88),
 
-  // ── 2. RECEPTION / QUEST COUNTER (Top-Center Hall: x 620..920) ──
+  // ── 2. RECEPTION / QUEST COUNTER (Top-Center Hall: x 560..976) ──
   LobbyFurniturePiece(
-      spriteKey: 'wall_notice_board', x: 704, y: 22, collidable: false),
+      spriteKey: 'wall-notice', x: 640, y: 18, collidable: false),
   LobbyFurniturePiece(
-      spriteKey: 'wall_shelf', x: 800, y: 28, collidable: false),
-  LobbyFurniturePiece(spriteKey: 'desk_wood_2', x: 688, y: 156),
-  LobbyFurniturePiece(spriteKey: 'desk_wood_2', x: 752, y: 156),
-  LobbyFurniturePiece(spriteKey: 'desk_wood_2', x: 816, y: 156),
+      spriteKey: 'wall-trophy', x: 752, y: 18, collidable: false),
   LobbyFurniturePiece(
-      spriteKey: 'monitor_front', x: 760, y: 146, collidable: false),
-  LobbyFurniturePiece(spriteKey: 'plant_tall', x: 640, y: 140),
-  LobbyFurniturePiece(spriteKey: 'plant_tall', x: 896, y: 140),
+      spriteKey: 'wall-cert', x: 792, y: 18, collidable: false),
+  LobbyFurniturePiece(
+      spriteKey: 'wall-shelf', x: 848, y: 18, collidable: false),
+  LobbyFurniturePiece(spriteKey: 'desks-front-maple-2', x: 560, y: 136),
+  LobbyFurniturePiece(
+      spriteKey: 'setup-monitors', x: 720, y: 130, collidable: false),
+  LobbyFurniturePiece(
+      spriteKey: 'ours-lamp-teal', x: 600, y: 136, collidable: false),
+  LobbyFurniturePiece(
+      spriteKey: 'desk-phone-a', x: 860, y: 148, collidable: false),
+  LobbyFurniturePiece(spriteKey: 'plant-tall', x: 520, y: 140),
+  LobbyFurniturePiece(spriteKey: 'plant-tall', x: 984, y: 140),
 
   // ── 3. TEACHER'S CORNER (Top-Right Wing: x 1060..1460) ──
   LobbyFurniturePiece(
-      spriteKey: 'wall_art_1', x: 1120, y: 20, collidable: false),
+      spriteKey: 'wall-painting', x: 1080, y: 18, collidable: false),
   LobbyFurniturePiece(
-      spriteKey: 'wall_chart_bars', x: 1248, y: 20, collidable: false),
+      spriteKey: 'board-chart', x: 1180, y: 18, collidable: false),
   LobbyFurniturePiece(
-      spriteKey: 'wall_shelf', x: 1360, y: 28, collidable: false),
-  LobbyFurniturePiece(spriteKey: 'bookshelf_tall_1', x: 1088, y: 82),
-  LobbyFurniturePiece(spriteKey: 'bookshelf_tall_2', x: 1124, y: 82),
-  LobbyFurniturePiece(spriteKey: 'bookshelf_wide', x: 1344, y: 86),
-  LobbyFurniturePiece(spriteKey: 'desk_wood_1', x: 1200, y: 162),
-  LobbyFurniturePiece(spriteKey: 'desk_wood_1', x: 1264, y: 162),
+      spriteKey: 'window-office-3', x: 1320, y: 18, collidable: false),
+  LobbyFurniturePiece(spriteKey: 'wall-bookcase-red', x: 1056, y: 52),
+  LobbyFurniturePiece(spriteKey: 'wall-bookcase-pale', x: 1124, y: 52),
+  LobbyFurniturePiece(spriteKey: 'desks-single-walnut-1-n4', x: 1184, y: 140),
   LobbyFurniturePiece(
-      spriteKey: 'monitor_front', x: 1236, y: 150, collidable: false),
-  LobbyFurniturePiece(spriteKey: 'water_cooler', x: 1424, y: 110),
+      spriteKey: 'setup-laptop', x: 1216, y: 136, collidable: false),
+  LobbyFurniturePiece(
+      spriteKey: 'ours-globe', x: 1192, y: 150, collidable: false),
+  LobbyFurniturePiece(
+      spriteKey: 'ours-books', x: 1304, y: 150, collidable: false),
+  LobbyFurniturePiece(spriteKey: 'water-cooler', x: 1424, y: 104),
 
-  // ── 4. STUDENT LOUNGE & STUDY COMMONS (Bottom-Left & Center-West Wing) ──
+  // ── 4. STUDENT LOUNGE & STUDY COMMONS (West & South-West Wing) ──
   LobbyFurniturePiece(
-      spriteKey: 'sofa_grey_down', x: 176, y: 496, collidable: false),
+      spriteKey: 'sofa-three', x: 176, y: 484, collidable: false),
   LobbyFurniturePiece(
-      spriteKey: 'sofa_grey_down', x: 464, y: 496, collidable: false),
-  LobbyFurniturePiece(spriteKey: 'desk_grey_1', x: 176, y: 600),
-  LobbyFurniturePiece(spriteKey: 'desk_grey_2', x: 240, y: 600),
-  LobbyFurniturePiece(spriteKey: 'desk_grey_1', x: 464, y: 600),
-  LobbyFurniturePiece(spriteKey: 'desk_grey_2', x: 528, y: 600),
+      spriteKey: 'sofa-three', x: 464, y: 484, collidable: false),
+  LobbyFurniturePiece(spriteKey: 'desks-single-maple-1-n4', x: 160, y: 576),
   LobbyFurniturePiece(
-      spriteKey: 'chair_blue_up', x: 192, y: 652, collidable: false),
+      spriteKey: 'ours-notebook', x: 196, y: 590, collidable: false),
   LobbyFurniturePiece(
-      spriteKey: 'chair_blue_up', x: 256, y: 652, collidable: false),
+      spriteKey: 'ours-pen-cup', x: 240, y: 588, collidable: false),
+  LobbyFurniturePiece(spriteKey: 'desks-single-oak-1-n4', x: 448, y: 576),
   LobbyFurniturePiece(
-      spriteKey: 'chair_blue_up', x: 480, y: 652, collidable: false),
+      spriteKey: 'laptop-open', x: 488, y: 582, collidable: false),
   LobbyFurniturePiece(
-      spriteKey: 'chair_blue_up', x: 544, y: 652, collidable: false),
+      spriteKey: 'ours-books', x: 540, y: 590, collidable: false),
   LobbyFurniturePiece(
-      spriteKey: 'sofa_blue_down', x: 320, y: 784, collidable: false),
-  LobbyFurniturePiece(spriteKey: 'desk_wood_1', x: 320, y: 848),
-  LobbyFurniturePiece(spriteKey: 'vending_machine', x: 64, y: 740),
-  LobbyFurniturePiece(spriteKey: 'arcade_machine_1', x: 64, y: 820),
-  LobbyFurniturePiece(spriteKey: 'plant_small', x: 368, y: 590),
-  LobbyFurniturePiece(spriteKey: 'plant_tall', x: 640, y: 780),
+      spriteKey: 'chair-tan-back', x: 224, y: 652, collidable: false),
+  LobbyFurniturePiece(
+      spriteKey: 'chair-tan-back', x: 512, y: 652, collidable: false),
+  LobbyFurniturePiece(
+      spriteKey: 'sofa-two', x: 320, y: 784, collidable: false),
+  LobbyFurniturePiece(spriteKey: 'coffee-table', x: 320, y: 848),
+  LobbyFurniturePiece(spriteKey: 'vending-drinks', x: 56, y: 720),
+  LobbyFurniturePiece(spriteKey: 'vending-snacks', x: 56, y: 810),
+  LobbyFurniturePiece(spriteKey: 'plant-snake', x: 368, y: 580),
+  LobbyFurniturePiece(spriteKey: 'plant-tall', x: 640, y: 780),
 
   // ── 5. REVIEWER TREASURE CORNER SANCTUARY (Bottom-Right Wing: x 880..1460) ──
-  LobbyFurniturePiece(spriteKey: 'plant_tall', x: 896, y: 490),
-  LobbyFurniturePiece(spriteKey: 'plant_tall', x: 1424, y: 490),
-  LobbyFurniturePiece(spriteKey: 'bookshelf_wide', x: 1056, y: 488),
-  LobbyFurniturePiece(spriteKey: 'bookshelf_wide', x: 1216, y: 488),
-  LobbyFurniturePiece(spriteKey: 'plant_small', x: 896, y: 880),
-  LobbyFurniturePiece(spriteKey: 'plant_small', x: 1424, y: 880),
+  LobbyFurniturePiece(spriteKey: 'ours-bush-lilac', x: 896, y: 476),
+  LobbyFurniturePiece(spriteKey: 'ours-bush-sage', x: 1424, y: 476),
+  LobbyFurniturePiece(spriteKey: 'bookshelf', x: 1024, y: 476),
+  LobbyFurniturePiece(spriteKey: 'shelving', x: 1092, y: 476),
+  LobbyFurniturePiece(spriteKey: 'shelving', x: 1228, y: 476),
+  LobbyFurniturePiece(spriteKey: 'bookshelf', x: 1296, y: 476),
+  LobbyFurniturePiece(spriteKey: 'lamp-blue', x: 900, y: 640),
+  LobbyFurniturePiece(spriteKey: 'lamp-red', x: 1424, y: 640),
+  LobbyFurniturePiece(spriteKey: 'plant-small', x: 896, y: 880),
+  LobbyFurniturePiece(spriteKey: 'plant-small', x: 1424, y: 880),
 ];
 
-/// Furniture layouts for the 4 additional Campus Rooms (`Park`, `Class Room`, `Canteen`, `Faculty Room`).
+/// 2. CAMPUS NATURE PARK (`LobbyRoomId.park`) — Filled with Lush Trees, Bushes, Flowers, Benches & Picnic Rugs!
 const List<LobbyFurniturePiece> kParkRoomPieces = [
-  // Lush trees & plants around the Park perimeter and pond
-  LobbyFurniturePiece(spriteKey: 'plant_tall', x: 160, y: 140),
-  LobbyFurniturePiece(spriteKey: 'plant_tall', x: 320, y: 140),
-  LobbyFurniturePiece(spriteKey: 'plant_tall', x: 1180, y: 140),
-  LobbyFurniturePiece(spriteKey: 'plant_tall', x: 1340, y: 140),
-  // Park Benches (non-collidable so students can sit/nap/sleep on them)
+  // ── PICNIC RUGS (non-collidable, rendered beneath characters) ──
   LobbyFurniturePiece(
-      spriteKey: 'sofa_grey_down', x: 432, y: 290, collidable: false),
-  LobbyFurniturePiece(
-      spriteKey: 'sofa_grey_down', x: 1052, y: 290, collidable: false),
-  // Picnic Nap Blankets (rugs)
-  LobbyFurniturePiece(
-    spriteKey: 'rug_green',
-    x: 390,
-    y: 700,
+    spriteKey: 'ours-rug-lagoon',
+    x: 356,
+    y: 680,
     collidable: false,
     isFloorRug: true,
   ),
   LobbyFurniturePiece(
-    spriteKey: 'rug_blue_left',
-    x: 1068,
-    y: 700,
+    spriteKey: 'ours-rug-sunset',
+    x: 1036,
+    y: 680,
     collidable: false,
     isFloorRug: true,
   ),
   LobbyFurniturePiece(
-    spriteKey: 'rug_blue_right',
-    x: 1132,
-    y: 700,
+    spriteKey: 'ours-rug-plum',
+    x: 200,
+    y: 300,
     collidable: false,
     isFloorRug: true,
   ),
-  LobbyFurniturePiece(spriteKey: 'plant_small', x: 240, y: 680),
-  LobbyFurniturePiece(spriteKey: 'plant_small', x: 1280, y: 680),
-  LobbyFurniturePiece(spriteKey: 'plant_tall', x: 220, y: 880),
-  LobbyFurniturePiece(spriteKey: 'plant_tall', x: 1280, y: 880),
+  LobbyFurniturePiece(
+    spriteKey: 'rug-blue',
+    x: 1210,
+    y: 300,
+    collidable: false,
+    isFloorRug: true,
+  ),
+
+  // ── NORTH WOODLAND TREE CANOPY (Large `tree` 96x128 & `tree-small` 64x96) ──
+  LobbyFurniturePiece(spriteKey: 'tree', x: 64, y: 64),
+  LobbyFurniturePiece(spriteKey: 'tree-small', x: 180, y: 88),
+  LobbyFurniturePiece(spriteKey: 'tree', x: 268, y: 64),
+  LobbyFurniturePiece(spriteKey: 'tree-small', x: 392, y: 88),
+  LobbyFurniturePiece(spriteKey: 'tree', x: 520, y: 64),
+  LobbyFurniturePiece(spriteKey: 'tree', x: 920, y: 64),
+  LobbyFurniturePiece(spriteKey: 'tree-small', x: 1044, y: 88),
+  LobbyFurniturePiece(spriteKey: 'tree', x: 1140, y: 64),
+  LobbyFurniturePiece(spriteKey: 'tree-small', x: 1264, y: 88),
+  LobbyFurniturePiece(spriteKey: 'tree', x: 1356, y: 64),
+
+  // ── WEST & EAST GARDEN TREE GROVES ──
+  LobbyFurniturePiece(spriteKey: 'tree', x: 64, y: 260),
+  LobbyFurniturePiece(spriteKey: 'tree-small', x: 80, y: 400),
+  LobbyFurniturePiece(spriteKey: 'tree', x: 64, y: 620),
+  LobbyFurniturePiece(spriteKey: 'tree-small', x: 170, y: 780),
+  LobbyFurniturePiece(spriteKey: 'tree', x: 64, y: 860),
+  LobbyFurniturePiece(spriteKey: 'tree-small', x: 1368, y: 260),
+  LobbyFurniturePiece(spriteKey: 'tree', x: 1356, y: 640),
+  LobbyFurniturePiece(spriteKey: 'tree-small', x: 1270, y: 780),
+  LobbyFurniturePiece(spriteKey: 'tree', x: 1356, y: 860),
+
+  // ── SOUTH GARDEN BORDER TREES ──
+  LobbyFurniturePiece(spriteKey: 'tree-small', x: 310, y: 890),
+  LobbyFurniturePiece(spriteKey: 'tree', x: 540, y: 876),
+  LobbyFurniturePiece(spriteKey: 'tree', x: 900, y: 876),
+  LobbyFurniturePiece(spriteKey: 'tree-small', x: 1140, y: 890),
+
+  // ── PARK BENCHES (non-collidable so students can sit, nap, or sleep!) ──
+  LobbyFurniturePiece(
+      spriteKey: 'bench-pale', x: 420, y: 296, collidable: false),
+  LobbyFurniturePiece(
+      spriteKey: 'bench-pale', x: 1044, y: 296, collidable: false),
+  LobbyFurniturePiece(
+      spriteKey: 'bench-pale', x: 736, y: 332, collidable: false),
+  LobbyFurniturePiece(
+      spriteKey: 'bench-pale', x: 736, y: 668, collidable: false),
+
+  // ── FLOWERING BUSHES, SHRUBS, WILDFLOWERS & NATURAL BOULDERS ──
+  LobbyFurniturePiece(spriteKey: 'bush', x: 340, y: 220),
+  LobbyFurniturePiece(spriteKey: 'bush', x: 1120, y: 220),
+  LobbyFurniturePiece(spriteKey: 'ours-bush-sage', x: 536, y: 360),
+  LobbyFurniturePiece(spriteKey: 'ours-bush-lilac', x: 964, y: 360),
+  LobbyFurniturePiece(spriteKey: 'ours-bush-clay', x: 536, y: 590),
+  LobbyFurniturePiece(spriteKey: 'ours-bush-white', x: 964, y: 590),
+  LobbyFurniturePiece(spriteKey: 'ours-bush-small-clay', x: 300, y: 690),
+  LobbyFurniturePiece(spriteKey: 'ours-bush-small-white', x: 500, y: 690),
+  LobbyFurniturePiece(spriteKey: 'ours-bush-small-clay', x: 988, y: 690),
+  LobbyFurniturePiece(spriteKey: 'ours-bush-small-white', x: 1180, y: 690),
+  LobbyFurniturePiece(
+      spriteKey: 'flowers', x: 256, y: 440, collidable: false),
+  LobbyFurniturePiece(
+      spriteKey: 'flowers-pink', x: 296, y: 456, collidable: false),
+  LobbyFurniturePiece(
+      spriteKey: 'flowers', x: 1180, y: 440, collidable: false),
+  LobbyFurniturePiece(
+      spriteKey: 'flowers-pink', x: 1220, y: 456, collidable: false),
+  LobbyFurniturePiece(
+      spriteKey: 'flowers-pink', x: 640, y: 320, collidable: false),
+  LobbyFurniturePiece(
+      spriteKey: 'flowers', x: 868, y: 320, collidable: false),
+  LobbyFurniturePiece(
+      spriteKey: 'grass', x: 360, y: 460, collidable: false),
+  LobbyFurniturePiece(
+      spriteKey: 'grass', x: 1120, y: 460, collidable: false),
+  LobbyFurniturePiece(
+      spriteKey: 'grass', x: 680, y: 760, collidable: false),
+  LobbyFurniturePiece(
+      spriteKey: 'grass', x: 830, y: 760, collidable: false),
+  LobbyFurniturePiece(spriteKey: 'rocks', x: 560, y: 468),
+  LobbyFurniturePiece(spriteKey: 'rocks-small', x: 912, y: 472),
+  LobbyFurniturePiece(spriteKey: 'rocks', x: 640, y: 836),
+  LobbyFurniturePiece(spriteKey: 'rocks-small', x: 860, y: 842),
 ];
 
+/// 3. SHS CLASS ROOM (`LobbyRoomId.classroom`) — Teacher Podium, Lecture Stage, Boards & 12 Student Desks/Chairs!
 const List<LobbyFurniturePiece> kClassroomPieces = [
-  // Wall Blackboards / Charts / Clock
+  // ── STAGE & BACK-ROW STUDY RUGS ──
   LobbyFurniturePiece(
-      spriteKey: 'wall_chart_lines', x: 380, y: 20, collidable: false),
+    spriteKey: 'ours-rug-plum',
+    x: 704,
+    y: 156,
+    collidable: false,
+    isFloorRug: true,
+  ),
   LobbyFurniturePiece(
-      spriteKey: 'wall_notice_board', x: 740, y: 20, collidable: false),
+    spriteKey: 'ours-rug-lagoon',
+    x: 1096,
+    y: 828,
+    collidable: false,
+    isFloorRug: true,
+  ),
   LobbyFurniturePiece(
-      spriteKey: 'wall_Calendar', x: 960, y: 22, collidable: false),
+    spriteKey: 'ours-rug-small-sunset',
+    x: 280,
+    y: 840,
+    collidable: false,
+    isFloorRug: true,
+  ),
+
+  // ── FRONT LECTURE WALL: WINDOWS, CHARTS, CHALKBOARDS, WORLD MAP & CLOCK ──
   LobbyFurniturePiece(
-      spriteKey: 'wall_clock', x: 1140, y: 24, collidable: false),
-  // Teacher Podium Desk (Front Center)
-  LobbyFurniturePiece(spriteKey: 'desk_wood_2', x: 704, y: 190),
-  LobbyFurniturePiece(spriteKey: 'desk_wood_2', x: 768, y: 190),
+      spriteKey: 'window-office-3', x: 88, y: 18, collidable: false),
   LobbyFurniturePiece(
-      spriteKey: 'monitor_front', x: 756, y: 178, collidable: false),
-  LobbyFurniturePiece(spriteKey: 'bookshelf_wide', x: 160, y: 92),
-  LobbyFurniturePiece(spriteKey: 'bookshelf_wide', x: 1280, y: 92),
-  // Row 1 Student Desks & Chairs
-  LobbyFurniturePiece(spriteKey: 'desk_wood_1', x: 416, y: 390),
+      spriteKey: 'board-chart', x: 280, y: 18, collidable: false),
   LobbyFurniturePiece(
-      spriteKey: 'chair_blue_up', x: 432, y: 442, collidable: false),
-  LobbyFurniturePiece(spriteKey: 'desk_wood_1', x: 586, y: 390),
+      spriteKey: 'board-pie', x: 360, y: 18, collidable: false),
   LobbyFurniturePiece(
-      spriteKey: 'chair_blue_up', x: 602, y: 442, collidable: false),
-  LobbyFurniturePiece(spriteKey: 'desk_wood_1', x: 744, y: 390),
+      spriteKey: 'board-blank', x: 1112, y: 18, collidable: false),
   LobbyFurniturePiece(
-      spriteKey: 'chair_blue_up', x: 760, y: 442, collidable: false),
-  LobbyFurniturePiece(spriteKey: 'desk_wood_1', x: 1072, y: 390),
+      spriteKey: 'world-map', x: 1192, y: 24, collidable: false),
   LobbyFurniturePiece(
-      spriteKey: 'chair_blue_up', x: 1088, y: 442, collidable: false),
-  // Row 2 Student Desks & Chairs
-  LobbyFurniturePiece(spriteKey: 'desk_wood_1', x: 416, y: 580),
+      spriteKey: 'ours-clock', x: 1272, y: 24, collidable: false),
   LobbyFurniturePiece(
-      spriteKey: 'chair_blue_up', x: 432, y: 632, collidable: false),
-  LobbyFurniturePiece(spriteKey: 'desk_wood_1', x: 744, y: 580),
+      spriteKey: 'window-office-3', x: 1344, y: 18, collidable: false),
   LobbyFurniturePiece(
-      spriteKey: 'chair_blue_up', x: 760, y: 632, collidable: false),
-  LobbyFurniturePiece(spriteKey: 'desk_wood_1', x: 1072, y: 580),
+      spriteKey: 'wall-trophy', x: 444, y: 18, collidable: false),
   LobbyFurniturePiece(
-      spriteKey: 'chair_blue_up', x: 1088, y: 632, collidable: false),
-  // Back-Row Student Nap Couch
+      spriteKey: 'wall-cert', x: 1064, y: 18, collidable: false),
+  LobbyFurniturePiece(spriteKey: 'wall-bookcase', x: 184, y: 52),
+  LobbyFurniturePiece(spriteKey: 'wall-bookcase-pale', x: 1288, y: 52),
+
+  // ── FRONT TEACHER PODIUM & LECTURE DESK (Center Stage: x=688, y=156) ──
   LobbyFurniturePiece(
-      spriteKey: 'sofa_blue_down', x: 1092, y: 755, collidable: false),
+      spriteKey: 'chair-black-mesh', x: 752, y: 122, collidable: false),
+  LobbyFurniturePiece(spriteKey: 'desks-single-walnut-1-n4', x: 688, y: 156),
+  LobbyFurniturePiece(
+      spriteKey: 'microphone', x: 740, y: 162, collidable: false),
+  LobbyFurniturePiece(
+      spriteKey: 'laptop-open', x: 764, y: 158, collidable: false),
+  LobbyFurniturePiece(
+      spriteKey: 'ours-globe', x: 700, y: 168, collidable: false),
+  LobbyFurniturePiece(
+      spriteKey: 'ours-books', x: 808, y: 168, collidable: false),
+  LobbyFurniturePiece(spriteKey: 'plant-tall', x: 600, y: 148),
+  LobbyFurniturePiece(spriteKey: 'plant-tall', x: 904, y: 148),
+
+  // ── ROW 1 STUDENT DESKS & CHAIRS (4 Desks + 4 Chairs + Notebooks/Books) ──
+  LobbyFurniturePiece(spriteKey: 'desks-single-maple-1-n4', x: 260, y: 324),
+  LobbyFurniturePiece(
+      spriteKey: 'ours-notebook', x: 300, y: 340, collidable: false),
+  LobbyFurniturePiece(
+      spriteKey: 'ours-pen-cup', x: 356, y: 338, collidable: false),
+  LobbyFurniturePiece(
+      spriteKey: 'chair-tan-back', x: 324, y: 404, collidable: false),
+
+  LobbyFurniturePiece(spriteKey: 'desks-single-oak-1-n4', x: 480, y: 324),
+  LobbyFurniturePiece(
+      spriteKey: 'ours-books', x: 520, y: 340, collidable: false),
+  LobbyFurniturePiece(
+      spriteKey: 'ours-notebook', x: 564, y: 340, collidable: false),
+  LobbyFurniturePiece(
+      spriteKey: 'chair-tan-back', x: 544, y: 404, collidable: false),
+
+  LobbyFurniturePiece(spriteKey: 'desks-single-maple-1-n4', x: 880, y: 324),
+  LobbyFurniturePiece(
+      spriteKey: 'laptop-dark', x: 924, y: 332, collidable: false),
+  LobbyFurniturePiece(
+      spriteKey: 'ours-pen-cup', x: 976, y: 338, collidable: false),
+  LobbyFurniturePiece(
+      spriteKey: 'chair-tan-back', x: 944, y: 404, collidable: false),
+
+  LobbyFurniturePiece(spriteKey: 'desks-single-oak-1-n4', x: 1100, y: 324),
+  LobbyFurniturePiece(
+      spriteKey: 'ours-notebook', x: 1140, y: 340, collidable: false),
+  LobbyFurniturePiece(
+      spriteKey: 'ours-books', x: 1188, y: 340, collidable: false),
+  LobbyFurniturePiece(
+      spriteKey: 'chair-tan-back', x: 1164, y: 404, collidable: false),
+
+  // ── ROW 2 STUDENT DESKS & CHAIRS (4 Desks + 4 Chairs) ──
+  LobbyFurniturePiece(spriteKey: 'desks-single-oak-1-n4', x: 260, y: 504),
+  LobbyFurniturePiece(
+      spriteKey: 'ours-books', x: 304, y: 520, collidable: false),
+  LobbyFurniturePiece(
+      spriteKey: 'chair-black-back', x: 324, y: 584, collidable: false),
+
+  LobbyFurniturePiece(spriteKey: 'desks-single-maple-1-n4', x: 480, y: 504),
+  LobbyFurniturePiece(
+      spriteKey: 'laptop-open', x: 524, y: 512, collidable: false),
+  LobbyFurniturePiece(
+      spriteKey: 'chair-black-back', x: 544, y: 584, collidable: false),
+
+  LobbyFurniturePiece(spriteKey: 'desks-single-oak-1-n4', x: 880, y: 504),
+  LobbyFurniturePiece(
+      spriteKey: 'ours-notebook', x: 924, y: 520, collidable: false),
+  LobbyFurniturePiece(
+      spriteKey: 'chair-black-back', x: 944, y: 584, collidable: false),
+
+  LobbyFurniturePiece(spriteKey: 'desks-single-maple-1-n4', x: 1100, y: 504),
+  LobbyFurniturePiece(
+      spriteKey: 'ours-pen-cup', x: 1144, y: 518, collidable: false),
+  LobbyFurniturePiece(
+      spriteKey: 'chair-black-back', x: 1164, y: 584, collidable: false),
+
+  // ── ROW 3 STUDENT DESKS & CHAIRS (4 Desks + 4 Chairs) ──
+  LobbyFurniturePiece(spriteKey: 'desks-single-maple-1-n4', x: 260, y: 684),
+  LobbyFurniturePiece(
+      spriteKey: 'ours-notebook', x: 304, y: 700, collidable: false),
+  LobbyFurniturePiece(
+      spriteKey: 'chair-tan-mesh-back', x: 324, y: 764, collidable: false),
+
+  LobbyFurniturePiece(spriteKey: 'desks-single-oak-1-n4', x: 480, y: 684),
+  LobbyFurniturePiece(
+      spriteKey: 'ours-books', x: 524, y: 700, collidable: false),
+  LobbyFurniturePiece(
+      spriteKey: 'chair-tan-mesh-back', x: 544, y: 764, collidable: false),
+
+  LobbyFurniturePiece(spriteKey: 'desks-single-maple-1-n4', x: 880, y: 684),
+  LobbyFurniturePiece(
+      spriteKey: 'ours-notebook', x: 924, y: 700, collidable: false),
+  LobbyFurniturePiece(
+      spriteKey: 'chair-tan-mesh-back', x: 944, y: 764, collidable: false),
+
+  LobbyFurniturePiece(spriteKey: 'desks-single-oak-1-n4', x: 1100, y: 684),
+  LobbyFurniturePiece(
+      spriteKey: 'ours-books', x: 1144, y: 700, collidable: false),
+  LobbyFurniturePiece(
+      spriteKey: 'chair-tan-mesh-back', x: 1164, y: 764, collidable: false),
+
+  // ── BACK-ROW CLASSROOM READING & NAP CORNER ──
+  LobbyFurniturePiece(spriteKey: 'bookshelf', x: 96, y: 840),
+  LobbyFurniturePiece(spriteKey: 'shelving', x: 164, y: 840),
+  LobbyFurniturePiece(
+      spriteKey: 'egg-chair-teal', x: 296, y: 842, collidable: false),
+  LobbyFurniturePiece(
+      spriteKey: 'sofa-three', x: 1128, y: 836, collidable: false),
+  LobbyFurniturePiece(spriteKey: 'plant-snake', x: 88, y: 420),
+  LobbyFurniturePiece(spriteKey: 'plant-snake', x: 1416, y: 420),
 ];
 
+/// 4. STUDENT CANTEEN (`LobbyRoomId.canteen`) — Vending Machines, Coolers, Coffee Counter & 6 Dining Tables!
 const List<LobbyFurniturePiece> kCanteenPieces = [
-  // Canteen Counter & Vending Machines
-  LobbyFurniturePiece(spriteKey: 'vending_machine', x: 180, y: 110),
-  LobbyFurniturePiece(spriteKey: 'vending_machine', x: 250, y: 110),
-  LobbyFurniturePiece(spriteKey: 'water_cooler', x: 330, y: 120),
-  LobbyFurniturePiece(spriteKey: 'desk_grey_2', x: 1020, y: 180),
-  LobbyFurniturePiece(spriteKey: 'desk_grey_2', x: 1084, y: 180),
-  LobbyFurniturePiece(spriteKey: 'desk_grey_2', x: 1148, y: 180),
-  // Dining Tables & Chairs
-  LobbyFurniturePiece(spriteKey: 'desk_grey_1', x: 416, y: 475),
+  // ── LOUNGE RUGS ──
   LobbyFurniturePiece(
-      spriteKey: 'chair_blue_up', x: 432, y: 528, collidable: false),
-  LobbyFurniturePiece(spriteKey: 'desk_grey_1', x: 586, y: 475),
+    spriteKey: 'ours-rug-sunset',
+    x: 1116,
+    y: 800,
+    collidable: false,
+    isFloorRug: true,
+  ),
   LobbyFurniturePiece(
-      spriteKey: 'chair_blue_up', x: 602, y: 528, collidable: false),
-  LobbyFurniturePiece(spriteKey: 'desk_grey_1', x: 744, y: 475),
+    spriteKey: 'ours-rug-lagoon',
+    x: 240,
+    y: 800,
+    collidable: false,
+    isFloorRug: true,
+  ),
+
+  // ── NORTH-WEST VENDING MACHINE BANK (Drinks, Snacks, Wall Vending & Coolers) ──
   LobbyFurniturePiece(
-      spriteKey: 'chair_blue_up', x: 760, y: 528, collidable: false),
-  // Cozy Canteen Booth Sofa
+      spriteKey: 'wall-poster', x: 96, y: 18, collidable: false),
   LobbyFurniturePiece(
-      spriteKey: 'sofa_grey_down', x: 1132, y: 760, collidable: false),
-  LobbyFurniturePiece(spriteKey: 'plant_tall', x: 140, y: 840),
-  LobbyFurniturePiece(spriteKey: 'plant_tall', x: 1360, y: 840),
+      spriteKey: 'window-blinds-3', x: 540, y: 18, collidable: false),
+  LobbyFurniturePiece(spriteKey: 'vending-drinks', x: 144, y: 92),
+  LobbyFurniturePiece(spriteKey: 'vending-snacks', x: 216, y: 92),
+  LobbyFurniturePiece(spriteKey: 'wall-vending', x: 288, y: 76),
+  LobbyFurniturePiece(spriteKey: 'vending-drinks', x: 424, y: 92),
+  LobbyFurniturePiece(spriteKey: 'vending-snacks', x: 496, y: 92),
+  LobbyFurniturePiece(spriteKey: 'water-cooler', x: 572, y: 108),
+  LobbyFurniturePiece(spriteKey: 'mini-fridge', x: 612, y: 124),
+
+  // ── NORTH-EAST MERIENDA & COFFEE COUNTER ──
+  LobbyFurniturePiece(
+      spriteKey: 'wall-painting', x: 900, y: 18, collidable: false),
+  LobbyFurniturePiece(
+      spriteKey: 'ours-clock', x: 1000, y: 24, collidable: false),
+  LobbyFurniturePiece(spriteKey: 'wall-shelf-cooler', x: 880, y: 76),
+  LobbyFurniturePiece(spriteKey: 'wall-coffee-table', x: 984, y: 76),
+  LobbyFurniturePiece(spriteKey: 'wall-vending', x: 1056, y: 76),
+  LobbyFurniturePiece(spriteKey: 'wall-cooler', x: 1192, y: 76),
+  LobbyFurniturePiece(spriteKey: 'desks-front-maple-2', x: 920, y: 148),
+  LobbyFurniturePiece(
+      spriteKey: 'ours-mug-coral', x: 960, y: 156, collidable: false),
+  LobbyFurniturePiece(
+      spriteKey: 'ours-mug-mustard', x: 1040, y: 156, collidable: false),
+  LobbyFurniturePiece(
+      spriteKey: 'ours-mug-teal', x: 1120, y: 156, collidable: false),
+  LobbyFurniturePiece(
+      spriteKey: 'ours-bottle', x: 1200, y: 156, collidable: false),
+
+  // ── 6 DINING TABLES & CHAIRS (Row 1: y=370, Row 2: y=620) ──
+  // Table 1 (West Row 1)
+  LobbyFurniturePiece(spriteKey: 'meeting-table', x: 220, y: 370),
+  LobbyFurniturePiece(
+      spriteKey: 'ours-mug-coral', x: 280, y: 392, collidable: false),
+  LobbyFurniturePiece(
+      spriteKey: 'ours-bottle', x: 360, y: 392, collidable: false),
+  LobbyFurniturePiece(
+      spriteKey: 'chair-tan-back', x: 268, y: 458, collidable: false),
+  LobbyFurniturePiece(
+      spriteKey: 'chair-tan-back', x: 356, y: 458, collidable: false),
+
+  // Table 2 (Center-West Row 1)
+  LobbyFurniturePiece(spriteKey: 'meeting-table-small', x: 500, y: 370),
+  LobbyFurniturePiece(
+      spriteKey: 'ours-mug-teal', x: 564, y: 392, collidable: false),
+  LobbyFurniturePiece(
+      spriteKey: 'chair-tan-back', x: 536, y: 458, collidable: false),
+  LobbyFurniturePiece(
+      spriteKey: 'chair-tan-back', x: 600, y: 458, collidable: false),
+
+  // Table 3 (Center-East Row 1)
+  LobbyFurniturePiece(spriteKey: 'meeting-table-small', x: 880, y: 370),
+  LobbyFurniturePiece(
+      spriteKey: 'ours-mug-mustard', x: 944, y: 392, collidable: false),
+  LobbyFurniturePiece(
+      spriteKey: 'chair-tan-back', x: 916, y: 458, collidable: false),
+  LobbyFurniturePiece(
+      spriteKey: 'chair-tan-back', x: 980, y: 458, collidable: false),
+
+  // Table 4 (East Row 1)
+  LobbyFurniturePiece(spriteKey: 'meeting-table', x: 1096, y: 370),
+  LobbyFurniturePiece(
+      spriteKey: 'ours-bottle', x: 1156, y: 392, collidable: false),
+  LobbyFurniturePiece(
+      spriteKey: 'ours-mug-coral', x: 1236, y: 392, collidable: false),
+  LobbyFurniturePiece(
+      spriteKey: 'chair-tan-back', x: 1144, y: 458, collidable: false),
+  LobbyFurniturePiece(
+      spriteKey: 'chair-tan-back', x: 1232, y: 458, collidable: false),
+
+  // Table 5 (West Row 2)
+  LobbyFurniturePiece(spriteKey: 'meeting-table', x: 260, y: 620),
+  LobbyFurniturePiece(
+      spriteKey: 'ours-mug-mustard', x: 320, y: 642, collidable: false),
+  LobbyFurniturePiece(
+      spriteKey: 'stool', x: 308, y: 708, collidable: false),
+  LobbyFurniturePiece(
+      spriteKey: 'stool', x: 396, y: 708, collidable: false),
+
+  // Table 6 (East Row 2)
+  LobbyFurniturePiece(spriteKey: 'meeting-table', x: 920, y: 620),
+  LobbyFurniturePiece(
+      spriteKey: 'ours-mug-teal', x: 980, y: 642, collidable: false),
+  LobbyFurniturePiece(
+      spriteKey: 'stool', x: 968, y: 708, collidable: false),
+  LobbyFurniturePiece(
+      spriteKey: 'stool', x: 1056, y: 708, collidable: false),
+
+  // ── COZY CANTEEN LOUNGE & NAP BOOTHS (South Corners) ──
+  LobbyFurniturePiece(
+      spriteKey: 'egg-chair-coral', x: 256, y: 816, collidable: false),
+  LobbyFurniturePiece(
+      spriteKey: 'egg-chair-mustard', x: 328, y: 816, collidable: false),
+  LobbyFurniturePiece(
+      spriteKey: 'sofa-three', x: 1148, y: 816, collidable: false),
+  LobbyFurniturePiece(spriteKey: 'coffee-table', x: 1148, y: 880),
+  LobbyFurniturePiece(spriteKey: 'plant-tall', x: 88, y: 840),
+  LobbyFurniturePiece(spriteKey: 'plant-tall', x: 1408, y: 840),
 ];
 
+/// 5. FACULTY CONSULTATION ROOM (`LobbyRoomId.facultyRoom`) — Adviser Desks, Bookcases & Waiting Lounge!
 const List<LobbyFurniturePiece> kFacultyRoomPieces = [
+  // ── RUGS ──
   LobbyFurniturePiece(
-      spriteKey: 'wall_art_1', x: 520, y: 20, collidable: false),
+    spriteKey: 'ours-rug-plum',
+    x: 704,
+    y: 360,
+    collidable: false,
+    isFloorRug: true,
+  ),
   LobbyFurniturePiece(
-      spriteKey: 'wall_chart_bars', x: 760, y: 20, collidable: false),
+    spriteKey: 'ours-rug-lagoon',
+    x: 1116,
+    y: 700,
+    collidable: false,
+    isFloorRug: true,
+  ),
+
+  // ── NORTH WALL BOOKCASES, CHARTS & WINDOWS ──
   LobbyFurniturePiece(
-      spriteKey: 'wall_notice_board', x: 980, y: 22, collidable: false),
-  LobbyFurniturePiece(spriteKey: 'bookshelf_tall_1', x: 220, y: 84),
-  LobbyFurniturePiece(spriteKey: 'bookshelf_tall_2', x: 260, y: 84),
-  LobbyFurniturePiece(spriteKey: 'bookshelf_wide', x: 1180, y: 86),
-  // Faculty Consultation Table
-  LobbyFurniturePiece(spriteKey: 'desk_wood_2', x: 680, y: 390),
-  LobbyFurniturePiece(spriteKey: 'desk_wood_2', x: 744, y: 390),
-  LobbyFurniturePiece(spriteKey: 'desk_wood_2', x: 808, y: 390),
+      spriteKey: 'window-office-3', x: 120, y: 18, collidable: false),
   LobbyFurniturePiece(
-      spriteKey: 'chair_blue_up', x: 760, y: 505, collidable: false),
-  // Faculty Lounge Rest Sofa
+      spriteKey: 'wall-painting', x: 480, y: 18, collidable: false),
   LobbyFurniturePiece(
-      spriteKey: 'sofa_blue_down', x: 1132, y: 700, collidable: false),
-  LobbyFurniturePiece(spriteKey: 'water_cooler', x: 1360, y: 120),
-  LobbyFurniturePiece(spriteKey: 'plant_tall', x: 420, y: 140),
-  LobbyFurniturePiece(spriteKey: 'plant_tall', x: 1080, y: 140),
+      spriteKey: 'wall-charts', x: 736, y: 18, collidable: false),
+  LobbyFurniturePiece(
+      spriteKey: 'notice-board', x: 960, y: 24, collidable: false),
+  LobbyFurniturePiece(
+      spriteKey: 'ours-clock', x: 1056, y: 24, collidable: false),
+  LobbyFurniturePiece(
+      spriteKey: 'window-office-3', x: 1280, y: 18, collidable: false),
+  LobbyFurniturePiece(spriteKey: 'wall-bookcase', x: 240, y: 52),
+  LobbyFurniturePiece(spriteKey: 'wall-bookcase-red', x: 310, y: 52),
+  LobbyFurniturePiece(spriteKey: 'wall-bookcase-pale', x: 1120, y: 52),
+  LobbyFurniturePiece(spriteKey: 'wall-cabinet', x: 1190, y: 52),
+
+  // ── FACULTY CONSULTATION DESKS ──
+  LobbyFurniturePiece(
+      spriteKey: 'chair-black-mesh', x: 752, y: 268, collidable: false),
+  LobbyFurniturePiece(spriteKey: 'desks-single-walnut-1-n4', x: 688, y: 300),
+  LobbyFurniturePiece(
+      spriteKey: 'setup-monitors', x: 720, y: 292, collidable: false),
+  LobbyFurniturePiece(
+      spriteKey: 'ours-globe', x: 696, y: 312, collidable: false),
+  LobbyFurniturePiece(
+      spriteKey: 'chair-tan-back', x: 752, y: 416, collidable: false),
+
+  LobbyFurniturePiece(spriteKey: 'desks-single-oak-1-n4', x: 360, y: 300),
+  LobbyFurniturePiece(
+      spriteKey: 'setup-laptop', x: 392, y: 294, collidable: false),
+  LobbyFurniturePiece(
+      spriteKey: 'ours-books', x: 368, y: 312, collidable: false),
+
+  LobbyFurniturePiece(spriteKey: 'desks-single-maple-1-n4', x: 1020, y: 300),
+  LobbyFurniturePiece(
+      spriteKey: 'setup-laptop-b', x: 1052, y: 294, collidable: false),
+  LobbyFurniturePiece(
+      spriteKey: 'ours-pen-cup', x: 1032, y: 312, collidable: false),
+
+  // ── WAITING LOUNGE & ARCHIVE SHELVES ──
+  LobbyFurniturePiece(spriteKey: 'bookshelf', x: 240, y: 700),
+  LobbyFurniturePiece(spriteKey: 'shelving', x: 312, y: 700),
+  LobbyFurniturePiece(
+      spriteKey: 'sofa-three', x: 1148, y: 716, collidable: false),
+  LobbyFurniturePiece(spriteKey: 'coffee-table', x: 1148, y: 780),
+  LobbyFurniturePiece(spriteKey: 'water-cooler', x: 1380, y: 112),
+  LobbyFurniturePiece(spriteKey: 'plant-tall', x: 580, y: 140),
+  LobbyFurniturePiece(spriteKey: 'plant-tall', x: 940, y: 140),
 ];
 
-/// Non-player characters rendered in the School Campus.
+/// Non-player staff characters rendered in the School Campus.
+/// Phase 4 Requirement 1: Keep ONLY the Lobbyist (`npc_receptionist: Aiko`) and remove all other non-student NPCs!
 class LobbyNpc {
   final String id;
   final String name;
@@ -1154,57 +1981,13 @@ class LobbyNpc {
 const List<LobbyNpc> kLobbyNpcs = [
   LobbyNpc(
     id: 'npc_receptionist',
-    name: 'Aiko (Quest Guide)',
-    roleTag: 'Reception',
+    name: 'Aiko (Lobbyist)',
+    roleTag: 'Lobbyist',
     isGoldTag: true,
     presetName: 'Lucy',
     room: LobbyRoomId.mainLobby,
     x: 768,
-    y: 142,
-    facing: AvatarFacing.down,
-  ),
-  LobbyNpc(
-    id: 'npc_teacher',
-    name: 'Sir Jim Mark',
-    roleTag: 'Teacher',
-    isGoldTag: true,
-    presetName: 'Adam',
-    room: LobbyRoomId.mainLobby,
-    x: 1248,
-    y: 142,
-    facing: AvatarFacing.down,
-  ),
-  LobbyNpc(
-    id: 'npc_librarian',
-    name: 'Kuya Ben (Vault Keeper)',
-    roleTag: 'Archivist',
-    isGoldTag: false,
-    presetName: 'Dan',
-    room: LobbyRoomId.mainLobby,
-    x: 1168,
-    y: 545,
-    facing: AvatarFacing.down,
-  ),
-  LobbyNpc(
-    id: 'npc_canteen_chef',
-    name: 'Ate Lorna (Canteen)',
-    roleTag: 'Staff',
-    isGoldTag: true,
-    presetName: 'Amelia',
-    room: LobbyRoomId.canteen,
-    x: 1100,
-    y: 160,
-    facing: AvatarFacing.down,
-  ),
-  LobbyNpc(
-    id: 'npc_faculty_adviser',
-    name: 'Ma\'am Reyes (Adviser)',
-    roleTag: 'Teacher',
-    isGoldTag: true,
-    presetName: 'Jenny',
-    room: LobbyRoomId.facultyRoom,
-    x: 768,
-    y: 350,
+    y: 132,
     facing: AvatarFacing.down,
   ),
 ];
@@ -1238,6 +2021,7 @@ List<LobbyRestSpot> restSpotsForRoom(LobbyRoomId room) {
 
 /// Builds solid collision rectangles (`Rect`) for wall boundaries, furniture counters,
 /// and dynamic Subject Chests in the given [room].
+/// Walk paths and interactive chairs/benches/rugs are kept 100% clear so pathfinding is seamless!
 List<Rect> buildLobbySolids(
   List<SubjectChest> subjectChests, {
   LobbyRoomId room = LobbyRoomId.mainLobby,
@@ -1245,32 +2029,33 @@ List<Rect> buildLobbySolids(
   final solids = <Rect>[
     // Outer perimeter walls (expanded 1536 x 1088)
     const Rect.fromLTWH(0, 0, kLobbyWorldWidth, 82), // Top wall
-    const Rect.fromLTWH(0, kLobbyWorldHeight - 24, kLobbyWorldWidth, 24), // Bottom wall
+    const Rect.fromLTWH(
+        0, kLobbyWorldHeight - 24, kLobbyWorldWidth, 24), // Bottom wall
     const Rect.fromLTWH(0, 0, 32, kLobbyWorldHeight), // Left wall
-    const Rect.fromLTWH(kLobbyWorldWidth - 32, 0, 32, kLobbyWorldHeight), // Right wall
+    const Rect.fromLTWH(
+        kLobbyWorldWidth - 32, 0, 32, kLobbyWorldHeight), // Right wall
   ];
 
   switch (room) {
     case LobbyRoomId.mainLobby:
       solids.addAll(const [
-        // Reception Counter collider
-        Rect.fromLTWH(684, 152, 184, 34),
+        // Reception Counter (`desks-front-maple-2`) collider
+        Rect.fromLTWH(576, 148, 384, 44),
         // Teacher's Corner Desk collider
-        Rect.fromLTWH(1196, 158, 128, 34),
+        Rect.fromLTWH(1192, 152, 144, 44),
         // Bookshelves along top walls
-        Rect.fromLTWH(92, 82, 60, 34),
-        Rect.fromLTWH(412, 82, 32, 36),
-        Rect.fromLTWH(1084, 82, 68, 36),
-        Rect.fromLTWH(1340, 82, 60, 34),
+        Rect.fromLTWH(88, 82, 64, 34),
+        Rect.fromLTWH(416, 82, 64, 36),
+        Rect.fromLTWH(1056, 82, 128, 36),
         // Student Lounge study tables (chairs & sofas remain walkable for sitting/napping/sleeping!)
-        Rect.fromLTWH(174, 598, 118, 28),
-        Rect.fromLTWH(462, 598, 118, 28),
-        Rect.fromLTWH(318, 846, 56, 26),
-        // Arcade & Vending machines
-        Rect.fromLTWH(60, 736, 40, 128),
+        Rect.fromLTWH(168, 586, 144, 38),
+        Rect.fromLTWH(456, 586, 144, 38),
+        Rect.fromLTWH(320, 852, 60, 28),
+        // West Vending machines
+        Rect.fromLTWH(56, 724, 56, 156),
         // Reviewer Sanctuary top bookshelves
-        Rect.fromLTWH(1052, 488, 60, 32),
-        Rect.fromLTWH(1212, 488, 60, 32),
+        Rect.fromLTWH(1024, 480, 128, 34),
+        Rect.fromLTWH(1228, 480, 128, 34),
       ]);
       for (var i = 0; i < subjectChests.length; i++) {
         final pos = subjectChestPosition(i);
@@ -1285,41 +2070,55 @@ List<Rect> buildLobbySolids(
       break;
 
     case LobbyRoomId.park:
-      // Central Park Pond water collider
+      // Central Park Pond water collider (walkway loop around it is 100% open!)
       solids.add(const Rect.fromLTWH(640, 420, 256, 180));
       break;
 
     case LobbyRoomId.classroom:
       solids.addAll(const [
-        // Teacher podium desk
-        Rect.fromLTWH(700, 188, 132, 32),
-        // Student desk tables (chairs just below them are walkable so students can sit/nap!)
-        Rect.fromLTWH(412, 386, 56, 26),
-        Rect.fromLTWH(582, 386, 56, 26),
-        Rect.fromLTWH(740, 386, 56, 26),
-        Rect.fromLTWH(1068, 386, 56, 26),
-        Rect.fromLTWH(412, 576, 56, 26),
-        Rect.fromLTWH(740, 576, 56, 26),
-        Rect.fromLTWH(1068, 576, 56, 26),
+        // Front Teacher Podium Desk
+        Rect.fromLTWH(696, 164, 144, 42),
+        // Row 1 Student Desk tables (chairs below them at y=428 are walkable!)
+        Rect.fromLTWH(268, 336, 144, 36),
+        Rect.fromLTWH(488, 336, 144, 36),
+        Rect.fromLTWH(888, 336, 144, 36),
+        Rect.fromLTWH(1108, 336, 144, 36),
+        // Row 2 Student Desk tables (chairs below them at y=608 are walkable!)
+        Rect.fromLTWH(268, 516, 144, 36),
+        Rect.fromLTWH(488, 516, 144, 36),
+        Rect.fromLTWH(888, 516, 144, 36),
+        Rect.fromLTWH(1108, 516, 144, 36),
+        // Row 3 Student Desk tables (chairs below them at y=764 are walkable!)
+        Rect.fromLTWH(268, 696, 144, 36),
+        Rect.fromLTWH(488, 696, 144, 36),
+        Rect.fromLTWH(888, 696, 144, 36),
+        Rect.fromLTWH(1108, 696, 144, 36),
       ]);
       break;
 
     case LobbyRoomId.canteen:
       solids.addAll(const [
-        // Food counter & vending machines
-        Rect.fromLTWH(176, 106, 180, 42),
-        Rect.fromLTWH(1016, 176, 196, 36),
-        // Dining tables
-        Rect.fromLTWH(412, 472, 56, 26),
-        Rect.fromLTWH(582, 472, 56, 26),
-        Rect.fromLTWH(740, 472, 56, 26),
+        // North-West Vending Machine Bank
+        Rect.fromLTWH(144, 96, 480, 56),
+        // North-East Merienda & Coffee Counter
+        Rect.fromLTWH(920, 148, 400, 46),
+        // Row 1 Dining tables (chairs below them at y=486 are walkable!)
+        Rect.fromLTWH(228, 382, 204, 44),
+        Rect.fromLTWH(508, 382, 144, 44),
+        Rect.fromLTWH(888, 382, 144, 44),
+        Rect.fromLTWH(1104, 382, 204, 44),
+        // Row 2 Dining tables
+        Rect.fromLTWH(268, 632, 204, 44),
+        Rect.fromLTWH(928, 632, 204, 44),
       ]);
       break;
 
     case LobbyRoomId.facultyRoom:
       solids.addAll(const [
-        // Faculty consultation table
-        Rect.fromLTWH(676, 386, 196, 36),
+        // Faculty consultation desks
+        Rect.fromLTWH(368, 312, 144, 42),
+        Rect.fromLTWH(696, 312, 144, 42),
+        Rect.fromLTWH(1028, 312, 144, 42),
       ]);
       break;
   }
@@ -1339,7 +2138,8 @@ List<InteractiveZone> buildActiveInteractiveZones(
   final zones = <InteractiveZone>[];
 
   if (room == LobbyRoomId.mainLobby) {
-    zones.addAll(INTERACTIVE_ZONES.where((z) => z.room == LobbyRoomId.mainLobby));
+    zones.addAll(
+        INTERACTIVE_ZONES.where((z) => z.room == LobbyRoomId.mainLobby));
     for (var i = 0; i < subjectChests.length; i++) {
       final chest = subjectChests[i];
       final pos = subjectChestPosition(i);
@@ -1347,8 +2147,9 @@ List<InteractiveZone> buildActiveInteractiveZones(
         InteractiveZone(
           id: 'subject_chest_${chest.id}',
           label: '📦 ${chest.subjectName} Reviewer Chest',
-          subtitle:
-              '${chest.reviewers.length} Reviewer(s) ready • Tap Interact to open',
+          subtitle: chest.reviewers.isEmpty
+              ? 'Empty Vault • Teacher can add Reviewer Links (+XP)'
+              : '${chest.reviewers.length} Reviewer Link(s) ready • Tap Interact to open',
           kind: InteractiveZoneKind.subjectChest,
           room: LobbyRoomId.mainLobby,
           x: pos.dx,
