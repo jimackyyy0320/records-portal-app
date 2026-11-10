@@ -8,6 +8,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../models/portal_models.dart';
 import '../theme/portal_theme.dart';
 import 'lobby_data_service.dart';
+import 'lobby_presence_service.dart';
 import 'school_lobby_avatar.dart';
 import 'school_lobby_config.dart';
 import 'school_lobby_controls.dart';
@@ -69,6 +70,7 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
   Size _lastViewportSize = Size.zero;
   bool _showMiniMap = true;
   bool _forcedLandscape = false;
+  bool _showOfflineBots = false;
 
   // Animation & Wave state
   int _animTick = 0;
@@ -131,6 +133,19 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
       _loading = false;
     });
 
+    // Start live cross-device multiplayer presence & synchronization
+    unawaited(
+      LobbyPresenceService.instance.startPresence(
+        session: widget.session,
+        nickname: savedNickname,
+        look: savedLook,
+        equippedBadgeIcon:
+            LobbyDataService.instance.progress.equippedBadge?.badgeIcon,
+        initialRoom: _currentRoom,
+        initialPos: _playerPos,
+      ),
+    );
+
     // Start 60 FPS game loop (~16ms tick)
     _gameLoopTimer = Timer.periodic(
       const Duration(milliseconds: 16),
@@ -150,6 +165,7 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
 
   @override
   void dispose() {
+    LobbyPresenceService.instance.stopPresence();
     _gameLoopTimer?.cancel();
     _keyboardFocusNode.dispose();
     SystemChrome.setPreferredOrientations(const []);
@@ -195,6 +211,14 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
       _cameraCenter =
           _clampCameraToWorld(spawn, _lastViewportSize, _cameraZoom);
     });
+    LobbyPresenceService.instance.updateLocalPlayerState(
+      room: targetRoom,
+      position: spawn,
+      facing: AvatarFacing.down,
+      isWalking: false,
+      restState: PlayerRestState.none,
+      forceImmediateBroadcast: true,
+    );
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
@@ -222,12 +246,36 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
         _playerIsWalking = false;
       }
     });
+    LobbyPresenceService.instance.updateLocalPlayerState(
+      position: _playerPos,
+      facing: _playerFacing,
+      isWalking: _playerIsWalking,
+      restState: _playerRestState,
+      forceImmediateBroadcast: true,
+    );
   }
 
   Future<void> _openThoughtBubbleModal({LobbyPeerStudent? peer}) async {
-    // Check if there is a nearby peer student even if not explicitly passed
+    // Check if there is a nearby live online player or peer student even if not explicitly passed
     LobbyPeerStudent? targetPeer = peer;
     if (targetPeer == null) {
+      for (final rp in LobbyPresenceService.instance.playersForRoom(_currentRoom)) {
+        if ((_playerPos - rp.currentPos).distance <= 140.0) {
+          targetPeer = LobbyPeerStudent(
+            id: 'live_${rp.userId}',
+            name: rp.nickname,
+            roleTag: rp.isFaculty ? 'Live Teacher 🟢' : 'Live Classmate 🟢',
+            room: _currentRoom,
+            x: rp.currentPos.dx,
+            y: rp.currentPos.dy,
+            look: rp.look,
+            sampleReplies: const [],
+          );
+          break;
+        }
+      }
+    }
+    if (targetPeer == null && _showOfflineBots) {
       for (final p in peersForRoom(_currentRoom)) {
         if ((_playerPos - p.position).distance <= 120.0) {
           targetPeer = p;
@@ -251,6 +299,11 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
         _playerThoughtText = null;
         _playerThoughtUntilMs = 0;
       });
+      LobbyPresenceService.instance.updateLocalPlayerState(
+        thoughtText: '',
+        thoughtUntilMs: 0,
+        forceImmediateBroadcast: true,
+      );
       return;
     }
 
@@ -261,6 +314,12 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
       _playerThoughtUntilMs = nowMs + 14000; // Visible for 14 seconds
     });
 
+    LobbyPresenceService.instance.updateLocalPlayerState(
+      thoughtText: clean,
+      thoughtUntilMs: _playerThoughtUntilMs,
+      forceImmediateBroadcast: true,
+    );
+
     LobbyDataService.instance.recordThoughtBubble(
       senderName: _playerNickname,
       senderRole: widget.session.isFaculty ? 'Teacher' : 'Student',
@@ -269,7 +328,7 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
       isFromPeer: false,
     );
 
-    // If a classmate peer is nearby, let them respond with a friendly Thought Bubble!
+    // If an offline practice classmate peer is nearby, let them respond with a friendly Thought Bubble!
     if (targetPeer != null && targetPeer.sampleReplies.isNotEmpty) {
       final peerObj = targetPeer;
       Future.delayed(const Duration(milliseconds: 900), () {
@@ -473,21 +532,68 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
       animChanged = true;
     }
 
+    // 3b. Advance 60 FPS remote player position interpolation & sync local player state
+    final remoteMoved =
+        LobbyPresenceService.instance.tickInterpolation(dt, _currentRoom);
+    LobbyPresenceService.instance.updateLocalPlayerState(
+      nickname: _playerNickname,
+      look: _playerLook,
+      equippedBadgeIcon: service.progress.equippedBadge?.badgeIcon,
+      room: _currentRoom,
+      position: _playerPos,
+      facing: _playerFacing,
+      isWalking: _playerIsWalking,
+      restState: _playerRestState,
+      thoughtText: _playerThoughtText,
+      thoughtUntilMs: _playerThoughtUntilMs,
+    );
+
     // 4. Update nearest InteractiveZone within radius in `_currentRoom`
     final allZones = _cachedZones;
     InteractiveZone? nearest;
     var bestDist = 999999.0;
     for (final z in allZones) {
+      if (!_showOfflineBots && z.kind == InteractiveZoneKind.peerStudent) {
+        continue;
+      }
       final d = (_playerPos - z.center).distance;
       if (d <= z.radius && d < bestDist) {
         bestDist = d;
         nearest = z;
       }
     }
+
+    // Also include live online players in `_currentRoom` as interactive proximity targets!
+    for (final rp in LobbyPresenceService.instance.playersForRoom(_currentRoom)) {
+      final d = (_playerPos - rp.currentPos).distance;
+      if (d <= 115.0 && d < bestDist) {
+        bestDist = d;
+        nearest = InteractiveZone(
+          id: 'zone_live_${rp.userId}',
+          label: 'Chat with ${rp.nickname} 💭',
+          subtitle: rp.isFaculty
+              ? 'Live Online Teacher — Tap to send Thought Bubble!'
+              : 'Live Online Classmate — Tap to send Thought Bubble!',
+          kind: InteractiveZoneKind.peerStudent,
+          x: rp.currentPos.dx,
+          y: rp.currentPos.dy,
+          radius: 115.0,
+          accentColor: rp.isFaculty ? 0xFFFACC15 : 0xFF10B981,
+          room: _currentRoom,
+          peerStudentId: 'live_${rp.userId}',
+        );
+      }
+    }
+
     final zoneChanged = _highlightedZone?.id != nearest?.id;
     _highlightedZone = nearest;
 
-    if (walking || wasWalking || cameraMoved || animChanged || zoneChanged) {
+    if (walking ||
+        wasWalking ||
+        cameraMoved ||
+        animChanged ||
+        zoneChanged ||
+        remoteMoved) {
       setState(() {});
     }
   }
@@ -555,6 +661,12 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
           _playerNickname = result.nickname;
           _playerSheet = newSheet;
         });
+        LobbyPresenceService.instance.updateLocalPlayerState(
+          nickname: result.nickname,
+          look: result.look,
+          equippedBadgeIcon: equippedBadgeIcon,
+          forceImmediateBroadcast: true,
+        );
       }
     }
   }
@@ -564,6 +676,10 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
     setState(() {
       _waveBubbleProgress = 0.01;
     });
+    LobbyPresenceService.instance.updateLocalPlayerState(
+      triggerWave: true,
+      forceImmediateBroadcast: true,
+    );
   }
 
   Future<void> _triggerInteract() async {
@@ -598,6 +714,31 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
         }
         break;
       case InteractiveZoneKind.peerStudent:
+        final pid = zone.peerStudentId ?? '';
+        if (pid.startsWith('live_')) {
+          final liveUid = pid.substring(5);
+          final rpList = LobbyPresenceService.instance
+              .playersForRoom(_currentRoom)
+              .where((p) => p.userId == liveUid)
+              .toList();
+          if (rpList.isNotEmpty) {
+            final rp = rpList.first;
+            await _openThoughtBubbleModal(
+              peer: LobbyPeerStudent(
+                id: 'live_${rp.userId}',
+                name: rp.nickname,
+                roleTag:
+                    rp.isFaculty ? 'Live Teacher 🟢' : 'Live Classmate 🟢',
+                room: _currentRoom,
+                x: rp.currentPos.dx,
+                y: rp.currentPos.dy,
+                look: rp.look,
+                sampleReplies: const [],
+              ),
+            );
+            break;
+          }
+        }
         final peer = peersForRoom(_currentRoom).firstWhere(
           (p) => p.id == zone.peerStudentId,
           orElse: () => kLobbyPeerStudents.first,
@@ -669,6 +810,11 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
             _playerThoughtText = pickedItem;
             _playerThoughtUntilMs = nowMs + 12000;
           });
+          LobbyPresenceService.instance.updateLocalPlayerState(
+            thoughtText: pickedItem,
+            thoughtUntilMs: nowMs + 12000,
+            forceImmediateBroadcast: true,
+          );
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(pickedItem),
@@ -978,9 +1124,15 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
     };
 
     return ListenableBuilder(
-      listenable: Listenable.merge([ThemeController.instance, service]),
+      listenable: Listenable.merge([
+        ThemeController.instance,
+        service,
+        LobbyPresenceService.instance,
+      ]),
       builder: (context, _) {
         final isDarkMode = ThemeController.instance.isDarkMode;
+        final remotePlayersInRoom =
+            LobbyPresenceService.instance.playersForRoom(_currentRoom);
 
         return Scaffold(
           backgroundColor: const Color(0xFF090E1A),
@@ -1060,6 +1212,8 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
                                     playerRestState: _playerRestState,
                                     playerThoughtText: _playerThoughtText,
                                     activePeerThoughts: _activePeerThoughts,
+                                    remotePlayers: remotePlayersInRoom,
+                                    showOfflineClassmates: _showOfflineBots,
                                   ),
                                 ),
                               );
@@ -1105,6 +1259,45 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
                                               Color(_currentRoom.accentColor)
                                                   .withOpacity(0.75),
                                           onTap: _showRoomQuickTravelMenu,
+                                        ),
+                                        const SizedBox(width: 6),
+
+                                        // Live Multiplayer Online Players Directory Pill (`🟢 X Online`)
+                                        _HudPillButton(
+                                          icon: Icons.people_alt_rounded,
+                                          iconColor: const Color(0xFF34D399),
+                                          label:
+                                              '🟢 ${LobbyPresenceService.instance.totalOnlineCount} Online',
+                                          borderColor: const Color(0xFF10B981)
+                                              .withOpacity(0.78),
+                                          onTap: () => showOnlinePlayersModal(
+                                            context: context,
+                                            selfNickname: _playerNickname,
+                                            selfIsFaculty:
+                                                widget.session.isFaculty,
+                                            currentRoom: _currentRoom,
+                                            showOfflineBots: _showOfflineBots,
+                                            onToggleOfflineBots: (val) {
+                                              setState(() {
+                                                _showOfflineBots = val;
+                                              });
+                                            },
+                                            onJoinAndGuideToPlayer: (rp) {
+                                              if (rp.room != _currentRoom) {
+                                                _enterRoom(rp.room);
+                                              }
+                                              Future.delayed(
+                                                  const Duration(
+                                                      milliseconds: 120), () {
+                                                if (mounted) {
+                                                  _guideToDestination(
+                                                    rp.currentPos,
+                                                    rp.nickname,
+                                                  );
+                                                }
+                                              });
+                                            },
+                                          ),
                                         ),
                                         const SizedBox(width: 6),
 
@@ -1316,6 +1509,7 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
                                 playerPos: _playerPos,
                                 subjectChests: service.subjectChests,
                                 currentRoom: _currentRoom,
+                                remotePlayers: remotePlayersInRoom,
                                 isCompact:
                                     !isLandscape && screenSize.width < 390,
                                 onTapWorldPoint: (worldTarget) {
@@ -1471,6 +1665,7 @@ class _LobbyMiniMapRadar extends StatelessWidget {
   final Offset playerPos;
   final List<SubjectChest> subjectChests;
   final LobbyRoomId currentRoom;
+  final List<RemoteLobbyPlayer> remotePlayers;
   final bool isCompact;
   final ValueChanged<Offset> onTapWorldPoint;
 
@@ -1478,6 +1673,7 @@ class _LobbyMiniMapRadar extends StatelessWidget {
     required this.playerPos,
     required this.subjectChests,
     required this.currentRoom,
+    required this.remotePlayers,
     required this.isCompact,
     required this.onTapWorldPoint,
   });
@@ -1521,6 +1717,7 @@ class _LobbyMiniMapRadar extends StatelessWidget {
               playerPos: playerPos,
               subjectChests: subjectChests,
               currentRoom: currentRoom,
+              remotePlayers: remotePlayers,
             ),
           ),
         ),
@@ -1533,11 +1730,13 @@ class _MiniMapRadarPainter extends CustomPainter {
   final Offset playerPos;
   final List<SubjectChest> subjectChests;
   final LobbyRoomId currentRoom;
+  final List<RemoteLobbyPlayer> remotePlayers;
 
   const _MiniMapRadarPainter({
     required this.playerPos,
     required this.subjectChests,
     required this.currentRoom,
+    required this.remotePlayers,
   });
 
   @override
@@ -1597,6 +1796,24 @@ class _MiniMapRadarPainter extends CustomPainter {
       );
     }
 
+    // Live Remote Players glowing green/gold dots on Mini-Map Radar
+    for (final rp in remotePlayers) {
+      final rpx = (rp.currentPos.dx * sx).clamp(4.0, size.width - 4.0);
+      final rpy = (rp.currentPos.dy * sy).clamp(4.0, size.height - 4.0);
+      final dotColor =
+          rp.isFaculty ? const Color(0xFFFACC15) : const Color(0xFF34D399);
+      canvas.drawCircle(
+        Offset(rpx, rpy),
+        4.6,
+        Paint()..color = dotColor.withOpacity(0.45),
+      );
+      canvas.drawCircle(
+        Offset(rpx, rpy),
+        2.5,
+        Paint()..color = dotColor,
+      );
+    }
+
     // Player glowing dot
     final px = (playerPos.dx * sx).clamp(4.0, size.width - 4.0);
     final py = (playerPos.dy * sy).clamp(4.0, size.height - 4.0);
@@ -1616,5 +1833,6 @@ class _MiniMapRadarPainter extends CustomPainter {
   bool shouldRepaint(covariant _MiniMapRadarPainter oldDelegate) =>
       oldDelegate.playerPos != playerPos ||
       oldDelegate.currentRoom != currentRoom ||
-      oldDelegate.subjectChests.length != subjectChests.length;
+      oldDelegate.subjectChests.length != subjectChests.length ||
+      oldDelegate.remotePlayers.length != remotePlayers.length;
 }

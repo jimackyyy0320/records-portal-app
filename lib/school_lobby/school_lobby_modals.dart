@@ -10,6 +10,7 @@ import 'package:webview_flutter/webview_flutter.dart';
 import '../services/api_service.dart';
 import '../utils/reviewer_outline_extractor.dart';
 import 'lobby_data_service.dart';
+import 'lobby_presence_service.dart';
 import 'school_lobby_config.dart';
 
 /// Opens the Anime Receptionist / Quest Counter Modal (Feature 1).
@@ -4653,4 +4654,339 @@ Future<String?> showCanteenVendingModal({
     ),
   );
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  LIVE MULTIPLAYER CAMPUS DIRECTORY MODAL (ONLINE STUDENTS & TEACHER)
+// ═══════════════════════════════════════════════════════════════════════════
+
+Future<void> showOnlinePlayersModal({
+  required BuildContext context,
+  required String selfNickname,
+  required bool selfIsFaculty,
+  required LobbyRoomId currentRoom,
+  required bool showOfflineBots,
+  required ValueChanged<bool> onToggleOfflineBots,
+  required void Function(RemoteLobbyPlayer player) onJoinAndGuideToPlayer,
+}) async {
+  await showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    builder: (ctx) => _OnlinePlayersDirectorySheet(
+      selfNickname: selfNickname,
+      selfIsFaculty: selfIsFaculty,
+      currentRoom: currentRoom,
+      initialShowOfflineBots: showOfflineBots,
+      onToggleOfflineBots: onToggleOfflineBots,
+      onJoinAndGuideToPlayer: onJoinAndGuideToPlayer,
+    ),
+  );
+}
+
+class _OnlinePlayersDirectorySheet extends StatefulWidget {
+  final String selfNickname;
+  final bool selfIsFaculty;
+  final LobbyRoomId currentRoom;
+  final bool initialShowOfflineBots;
+  final ValueChanged<bool> onToggleOfflineBots;
+  final void Function(RemoteLobbyPlayer player) onJoinAndGuideToPlayer;
+
+  const _OnlinePlayersDirectorySheet({
+    required this.selfNickname,
+    required this.selfIsFaculty,
+    required this.currentRoom,
+    required this.initialShowOfflineBots,
+    required this.onToggleOfflineBots,
+    required this.onJoinAndGuideToPlayer,
+  });
+
+  @override
+  State<_OnlinePlayersDirectorySheet> createState() =>
+      _OnlinePlayersDirectorySheetState();
+}
+
+class _OnlinePlayersDirectorySheetState
+    extends State<_OnlinePlayersDirectorySheet> {
+  late bool _showBots;
+
+  @override
+  void initState() {
+    super.initState();
+    _showBots = widget.initialShowOfflineBots;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: LobbyPresenceService.instance,
+      builder: (context, _) {
+        final presence = LobbyPresenceService.instance;
+        final remotes = presence.allRemotePlayers;
+        final totalOnline = presence.totalOnlineCount;
+
+        return Container(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(context).size.height * 0.82,
+          ),
+          margin: const EdgeInsets.fromLTRB(12, 24, 12, 16),
+          padding: const EdgeInsets.all(18),
+          decoration: BoxDecoration(
+            color: const Color(0xFF0F172A),
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: const Color(0xFF10B981), width: 1.8),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 44,
+                    height: 44,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF10B981).withOpacity(0.18),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: const Color(0xFF10B981)),
+                    ),
+                    child: const Text('🟢', style: TextStyle(fontSize: 20)),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Live Campus Multiplayer ($totalOnline Online)',
+                          style: GoogleFonts.outfit(
+                            color: Colors.white,
+                            fontSize: 17.5,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        Text(
+                          'See real classmates & teachers across all 5 rooms and walk up to them!',
+                          style: GoogleFonts.inter(
+                            color: Colors.white70,
+                            fontSize: 11.5,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    icon:
+                        const Icon(Icons.close_rounded, color: Colors.white70),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+
+              // Local Player Card ("You")
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF065F46).withOpacity(0.35),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                      color: const Color(0xFF10B981).withOpacity(0.65)),
+                ),
+                child: Row(
+                  children: [
+                    Text(
+                      widget.selfIsFaculty ? '👑' : '🧑',
+                      style: const TextStyle(fontSize: 22),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '${widget.selfNickname} (You)',
+                            style: GoogleFonts.outfit(
+                              color: Colors.white,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          Text(
+                            '${widget.currentRoom.iconEmoji} ${widget.currentRoom.title} • Live Connected',
+                            style: GoogleFonts.inter(
+                              color: const Color(0xFF6EE7B7),
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 10),
+
+              // Remote Players List
+              Flexible(
+                child: remotes.isEmpty
+                    ? Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(18),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF1E293B).withOpacity(0.7),
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: Colors.white12),
+                        ),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Text('📡', style: TextStyle(fontSize: 30)),
+                            const SizedBox(height: 6),
+                            Text(
+                              'Waiting for Other Students or Teachers to Enter',
+                              textAlign: TextAlign.center,
+                              style: GoogleFonts.outfit(
+                                color: Colors.white,
+                                fontSize: 14.5,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'As soon as another student or teacher opens the School Lobby on their phone, their custom avatar, nickname, and Thought Bubbles will appear live right here and on your map!',
+                              textAlign: TextAlign.center,
+                              style: GoogleFonts.inter(
+                                color: Colors.white60,
+                                fontSize: 11.5,
+                              ),
+                            ),
+                          ],
+                        ),
+                      )
+                    : ListView.separated(
+                        shrinkWrap: true,
+                        itemCount: remotes.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: 8),
+                        itemBuilder: (context, idx) {
+                          final rp = remotes[idx];
+                          final sameRoom = rp.room == widget.currentRoom;
+                          return Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF1E293B),
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(
+                                color: rp.isFaculty
+                                    ? const Color(0xFFFACC15).withOpacity(0.65)
+                                    : const Color(0xFF38BDF8).withOpacity(0.45),
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                Text(
+                                  rp.equippedBadgeIcon ??
+                                      (rp.isFaculty ? '👑' : '🟢'),
+                                  style: const TextStyle(fontSize: 22),
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        '${rp.nickname} ${rp.isFaculty ? "[TEACHER]" : ""}',
+                                        style: GoogleFonts.outfit(
+                                          color: Colors.white,
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.w800,
+                                        ),
+                                      ),
+                                      Text(
+                                        '${rp.room.iconEmoji} ${rp.room.shortLabel} • ${rp.statusLabel}',
+                                        style: GoogleFonts.inter(
+                                          color: Colors.white70,
+                                          fontSize: 11.5,
+                                        ),
+                                      ),
+                                      if (rp.hasActiveThought) ...[
+                                        const SizedBox(height: 3),
+                                        Text(
+                                          '💭 "${rp.thoughtText}"',
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: GoogleFonts.inter(
+                                            color: const Color(0xFF38BDF8),
+                                            fontSize: 11,
+                                            fontStyle: FontStyle.italic,
+                                          ),
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                ElevatedButton(
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: sameRoom
+                                        ? const Color(0xFF10B981)
+                                        : const Color(0xFF0284C7),
+                                    foregroundColor: Colors.white,
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 10, vertical: 8),
+                                  ),
+                                  onPressed: () {
+                                    Navigator.of(context).pop();
+                                    widget.onJoinAndGuideToPlayer(rp);
+                                  },
+                                  child: Text(
+                                    sameRoom ? 'Walk To ➔' : 'Join Room 🚪',
+                                    style: const TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
+              ),
+              const SizedBox(height: 10),
+              SwitchListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                activeColor: const Color(0xFF38BDF8),
+                title: Text(
+                  'Show Offline Practice Classmates on Map',
+                  style: GoogleFonts.inter(
+                    color: Colors.white,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                subtitle: Text(
+                  'Off by default so only real live online users & Aiko (Lobbyist) appear.',
+                  style: GoogleFonts.inter(
+                    color: Colors.white54,
+                    fontSize: 10.5,
+                  ),
+                ),
+                value: _showBots,
+                onChanged: (val) {
+                  setState(() => _showBots = val);
+                  widget.onToggleOfflineBots(val);
+                },
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
 

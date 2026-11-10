@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'lobby_data_service.dart';
+import 'lobby_presence_service.dart';
 import 'school_lobby_avatar.dart';
 import 'school_lobby_config.dart';
 
@@ -315,6 +316,8 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
   final PlayerRestState playerRestState;
   final String? playerThoughtText;
   final Map<String, String> activePeerThoughts;
+  final List<RemoteLobbyPlayer> remotePlayers;
+  final bool showOfflineClassmates;
 
   const SchoolLobbyCanvasPainter({
     required this.assets,
@@ -340,6 +343,8 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
     this.playerRestState = PlayerRestState.none,
     this.playerThoughtText,
     this.activePeerThoughts = const {},
+    this.remotePlayers = const [],
+    this.showOfflineClassmates = false,
   });
 
   @override
@@ -400,14 +405,26 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
       );
     }
 
-    // 6c. Classmate Peer Students in this room (with Sit/Nap/Sleep poses + Thought Bubbles!)
-    for (final peer in peersForRoom(currentRoom)) {
+    // 6c. Live Multiplayer Remote Players in this room (with smooth 60 FPS movement, Sit/Nap/Sleep poses & live Thought Bubbles!)
+    for (final rp in remotePlayers) {
       drawables.add(
         _YSortedDrawable(
-          sortY: peer.y,
-          draw: (c) => _drawPeerStudent(c, peer, pixelPaint),
+          sortY: rp.currentPos.dy,
+          draw: (c) => _drawRemotePlayer(c, rp, pixelPaint),
         ),
       );
+    }
+
+    // 6c-2. Optional Offline Practice Classmates (only if explicitly enabled by user)
+    if (showOfflineClassmates) {
+      for (final peer in peersForRoom(currentRoom)) {
+        drawables.add(
+          _YSortedDrawable(
+            sortY: peer.y,
+            draw: (c) => _drawPeerStudent(c, peer, pixelPaint),
+          ),
+        );
+      }
     }
 
     // 6d. Subject-Labeled Large Treasure Chests & Small Mystery Chests (in Main Lobby)
@@ -1281,6 +1298,82 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
         anchor: Offset(pos.dx, pos.dy - 76),
         text: bubbleText,
         isHighlighted: highlightedZone?.peerStudentId == peer.id,
+      );
+    }
+  }
+
+  /// Renders a Live Multiplayer Remote Player (`RemoteLobbyPlayer`) with smooth 60 FPS interpolated
+  /// position, custom avatar sprite sheet, Sit/Nap/Sleep pose, Wave emote, and live Thought Bubble!
+  void _drawRemotePlayer(
+    Canvas canvas,
+    RemoteLobbyPlayer rp,
+    Paint pixelPaint,
+  ) {
+    final pos = rp.currentPos;
+    final sheet = rp.spriteSheet ?? assets.npcSheets['npc_receptionist'];
+
+    // Live online aura ring beneath the remote player's feet
+    final pulse = 0.5 + 0.5 * math.sin(animTick * 0.35);
+    final ringColor =
+        rp.isFaculty ? const Color(0xFFFACC15) : const Color(0xFF10B981);
+    canvas.drawOval(
+      Rect.fromCenter(
+        center: Offset(pos.dx, pos.dy + 4),
+        width: 30 + 4 * pulse,
+        height: 12 + 2 * pulse,
+      ),
+      Paint()
+        ..color = ringColor.withOpacity(0.28 + 0.14 * pulse)
+        ..style = PaintingStyle.fill,
+    );
+
+    _drawCharacterWithRestState(
+      canvas,
+      sheet: sheet,
+      pos: pos,
+      facing: rp.facing,
+      isWalking: rp.isWalking,
+      restState: rp.restState,
+      pixelPaint: pixelPaint,
+    );
+
+    final roleTag = rp.isFaculty
+        ? (rp.restState.isResting
+            ? 'TEACHER • ${rp.restState.emoji}'
+            : 'TEACHER 🟢')
+        : (rp.restState.isResting
+            ? '${rp.restState.emoji} ${rp.restState.label}'
+            : 'ONLINE 🟢');
+
+    _drawFloatingNameplate(
+      canvas,
+      anchor: Offset(pos.dx, pos.dy - 54),
+      name: rp.nickname,
+      roleTag: roleTag,
+      isGoldTag: rp.isFaculty,
+      badgeIcon: rp.equippedBadgeIcon ?? (rp.isFaculty ? '👑' : '🟢'),
+    );
+
+    if (rp.isWaving) {
+      final waveTp = TextPainter(
+        text: const TextSpan(
+          text: '👋',
+          style: TextStyle(fontSize: 16),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      waveTp.paint(
+        canvas,
+        Offset(pos.dx + 16, pos.dy - 46),
+      );
+    }
+
+    if (rp.hasActiveThought) {
+      _drawCloudThoughtBubble(
+        canvas,
+        anchor: Offset(pos.dx, pos.dy - 76),
+        text: rp.thoughtText!,
+        isHighlighted: highlightedZone?.peerStudentId == rp.userId,
       );
     }
   }

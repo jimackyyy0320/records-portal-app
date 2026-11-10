@@ -1,7 +1,7 @@
 name: student_portal_app
 description: MIS-SHS Learner App — Native Android Student & Faculty Academic Portal with Offline QR/NFC Attendance & Recitation Sync.
 publish_to: "none"
-version: 1.2.2+5
+version: 1.2.3+6
 
 environment:
   sdk: ">=3.4.0 <4.0.0"

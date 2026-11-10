@@ -13,6 +13,7 @@ import 'package:student_portal_app/services/session_service.dart';
 import 'package:student_portal_app/utils/reviewer_outline_extractor.dart';
 import 'package:student_portal_app/widgets/student_qr_generator.dart';
 import 'package:student_portal_app/school_lobby/lobby_data_service.dart';
+import 'package:student_portal_app/school_lobby/lobby_presence_service.dart';
 import 'package:student_portal_app/school_lobby/school_lobby_avatar.dart';
 import 'package:student_portal_app/school_lobby/school_lobby_config.dart';
 import 'package:student_portal_app/school_lobby/school_lobby_engine.dart';
@@ -26,6 +27,8 @@ void main() {
   setUp(() {
     SharedPreferences.setMockInitialValues({});
     SessionService.instance.resetMemoryCacheForTesting();
+    LobbyPresenceService.instance.enableNetworkTransport = false;
+    LobbyPresenceService.instance.stopPresence();
   });
 
   test(
@@ -492,6 +495,87 @@ void main() {
         canteenZones.any((z) => z.kind == InteractiveZoneKind.vendingMachine),
         isTrue,
       );
+
+      // 9. Live Multiplayer Presence Engine (LobbyPresenceService):
+      //    Verify remote players join, sync look/nickname/room/rest/thought/wave, interpolate smoothly, and leave cleanly.
+      final presence = LobbyPresenceService.instance;
+      await presence.startPresence(
+        session: const UserSession(
+          id: '2024-00142',
+          name: 'Juan Dela Cruz',
+          isFaculty: false,
+          subjects: [],
+        ),
+        nickname: 'AetherScholar',
+        look: customLook,
+        equippedBadgeIcon: '👑',
+        initialRoom: LobbyRoomId.mainLobby,
+        initialPos: kPlayerSpawnPoint,
+      );
+      expect(presence.totalOnlineCount, 1);
+
+      presence.handleIncomingPresencePayload({
+        'app': 'mis_shs_lobby_v1',
+        'type': 'hello_join',
+        'peerKey': '2024-00999_54321',
+        'userId': '2024-00999',
+        'nickname': 'Bea_HUMSS',
+        'isFaculty': false,
+        'look': 'preset:2',
+        'badgeIcon': '🏆',
+        'room': 'mainLobby',
+        'x': 620,
+        'y': 540,
+        'facing': 'right',
+        'isWalking': true,
+        'rest': 'none',
+        'thought': 'Hi everyone in the Main Lobby!',
+        'ts': DateTime.now().millisecondsSinceEpoch,
+      });
+
+      expect(presence.totalOnlineCount, 2);
+      expect(presence.playersForRoom(LobbyRoomId.mainLobby).length, 1);
+      expect(presence.playersForRoom(LobbyRoomId.classroom), isEmpty);
+
+      final remoteBea = presence.playersForRoom(LobbyRoomId.mainLobby).first;
+      expect(remoteBea.nickname, 'Bea_HUMSS');
+      expect(remoteBea.equippedBadgeIcon, '🏆');
+      expect(remoteBea.hasActiveThought, isTrue);
+      expect(remoteBea.thoughtText, 'Hi everyone in the Main Lobby!');
+
+      // Move Bea by 60 pixels and verify 60 FPS interpolation glides her toward targetPos
+      presence.handleIncomingPresencePayload({
+        'app': 'mis_shs_lobby_v1',
+        'type': 'state',
+        'peerKey': '2024-00999_54321',
+        'userId': '2024-00999',
+        'nickname': 'Bea_HUMSS',
+        'isFaculty': false,
+        'look': 'preset:2',
+        'badgeIcon': '🏆',
+        'room': 'mainLobby',
+        'x': 680,
+        'y': 540,
+        'facing': 'right',
+        'isWalking': true,
+        'rest': 'none',
+        'thought': 'Hi everyone in the Main Lobby!',
+        'ts': DateTime.now().millisecondsSinceEpoch,
+      });
+      final moved =
+          presence.tickInterpolation(0.05, LobbyRoomId.mainLobby);
+      expect(moved, isTrue);
+      expect(remoteBea.currentPos.dx, greaterThan(620.0));
+      expect(remoteBea.currentPos.dx, lessThanOrEqualTo(680.0));
+
+      // Verify 'leave' packet cleanly removes remote player
+      presence.handleIncomingPresencePayload({
+        'app': 'mis_shs_lobby_v1',
+        'type': 'leave',
+        'peerKey': '2024-00999_54321',
+      });
+      expect(presence.totalOnlineCount, 1);
+      expect(presence.allRemotePlayers, isEmpty);
     },
   );
 }
