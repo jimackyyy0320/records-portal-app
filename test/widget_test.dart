@@ -466,7 +466,7 @@ void main() {
             validSprites.contains(piece.spriteKey),
             isTrue,
             reason:
-                'Room $room piece "${piece.id}" uses missing spriteKey "${piece.spriteKey}"',
+                'Room $room piece at (${piece.x}, ${piece.y}) uses missing spriteKey "${piece.spriteKey}"',
           );
         }
         expect(walkPathsForRoom(room), isNotEmpty);
