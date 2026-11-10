@@ -265,10 +265,12 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
             id: 'live_${rp.userId}',
             name: rp.nickname,
             roleTag: rp.isFaculty ? 'Live Teacher 🟢' : 'Live Classmate 🟢',
+            presetName: rp.look.presetName,
             room: _currentRoom,
             x: rp.currentPos.dx,
             y: rp.currentPos.dy,
-            look: rp.look,
+            defaultThought:
+                rp.thoughtText ?? 'Online in ${_currentRoom.shortLabel}',
             sampleReplies: const [],
           );
           break;
@@ -729,10 +731,12 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
                 name: rp.nickname,
                 roleTag:
                     rp.isFaculty ? 'Live Teacher 🟢' : 'Live Classmate 🟢',
+                presetName: rp.look.presetName,
                 room: _currentRoom,
                 x: rp.currentPos.dx,
                 y: rp.currentPos.dy,
-                look: rp.look,
+                defaultThought:
+                    rp.thoughtText ?? 'Online in ${_currentRoom.shortLabel}',
                 sampleReplies: const [],
               ),
             );
