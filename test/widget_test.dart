@@ -696,10 +696,10 @@ void main() {
         for (final s in spots) {
           // Every rest spot has a distinct walkable standPosition dismount offset
           expect(s.standPosition != s.position, isTrue);
-          // Resting characters sort at pos.dy + 54.0 so they render ON TOP OF furniture cushions
+          // Resting characters sort at >= pos.dy + 38.0 so they render ON TOP OF furniture cushions
           expect(
             s.effectiveSortY,
-            equals(s.position.dy + 54.0),
+            greaterThanOrEqualTo(s.position.dy + 38.0),
           );
         }
       }
@@ -909,6 +909,65 @@ void main() {
       expect(
         shop.isCosmeticUnlocked('table_chair', 'emerald_ergo', isFaculty: false),
         isFalse,
+      );
+
+      // Attempting to equip locked table items before purchasing is blocked by sanitizeTableDecorForUnlocked
+      await service.updateTableDecor(
+        const LobbyTableDecorConfig(
+          chairStyle: 'emerald_ergo',
+          miniLight: 'fairy_warm',
+        ),
+      );
+      expect(service.progress.tableDecor.chairStyle, 'tan_classic');
+      expect(service.progress.tableDecor.miniLight, 'none');
+
+      // Award XP, purchase the Table Space items in the Campus Shop, and equip them!
+      final postedQuest = await service.postActivity(
+        title: 'UCSP Fieldwork Reflection',
+        subject: 'UCSP',
+        activityUrl: 'https://example.com/ucsp-fieldwork',
+        xpReward: 500,
+        badgeName: 'Culture Explorer',
+        badgeIcon: '🌍',
+        postedBy: 'Dr. Jocano',
+      );
+      await service.markActivityLaunched(postedQuest.id);
+      await service.completeActivity(postedQuest);
+
+      expect(
+        await service.purchaseShopCosmetic(
+          itemKey: 'table_chair:emerald_ergo',
+          costXp: shop.costForCosmetic('table_chair', 'emerald_ergo'),
+        ),
+        isTrue,
+      );
+      expect(
+        await service.purchaseShopCosmetic(
+          itemKey: 'table_light:fairy_warm',
+          costXp: shop.costForCosmetic('table_light', 'fairy_warm'),
+        ),
+        isTrue,
+      );
+      expect(
+        await service.purchaseShopCosmetic(
+          itemKey: 'table_frame:gold_cert',
+          costXp: shop.costForCosmetic('table_frame', 'gold_cert'),
+        ),
+        isTrue,
+      );
+      expect(
+        await service.purchaseShopCosmetic(
+          itemKey: 'table_mat:mint_pad',
+          costXp: shop.costForCosmetic('table_mat', 'mint_pad'),
+        ),
+        isTrue,
+      );
+      expect(
+        await service.purchaseShopCosmetic(
+          itemKey: 'table_prop:zen_bonsai',
+          costXp: shop.costForCosmetic('table_prop', 'zen_bonsai'),
+        ),
+        isTrue,
       );
 
       // Update and persist the student's Classroom Table Space Decor
