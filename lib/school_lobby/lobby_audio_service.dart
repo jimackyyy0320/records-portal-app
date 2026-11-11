@@ -95,11 +95,12 @@ class LobbyAudioService extends ChangeNotifier {
     int sampleRate = 22050,
     double volume = 0.32,
   }) {
-    final samplesPerNote =
-        math.max(1, (sampleRate * noteDurationMs / 1000).round());
-    final totalSamples = samplesPerNote * math.max(1, frequenciesHz.length);
-    final dataSize = totalSamples * 2; // 16-bit mono = 2 bytes/sample
-    final fileSize = 36 + dataSize;
+    final int samplesPerNote =
+        math.max<int>(1, (sampleRate * noteDurationMs / 1000).round());
+    final int totalSamples =
+        samplesPerNote * math.max<int>(1, frequenciesHz.length);
+    final int dataSize = totalSamples * 2; // 16-bit mono = 2 bytes/sample
+    final int fileSize = 36 + dataSize;
 
     final buffer = ByteData(44 + dataSize);
     // RIFF header
