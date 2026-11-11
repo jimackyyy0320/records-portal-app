@@ -186,10 +186,11 @@ class _JoystickPainter extends CustomPainter {
       oldDelegate.isDragging != isDragging;
 }
 
-/// Bottom-Right On-Screen "Interact" Button + Rest Controls (`🪑 Sit`, `😪 Nap`, `🛌 Sleep`),
+/// Bottom-Right On-Screen "Interact" Button + Furniture-Proximity Rest Controls (`🪑 Sit`, `😪 Nap`, `🛌 Sleep`),
 /// Thought Bubble (`💭`), Wave (`👋`), & Zoom (`+`/`-`) Cluster.
 class SchoolLobbyInteractCluster extends StatelessWidget {
   final InteractiveZone? activeZone;
+  final LobbyRestSpot? nearbyRestSpot;
   final PlayerRestState playerRestState;
   final VoidCallback onInteract;
   final VoidCallback onWave;
@@ -201,6 +202,7 @@ class SchoolLobbyInteractCluster extends StatelessWidget {
   const SchoolLobbyInteractCluster({
     super.key,
     required this.activeZone,
+    this.nearbyRestSpot,
     this.playerRestState = PlayerRestState.none,
     required this.onInteract,
     required this.onWave,
@@ -226,6 +228,10 @@ class SchoolLobbyInteractCluster extends StatelessWidget {
         return Icons.local_cafe_rounded;
       case InteractiveZoneKind.classroomPodium:
         return Icons.co_present_rounded;
+      case InteractiveZoneKind.campusShop:
+        return Icons.shopping_bag_rounded;
+      case InteractiveZoneKind.radioBase:
+        return Icons.radio_rounded;
       default:
         return Icons.auto_awesome_rounded;
     }
@@ -236,13 +242,19 @@ class SchoolLobbyInteractCluster extends StatelessWidget {
       case InteractiveZoneKind.doorPortal:
         return 'ENTER DOOR 🚪';
       case InteractiveZoneKind.restSpot:
-        return 'SIT / NAP / SLEEP 🪑';
+        return (nearbyRestSpot?.canSleepFlat ?? true)
+            ? 'SIT / NAP / SLEEP 🪑'
+            : 'SIT / NAP AT SEAT 🪑';
       case InteractiveZoneKind.peerStudent:
         return 'THOUGHT CHAT 💭';
       case InteractiveZoneKind.vendingMachine:
         return 'GET DRINK / SNACK 🥤';
       case InteractiveZoneKind.classroomPodium:
         return 'OPEN PODIUM 🎤';
+      case InteractiveZoneKind.campusShop:
+        return 'OPEN XP SHOP 🛍️';
+      case InteractiveZoneKind.radioBase:
+        return 'CAMPUS RADIO 📻';
       default:
         return 'INTERACT [E]';
     }
@@ -295,8 +307,11 @@ class SchoolLobbyInteractCluster extends StatelessWidget {
         ),
         const SizedBox(height: 6),
 
-        // Row 2: Quick Sit / Nap / Sleep Controls (so students can Sit, Nap, or Sleep anywhere or on seats!)
-        if (onChangeRestState != null) ...[
+        // Row 2: Furniture-Proximity Sit / Nap / Sleep Controls
+        // Item #2 Fix: Only appear when the player is near a valid Chair/Bench/Sofa (`nearbyRestSpot != null`)
+        // or currently resting on furniture—preventing players from sleeping on bare floor tiles!
+        if (onChangeRestState != null &&
+            (nearbyRestSpot != null || playerRestState.isResting)) ...[
           Row(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -305,7 +320,7 @@ class SchoolLobbyInteractCluster extends StatelessWidget {
                   icon: Icons.directions_walk_rounded,
                   label: 'Stand Up',
                   accentColor: const Color(0xFFF59E0B),
-                  tooltip: 'Stand up and resume walking',
+                  tooltip: 'Stand up and step off the furniture',
                   onTap: () => onChangeRestState!(PlayerRestState.none),
                 ),
                 const SizedBox(width: 6),
@@ -315,7 +330,7 @@ class SchoolLobbyInteractCluster extends StatelessWidget {
                 label: '🪑 Sit',
                 isSelected: playerRestState == PlayerRestState.sitting,
                 accentColor: const Color(0xFF10B981),
-                tooltip: 'Sit down',
+                tooltip: 'Sit on furniture',
                 onTap: () => onChangeRestState!(
                   playerRestState == PlayerRestState.sitting
                       ? PlayerRestState.none
@@ -328,26 +343,29 @@ class SchoolLobbyInteractCluster extends StatelessWidget {
                 label: '😪 Nap',
                 isSelected: playerRestState == PlayerRestState.napping,
                 accentColor: const Color(0xFFA855F7),
-                tooltip: 'Take a nap',
+                tooltip: 'Take a power nap on furniture',
                 onTap: () => onChangeRestState!(
                   playerRestState == PlayerRestState.napping
                       ? PlayerRestState.none
                       : PlayerRestState.napping,
                 ),
               ),
-              const SizedBox(width: 5),
-              _MiniActionPill(
-                icon: Icons.hotel_rounded,
-                label: '🛌 Sleep',
-                isSelected: playerRestState == PlayerRestState.sleeping,
-                accentColor: const Color(0xFF6366F1),
-                tooltip: 'Lie down and sleep',
-                onTap: () => onChangeRestState!(
-                  playerRestState == PlayerRestState.sleeping
-                      ? PlayerRestState.none
-                      : PlayerRestState.sleeping,
+              if ((nearbyRestSpot?.canSleepFlat ?? false) ||
+                  playerRestState == PlayerRestState.sleeping) ...[
+                const SizedBox(width: 5),
+                _MiniActionPill(
+                  icon: Icons.hotel_rounded,
+                  label: '🛌 Sleep',
+                  isSelected: playerRestState == PlayerRestState.sleeping,
+                  accentColor: const Color(0xFF6366F1),
+                  tooltip: 'Sleep across sofa or bench cushion',
+                  onTap: () => onChangeRestState!(
+                    playerRestState == PlayerRestState.sleeping
+                        ? PlayerRestState.none
+                        : PlayerRestState.sleeping,
+                  ),
                 ),
-              ),
+              ],
             ],
           ),
           const SizedBox(height: 8),

@@ -9,7 +9,9 @@ import 'package:webview_flutter/webview_flutter.dart';
 
 import '../services/api_service.dart';
 import '../utils/reviewer_outline_extractor.dart';
+import 'lobby_audio_service.dart';
 import 'lobby_data_service.dart';
+import 'lobby_moderation_service.dart';
 import 'lobby_presence_service.dart';
 import 'school_lobby_config.dart';
 
@@ -259,18 +261,20 @@ class _RestSpotPickerSheet extends StatelessWidget {
                       Navigator.of(context).pop(PlayerRestState.napping),
                 ),
               ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _RestOptionCard(
-                  emoji: '🛌',
-                  title: 'Sleep',
-                  subtitle: canSleepFlat ? 'Deep sleep 💤' : 'Desk sleep 💤',
-                  color: const Color(0xFF6366F1),
-                  isSelected: currentState == PlayerRestState.sleeping,
-                  onTap: () =>
-                      Navigator.of(context).pop(PlayerRestState.sleeping),
+              if (canSleepFlat) ...[
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _RestOptionCard(
+                    emoji: '🛌',
+                    title: 'Sleep',
+                    subtitle: 'Sofa / Bench 💤',
+                    color: const Color(0xFF6366F1),
+                    isSelected: currentState == PlayerRestState.sleeping,
+                    onTap: () =>
+                        Navigator.of(context).pop(PlayerRestState.sleeping),
+                  ),
                 ),
-              ),
+              ],
             ],
           ),
           if (currentState.isResting) ...[
@@ -417,8 +421,24 @@ class _ThoughtBubbleComposerSheetState
       Navigator.of(context).pop('');
       return;
     }
+    if (!widget.isFaculty &&
+        LobbyModerationService.instance.isRoomChatMuted(widget.currentRoom)) {
+      HapticFeedback.vibrate();
+      LobbyAudioService.instance.playQuizWrong();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            '🔇 Room Thought Bubbles are currently muted by your Teacher.',
+          ),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+    final sanitized = LobbyModerationService.instance.sanitizeText(text);
     HapticFeedback.mediumImpact();
-    Navigator.of(context).pop(text);
+    LobbyAudioService.instance.playBubblePop();
+    Navigator.of(context).pop(sanitized);
   }
 
   @override
@@ -2976,7 +2996,9 @@ class _SmallMysteryChestQuizSheetState
   }
 
   Future<void> _selectOption(int index) async {
-    if (_answeredCorrect) return;
+    // Item #6 Fix: Strictly lock the student's answer on the first click!
+    // Once an option is clicked, it cannot be changed or retried.
+    if (_selectedOption != null) return;
     setState(() {
       _selectedOption = index;
     });
@@ -2991,12 +3013,14 @@ class _SmallMysteryChestQuizSheetState
     if (!mounted) return;
     if (isCorrect) {
       HapticFeedback.heavyImpact();
+      LobbyAudioService.instance.playQuizCorrect();
       setState(() {
         _answeredCorrect = true;
         _answeredWrong = false;
       });
     } else {
       HapticFeedback.vibrate();
+      LobbyAudioService.instance.playQuizWrong();
       setState(() {
         _answeredWrong = true;
       });
@@ -3009,9 +3033,9 @@ class _SmallMysteryChestQuizSheetState
     final remainingSec =
         service.smallChestRemainingSeconds(widget.smallChestId);
 
-    if (remainingSec > 0 && !_answeredCorrect) {
-      final mins = remainingSec ~/ 60;
-      final secs = (remainingSec % 60).toString().padLeft(2, '0');
+    if (remainingSec > 0 && _selectedOption == null) {
+      final formattedWait =
+          service.smallChestFormattedCooldown(widget.smallChestId);
       return Container(
         margin: const EdgeInsets.all(16),
         padding: const EdgeInsets.all(22),
@@ -3026,7 +3050,7 @@ class _SmallMysteryChestQuizSheetState
             const Text('⏳', style: TextStyle(fontSize: 40)),
             const SizedBox(height: 10),
             Text(
-              'Chest Recharging ($mins:$secs)',
+              '24-Hour Chest Cooldown ($formattedWait)',
               style: GoogleFonts.outfit(
                 color: Colors.white,
                 fontSize: 18,
@@ -3035,7 +3059,7 @@ class _SmallMysteryChestQuizSheetState
             ),
             const SizedBox(height: 6),
             Text(
-              'This Small Mystery Chest is on its 2-minute cooldown. Explore the other Mystery Chests around the lobby while you wait!',
+              'Each Small Mystery Chest refreshes once every 24 hours per student and relocates across the campus every 2 hours. Explore the other Mystery Chests around the lobby!',
               textAlign: TextAlign.center,
               style: GoogleFonts.inter(color: Colors.white70, fontSize: 12.5),
             ),
@@ -3050,6 +3074,7 @@ class _SmallMysteryChestQuizSheetState
     }
 
     const letters = ['A', 'B', 'C', 'D'];
+    final isLocked = _selectedOption != null;
 
     return Container(
       margin: const EdgeInsets.fromLTRB(12, 24, 12, 16),
@@ -3060,7 +3085,9 @@ class _SmallMysteryChestQuizSheetState
         border: Border.all(
           color: _answeredCorrect
               ? const Color(0xFF10B981)
-              : const Color(0xFFA855F7),
+              : (_answeredWrong
+                  ? const Color(0xFFEF4444)
+                  : const Color(0xFFA855F7)),
           width: 1.8,
         ),
       ),
@@ -3074,12 +3101,12 @@ class _SmallMysteryChestQuizSheetState
                 padding:
                     const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFA855F7).withOpacity(0.22),
+                  color: const Color(0xFFA855F7).withValues(alpha: 0.22),
                   borderRadius: BorderRadius.circular(99),
                   border: Border.all(color: const Color(0xFFA855F7)),
                 ),
                 child: Text(
-                  '✨ ${_question.subject} POP-QUIZ • +${_question.xpReward} XP',
+                  '✨ ${_question.subject} EXAM ROTATION • +${_question.xpReward} XP',
                   style: GoogleFonts.outfit(
                     color: const Color(0xFFFDE047),
                     fontSize: 11.5,
@@ -3103,25 +3130,36 @@ class _SmallMysteryChestQuizSheetState
               fontWeight: FontWeight.w700,
             ),
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 4),
+          Text(
+            isLocked
+                ? '🔒 Answer locked! Options cannot be changed after clicking.'
+                : '⚠️ First click locks your answer for 24 hours — choose carefully!',
+            style: GoogleFonts.inter(
+              color: isLocked ? Colors.white54 : const Color(0xFFFDE047),
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 12),
           ...List.generate(_question.options.length, (idx) {
             final isSelected = _selectedOption == idx;
             final isCorrectOption = idx == _question.correctIndex;
 
             Color borderColor = Colors.white24;
             Color bgColor = const Color(0xFF1E293B);
-            if (_answeredCorrect && isCorrectOption) {
+            if (isLocked && isCorrectOption) {
               borderColor = const Color(0xFF10B981);
-              bgColor = const Color(0xFF065F46).withOpacity(0.6);
+              bgColor = const Color(0xFF065F46).withValues(alpha: 0.6);
             } else if (_answeredWrong && isSelected && !isCorrectOption) {
               borderColor = const Color(0xFFEF4444);
-              bgColor = const Color(0xFF7F1D1D).withOpacity(0.5);
+              bgColor = const Color(0xFF7F1D1D).withValues(alpha: 0.5);
             }
 
             return Padding(
               padding: const EdgeInsets.only(bottom: 8),
               child: InkWell(
-                onTap: () => _selectOption(idx),
+                onTap: isLocked ? null : () => _selectOption(idx),
                 borderRadius: BorderRadius.circular(14),
                 child: Container(
                   padding:
@@ -3160,6 +3198,16 @@ class _SmallMysteryChestQuizSheetState
                           ),
                         ),
                       ),
+                      if (isLocked && isSelected)
+                        Icon(
+                          isCorrectOption
+                              ? Icons.check_circle_rounded
+                              : Icons.cancel_rounded,
+                          color: isCorrectOption
+                              ? const Color(0xFF10B981)
+                              : const Color(0xFFEF4444),
+                          size: 18,
+                        ),
                     ],
                   ),
                 ),
@@ -3167,34 +3215,40 @@ class _SmallMysteryChestQuizSheetState
             );
           }),
           if (_answeredWrong && !_answeredCorrect) ...[
-            const SizedBox(height: 6),
-            Row(
-              children: [
-                const Icon(Icons.error_outline_rounded,
-                    color: Color(0xFFF87171), size: 18),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Text(
-                    'Not quite! Try another option or draw a new question.',
-                    style: GoogleFonts.inter(
-                      color: const Color(0xFFF87171),
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFF7F1D1D).withValues(alpha: 0.45),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: const Color(0xFFEF4444)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.lock_clock_rounded,
+                      color: Color(0xFFFCA5A5), size: 22),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'Answer locked! The correct answer was ${letters[_question.correctIndex]} (${_question.options[_question.correctIndex]}). This chest refreshes in 24 hours.',
+                      style: GoogleFonts.inter(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                   ),
-                ),
-                TextButton(
-                  onPressed: () {
-                    setState(() {
-                      _question = service
-                          .pickRandomQuestionForSmallChest(widget.smallChestId);
-                      _selectedOption = null;
-                      _answeredWrong = false;
-                    });
-                  },
-                  child: const Text('New Question'),
-                ),
-              ],
+                  const SizedBox(width: 8),
+                  OutlinedButton(
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.white,
+                      side: const BorderSide(color: Colors.white38),
+                    ),
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: const Text('Close'),
+                  ),
+                ],
+              ),
             ),
           ],
           if (_answeredCorrect) ...[
@@ -3202,7 +3256,7 @@ class _SmallMysteryChestQuizSheetState
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: const Color(0xFF065F46).withOpacity(0.45),
+                color: const Color(0xFF065F46).withValues(alpha: 0.45),
                 borderRadius: BorderRadius.circular(14),
                 border: Border.all(color: const Color(0xFF10B981)),
               ),
@@ -3212,7 +3266,7 @@ class _SmallMysteryChestQuizSheetState
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text(
-                      'Correct! +${_question.xpReward} XP added to your profile! This chest will recharge in 2 minutes.',
+                      'Correct! +${_question.xpReward} XP added to your profile & Shop Wallet! This chest will refresh in 24 hours.',
                       style: GoogleFonts.inter(
                         color: Colors.white,
                         fontSize: 12,

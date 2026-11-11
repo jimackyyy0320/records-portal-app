@@ -7,8 +7,12 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../models/portal_models.dart';
 import '../theme/portal_theme.dart';
+import 'lobby_audio_service.dart';
 import 'lobby_data_service.dart';
+import 'lobby_moderation_service.dart';
 import 'lobby_presence_service.dart';
+import 'lobby_radio_service.dart';
+import 'lobby_shop_service.dart';
 import 'school_lobby_avatar.dart';
 import 'school_lobby_config.dart';
 import 'school_lobby_controls.dart';
@@ -51,6 +55,7 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
   AvatarFacing _playerFacing = AvatarFacing.down;
   bool _playerIsWalking = false;
   PlayerRestState _playerRestState = PlayerRestState.none;
+  LobbyRestSpot? _activeRestSpot;
 
   // Thought Bubble state (`💭`)
   String? _playerThoughtText;
@@ -83,6 +88,7 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
   // Cached per-room collision & zone lists to avoid 60 FPS GC churn
   LobbyRoomId? _cachedRoomForSolids;
   int _cachedChestCountForSolids = -1;
+  int _cached2HourWindowForSolids = -1;
   List<Rect> _cachedSolids = const [];
   List<InteractiveZone> _cachedZones = const [];
 
@@ -101,6 +107,8 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
   }
 
   Future<void> _initLobby() async {
+    await LobbyAudioService.instance.initialize();
+    await LobbyRadioService.instance.initialize();
     await LobbyDataService.instance.init(
       widget.session.id,
       session: widget.session,
@@ -110,8 +118,12 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
       LobbyDataService.instance.syncDriveReviewersForSession(widget.session),
     );
 
-    final savedLook = await AvatarSpriteCache.instance.loadSavedLook(
+    final rawSavedLook = await AvatarSpriteCache.instance.loadSavedLook(
       widget.session.id,
+      isFaculty: widget.session.isFaculty,
+    );
+    final savedLook = LobbyShopService.instance.sanitizeLookForUnlocked(
+      rawSavedLook,
       isFaculty: widget.session.isFaculty,
     );
     final savedNickname = await AvatarSpriteCache.instance.loadSavedNickname(
@@ -199,6 +211,7 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
 
   void _enterRoom(LobbyRoomId targetRoom, {Offset? spawnOverride}) {
     HapticFeedback.mediumImpact();
+    LobbyAudioService.instance.playDoorTransition();
     final spawn = spawnOverride ?? targetRoom.defaultSpawn;
     setState(() {
       _currentRoom = targetRoom;
@@ -206,6 +219,7 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
       _playerFacing = AvatarFacing.down;
       _playerIsWalking = false;
       _playerRestState = PlayerRestState.none;
+      _activeRestSpot = null;
       _activePath = const [];
       _highlightedZone = null;
       _cameraCenter =
@@ -230,21 +244,88 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
     );
   }
 
+  /// Finds the nearest [LobbyRestSpot] in `_currentRoom` within `82px` of `_playerPos`
+  /// (or returns `_activeRestSpot` if the player is currently sitting/napping/sleeping on one).
+  LobbyRestSpot? _findNearbyRestSpot() {
+    if (_playerRestState.isResting && _activeRestSpot != null) {
+      return _activeRestSpot;
+    }
+    LobbyRestSpot? best;
+    var bestDist = 82.0;
+    for (final spot in restSpotsForRoom(_currentRoom)) {
+      final d = (_playerPos - spot.position).distance;
+      if (d <= bestDist) {
+        bestDist = d;
+        best = spot;
+      }
+    }
+    return best;
+  }
+
+  /// Enforces that students & faculty can only Sit, Nap, or Sleep on actual campus furniture
+  /// ([LobbyRestSpot]), snapping onto the cushion coordinates and dismounting to `standPosition`.
   void _setPlayerRestState(
     PlayerRestState nextState, {
     LobbyRestSpot? snapToSpot,
   }) {
     HapticFeedback.selectionClick();
+
+    if (!nextState.isResting) {
+      LobbyAudioService.instance.playSitOrRest();
+      setState(() {
+        if (_activeRestSpot != null) {
+          _playerPos = _activeRestSpot!.standPosition;
+          _activeRestSpot = null;
+        }
+        _playerRestState = PlayerRestState.none;
+      });
+      LobbyPresenceService.instance.updateLocalPlayerState(
+        position: _playerPos,
+        facing: _playerFacing,
+        isWalking: _playerIsWalking,
+        restState: _playerRestState,
+        forceImmediateBroadcast: true,
+      );
+      return;
+    }
+
+    final spot = snapToSpot ?? _findNearbyRestSpot();
+    if (spot == null) {
+      LobbyAudioService.instance.playQuizWrong();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            '🪑 Walk up to a chair, bench, or sofa to sit, nap, or sleep!',
+          ),
+          behavior: SnackBarBehavior.floating,
+          duration: Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
+
+    var effectiveState = nextState;
+    if (effectiveState == PlayerRestState.sleeping && !spot.canSleepFlat) {
+      effectiveState = PlayerRestState.napping;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            '😪 Chairs & desks support Sitting or Desk Naps. Find a sofa or bench to lay down & Sleep!',
+          ),
+          behavior: SnackBarBehavior.floating,
+          duration: Duration(seconds: 2),
+        ),
+      );
+    }
+
+    LobbyAudioService.instance.playSitOrRest();
     setState(() {
-      if (snapToSpot != null && nextState.isResting) {
-        _playerPos = snapToSpot.position;
-        _playerFacing = snapToSpot.facing;
-      }
-      _playerRestState = nextState;
-      if (nextState.isResting) {
-        _activePath = const [];
-        _playerIsWalking = false;
-      }
+      _activeRestSpot = spot;
+      _playerPos = spot.position;
+      _playerFacing = spot.facing;
+      _playerRestState = effectiveState;
+      _activePath = const [];
+      _playerIsWalking = false;
     });
     LobbyPresenceService.instance.updateLocalPlayerState(
       position: _playerPos,
@@ -406,6 +487,8 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
     }
   }
 
+  /// Moves the player by [delta] against [solids] with **Furniture Anti-Bump Beveled Corner-Sliding**
+  /// (`±18px` perpendicular whisker steering inspired by `WorkAdventure` / `TinyFloor`).
   Offset _moveWithSlidingCollision(
       Offset current, Offset delta, List<Rect> solids) {
     var nextX = (current.dx + delta.dx).clamp(38.0, kLobbyWorldWidth - 38.0);
@@ -414,8 +497,8 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
     bool collidesAt(double x, double y) {
       final footBox = Rect.fromCenter(
         center: Offset(x, y),
-        width: kPlayerHalfWidth * 1.9,
-        height: kPlayerHalfWidth * 1.5,
+        width: kPlayerHalfWidth * 1.85,
+        height: kPlayerHalfWidth * 1.45,
       );
       for (final s in solids) {
         if (footBox.overlaps(s)) return true;
@@ -423,11 +506,60 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
       return false;
     }
 
+    const whiskers = <double>[6.0, -6.0, 12.0, -12.0, 18.0, -18.0];
+
     if (collidesAt(nextX, current.dy)) {
-      nextX = current.dx;
+      var slidCornerY = false;
+      if (delta.dx.abs() > 0.05) {
+        for (final wy in whiskers) {
+          final probeY =
+              (current.dy + wy).clamp(90.0, kLobbyWorldHeight - 30.0);
+          if (!collidesAt(nextX, probeY)) {
+            final nudge =
+                wy.sign * math.min(delta.dx.abs() * 0.95, wy.abs());
+            final candidateY =
+                (current.dy + nudge).clamp(90.0, kLobbyWorldHeight - 30.0);
+            if (!collidesAt(current.dx, candidateY)) {
+              nextY = candidateY;
+              if (collidesAt(nextX, nextY)) {
+                nextX = current.dx;
+              }
+              slidCornerY = true;
+              break;
+            }
+          }
+        }
+      }
+      if (!slidCornerY) {
+        nextX = current.dx;
+      }
     }
+
     if (collidesAt(nextX, nextY)) {
-      nextY = current.dy;
+      var slidCornerX = false;
+      if (delta.dy.abs() > 0.05) {
+        for (final wx in whiskers) {
+          final probeX =
+              (current.dx + wx).clamp(38.0, kLobbyWorldWidth - 38.0);
+          if (!collidesAt(probeX, nextY)) {
+            final nudge =
+                wx.sign * math.min(delta.dy.abs() * 0.95, wx.abs());
+            final candidateX =
+                (current.dx + nudge).clamp(38.0, kLobbyWorldWidth - 38.0);
+            if (!collidesAt(candidateX, current.dy)) {
+              nextX = candidateX;
+              if (collidesAt(nextX, nextY)) {
+                nextY = current.dy;
+              }
+              slidCornerX = true;
+              break;
+            }
+          }
+        }
+      }
+      if (!slidCornerX) {
+        nextY = current.dy;
+      }
     }
     return Offset(nextX, nextY);
   }
@@ -437,11 +569,15 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
 
     final service = LobbyDataService.instance;
     final chests = service.subjectChests;
+    final current2HrWindow =
+        DateTime.now().millisecondsSinceEpoch ~/ (2 * 60 * 60 * 1000);
 
     if (_cachedRoomForSolids != _currentRoom ||
-        _cachedChestCountForSolids != chests.length) {
+        _cachedChestCountForSolids != chests.length ||
+        _cached2HourWindowForSolids != current2HrWindow) {
       _cachedRoomForSolids = _currentRoom;
       _cachedChestCountForSolids = chests.length;
+      _cached2HourWindowForSolids = current2HrWindow;
       _cachedSolids = buildLobbySolids(chests, room: _currentRoom);
       _cachedZones = buildActiveInteractiveZones(chests, room: _currentRoom);
     }
@@ -456,8 +592,12 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
     var walking = false;
 
     if (manualVec != Offset.zero) {
-      // Automatically stand up if the player was sitting/napping/sleeping
+      // Automatically dismount onto `standPosition` if the player was sitting/napping/sleeping
       if (_playerRestState.isResting) {
+        if (_activeRestSpot != null) {
+          _playerPos = _activeRestSpot!.standPosition;
+          _activeRestSpot = null;
+        }
         _playerRestState = PlayerRestState.none;
       }
       _activePath = const [];
@@ -466,6 +606,10 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
       walking = true;
     } else if (_activePath.isNotEmpty) {
       if (_playerRestState.isResting) {
+        if (_activeRestSpot != null) {
+          _playerPos = _activeRestSpot!.standPosition;
+          _activeRestSpot = null;
+        }
         _playerRestState = PlayerRestState.none;
       }
       final target = _activePath.first;
@@ -493,6 +637,10 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
         _activePath = const [];
         walking = false;
       }
+    }
+
+    if (walking) {
+      LobbyAudioService.instance.playStep();
     }
 
     final wasWalking = _playerIsWalking;
@@ -534,9 +682,12 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
       animChanged = true;
     }
 
-    // 3b. Advance 60 FPS remote player position interpolation & sync local player state
-    final remoteMoved =
-        LobbyPresenceService.instance.tickInterpolation(dt, _currentRoom);
+    // 3b. Advance 60 FPS remote player position interpolation (with obstacle clamping) & sync local player state
+    final remoteMoved = LobbyPresenceService.instance.tickInterpolation(
+      dt,
+      _currentRoom,
+      roomSolids: solids,
+    );
     LobbyPresenceService.instance.updateLocalPlayerState(
       nickname: _playerNickname,
       look: _playerLook,
@@ -617,6 +768,9 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
       return;
     }
 
+    final startPos = (_playerRestState.isResting && _activeRestSpot != null)
+        ? _activeRestSpot!.standPosition
+        : _playerPos;
     final chests = LobbyDataService.instance.subjectChests;
     final solids = buildLobbySolids(chests, room: _currentRoom);
     final nav = LobbyNavGrid(
@@ -625,11 +779,15 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
       solids: solids,
     );
 
-    final path = nav.findPath(_playerPos, worldTap);
+    final path = nav.findPath(startPos, worldTap);
     setState(() {
       _tapPulseTarget = worldTap;
       _tapPulseProgress = 0.0;
       if (path.isNotEmpty) {
+        if (_activeRestSpot != null) {
+          _playerPos = _activeRestSpot!.standPosition;
+          _activeRestSpot = null;
+        }
         _playerRestState = PlayerRestState.none;
         _activePath = path;
       }
@@ -649,23 +807,27 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
       isFirstTimeOnboarding: isFirstTimeOnboarding,
     );
     if (result != null && mounted) {
-      await AvatarSpriteCache.instance.saveLook(widget.session.id, result.look);
+      final safeLook = LobbyShopService.instance.sanitizeLookForUnlocked(
+        result.look,
+        isFaculty: widget.session.isFaculty,
+      );
+      await AvatarSpriteCache.instance.saveLook(widget.session.id, safeLook);
       await AvatarSpriteCache.instance
           .saveNickname(widget.session.id, result.nickname);
       await AvatarSpriteCache.instance
           .markOnboardingCompleted(widget.session.id);
 
       final newSheet =
-          await AvatarSpriteCache.instance.resolveLookSpriteSheet(result.look);
+          await AvatarSpriteCache.instance.resolveLookSpriteSheet(safeLook);
       if (mounted) {
         setState(() {
-          _playerLook = result.look;
+          _playerLook = safeLook;
           _playerNickname = result.nickname;
           _playerSheet = newSheet;
         });
         LobbyPresenceService.instance.updateLocalPlayerState(
           nickname: result.nickname,
-          look: result.look,
+          look: safeLook,
           equippedBadgeIcon: equippedBadgeIcon,
           forceImmediateBroadcast: true,
         );
@@ -673,8 +835,57 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
     }
   }
 
+  Future<void> _openCampusShop() async {
+    final updatedLook = await showCampusShopModal(
+      context: context,
+      currentLook: _playerLook,
+      isFaculty: widget.session.isFaculty,
+    );
+    if (updatedLook != null && mounted) {
+      final safeLook = LobbyShopService.instance.sanitizeLookForUnlocked(
+        updatedLook,
+        isFaculty: widget.session.isFaculty,
+      );
+      await AvatarSpriteCache.instance.saveLook(widget.session.id, safeLook);
+      final newSheet =
+          await AvatarSpriteCache.instance.resolveLookSpriteSheet(safeLook);
+      if (mounted) {
+        setState(() {
+          _playerLook = safeLook;
+          _playerSheet = newSheet;
+        });
+        LobbyPresenceService.instance.updateLocalPlayerState(
+          look: safeLook,
+          forceImmediateBroadcast: true,
+        );
+      }
+    }
+  }
+
+  Future<void> _openCampusRadio() async {
+    await showCampusRadioModal(
+      context: context,
+      playerName: _playerNickname,
+      onStationBroadcastChanged: () {
+        LobbyPresenceService.instance.broadcastCampusRadioOrModerationUpdate();
+      },
+    );
+  }
+
+  Future<void> _openTeacherModeration() async {
+    await showTeacherModerationModal(
+      context: context,
+      teacherName: _playerNickname,
+      currentRoom: _currentRoom,
+      onModerationChanged: () {
+        LobbyPresenceService.instance.broadcastCampusRadioOrModerationUpdate();
+      },
+    );
+  }
+
   void _triggerWave() {
     HapticFeedback.lightImpact();
+    LobbyAudioService.instance.playWaveEmote();
     setState(() {
       _waveBubbleProgress = 0.01;
     });
@@ -758,6 +969,7 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
         break;
       case InteractiveZoneKind.subjectChest:
         if (zone.subjectChestId != null) {
+          LobbyAudioService.instance.playChestOpen();
           await showSubjectChestModal(
             context: context,
             chestId: zone.subjectChestId!,
@@ -766,6 +978,7 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
         }
         break;
       case InteractiveZoneKind.smallMysteryChest:
+        LobbyAudioService.instance.playChestOpen();
         await showSmallMysteryChestModal(
           context: context,
           smallChestId: zone.id,
@@ -783,14 +996,19 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
         await showBulletinBoardModal(context: context);
         break;
       case InteractiveZoneKind.studentLounge:
+        final loungeSpot = _findNearbyRestSpot() ??
+            restSpotsForRoom(_currentRoom).firstWhere(
+              (r) => r.id.contains('lounge'),
+              orElse: () => restSpotsForRoom(_currentRoom).first,
+            );
         final chosenRest = await showRestSpotActionModal(
           context: context,
-          spotLabel: 'Student Study Lounge',
+          spotLabel: loungeSpot.label,
           currentState: _playerRestState,
-          canSleepFlat: true,
+          canSleepFlat: loungeSpot.canSleepFlat,
         );
         if (chosenRest != null && mounted) {
-          _setPlayerRestState(chosenRest);
+          _setPlayerRestState(chosenRest, snapToSpot: loungeSpot);
         }
         break;
       case InteractiveZoneKind.reviewerTreasureArea:
@@ -809,6 +1027,7 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
         final pickedItem = await showCanteenVendingModal(context: context);
         if (pickedItem != null && mounted) {
           HapticFeedback.mediumImpact();
+          LobbyAudioService.instance.playShopPurchase();
           final nowMs = DateTime.now().millisecondsSinceEpoch;
           setState(() {
             _playerThoughtText = pickedItem;
@@ -842,11 +1061,20 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
           );
         }
         break;
+      case InteractiveZoneKind.campusShop:
+        await _openCampusShop();
+        break;
+      case InteractiveZoneKind.radioBase:
+        await _openCampusRadio();
+        break;
     }
   }
 
   void _guideToDestination(Offset target, String destinationName) {
     HapticFeedback.selectionClick();
+    final startPos = (_playerRestState.isResting && _activeRestSpot != null)
+        ? _activeRestSpot!.standPosition
+        : _playerPos;
     final chests = LobbyDataService.instance.subjectChests;
     final solids = buildLobbySolids(chests, room: _currentRoom);
     final nav = LobbyNavGrid(
@@ -854,11 +1082,15 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
       rows: kLobbyRows,
       solids: solids,
     );
-    final path = nav.findPath(_playerPos, target);
+    final path = nav.findPath(startPos, target);
     setState(() {
       _tapPulseTarget = target;
       _tapPulseProgress = 0.0;
       if (path.isNotEmpty) {
+        if (_activeRestSpot != null) {
+          _playerPos = _activeRestSpot!.standPosition;
+          _activeRestSpot = null;
+        }
         _playerRestState = PlayerRestState.none;
         _activePath = path;
       }
@@ -877,7 +1109,7 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
   void _showGuidedWayfinderMenu() {
     final chests = LobbyDataService.instance.subjectChests;
     final zones = buildActiveInteractiveZones(chests, room: _currentRoom);
-    // Filter to primary destinations (doors, quest counter, chests, podium, vending, lounge)
+    // Filter to primary destinations (doors, quest counter, chests, podium, vending, lounge, shop, radio)
     final destinations = zones
         .where((z) => z.kind != InteractiveZoneKind.restSpot)
         .toList();
@@ -1001,6 +1233,7 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
   }
 
   void _showRoomQuickTravelMenu() {
+    final occupancy = LobbyPresenceService.instance.roomOccupancyCounts;
     showModalBottomSheet<void>(
       context: context,
       backgroundColor: Colors.transparent,
@@ -1043,6 +1276,8 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
             ...LobbyRoomId.values.map((room) {
               final isCurrent = room == _currentRoom;
               final accent = Color(room.accentColor);
+              final roomCount =
+                  (occupancy[room] ?? 0) + (isCurrent ? 1 : 0);
               return Padding(
                 padding: const EdgeInsets.only(bottom: 8),
                 child: ListTile(
@@ -1064,6 +1299,14 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
                       color: Colors.white,
                       fontWeight: FontWeight.w700,
                       fontSize: 14.5,
+                    ),
+                  ),
+                  subtitle: Text(
+                    '🟢 $roomCount Inside',
+                    style: GoogleFonts.inter(
+                      color: const Color(0xFF34D399),
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
                   trailing: isCurrent
@@ -1132,11 +1375,26 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
         ThemeController.instance,
         service,
         LobbyPresenceService.instance,
+        LobbyAudioService.instance,
+        LobbyRadioService.instance,
+        LobbyModerationService.instance,
       ]),
       builder: (context, _) {
         final isDarkMode = ThemeController.instance.isDarkMode;
         final remotePlayersInRoom =
             LobbyPresenceService.instance.playersForRoom(_currentRoom);
+        final roomOccupancyCounts =
+            LobbyPresenceService.instance.roomOccupancyCounts;
+        final isSfxMuted = LobbyAudioService.instance.isMuted;
+        final isRadioListening = LobbyRadioService.instance.isListeningLocally;
+        final activeStation = LobbyRadioService.instance.activeStation;
+        final activeAnnouncement =
+            LobbyModerationService.instance.activeAnnouncement;
+        final announcementSender =
+            LobbyModerationService.instance.announcementSender;
+        final isRoomChatMuted =
+            LobbyModerationService.instance.isRoomChatMuted(_currentRoom);
+        final nearbyRestSpot = _findNearbyRestSpot();
 
         return Scaffold(
           backgroundColor: const Color(0xFF090E1A),
@@ -1218,6 +1476,7 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
                                     activePeerThoughts: _activePeerThoughts,
                                     remotePlayers: remotePlayersInRoom,
                                     showOfflineClassmates: _showOfflineBots,
+                                    roomOccupancyCounts: roomOccupancyCounts,
                                   ),
                                 ),
                               );
@@ -1319,12 +1578,69 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
                                         // Thought Bubble Chat Quick Button
                                         _HudPillButton(
                                           icon: Icons.cloud_outlined,
-                                          iconColor: const Color(0xFF38BDF8),
-                                          label: '💭 Thought Chat',
-                                          borderColor: const Color(0xFF38BDF8)
+                                          iconColor: isRoomChatMuted
+                                              ? const Color(0xFFF87171)
+                                              : const Color(0xFF38BDF8),
+                                          label: isRoomChatMuted
+                                              ? '🔇 Chat Muted'
+                                              : '💭 Thought Chat',
+                                          borderColor: (isRoomChatMuted
+                                                  ? const Color(0xFFF87171)
+                                                  : const Color(0xFF38BDF8))
                                               .withOpacity(0.55),
                                           onTap: () =>
                                               _openThoughtBubbleModal(),
+                                        ),
+                                        const SizedBox(width: 6),
+
+                                        // Campus Cosmetics Shop (`🛍️ Shop`)
+                                        _HudPillButton(
+                                          icon: Icons.shopping_bag_rounded,
+                                          iconColor: const Color(0xFFF472B6),
+                                          label:
+                                              '🛍️ Shop (${progress.availableXp} XP)',
+                                          borderColor: const Color(0xFFEC4899)
+                                              .withOpacity(0.70),
+                                          onTap: _openCampusShop,
+                                        ),
+                                        const SizedBox(width: 6),
+
+                                        // Campus Radio Base (`📻 Radio Garden`)
+                                        _HudPillButton(
+                                          icon: Icons.radio_rounded,
+                                          iconColor: isRadioListening
+                                              ? const Color(0xFF34D399)
+                                              : const Color(0xFF38BDF8),
+                                          label: isRadioListening
+                                              ? '📻 ${activeStation.emoji} Live ON'
+                                              : '📻 Campus Radio',
+                                          borderColor: (isRadioListening
+                                                  ? const Color(0xFF10B981)
+                                                  : const Color(0xFF06B6D4))
+                                              .withOpacity(0.70),
+                                          onTap: _openCampusRadio,
+                                        ),
+                                        const SizedBox(width: 6),
+
+                                        // Sound Effects Toggle (`🔊 SFX` / `🔇 Mute`)
+                                        _HudPillButton(
+                                          icon: isSfxMuted
+                                              ? Icons.volume_off_rounded
+                                              : Icons.volume_up_rounded,
+                                          iconColor: isSfxMuted
+                                              ? Colors.white54
+                                              : const Color(0xFF34D399),
+                                          label: isSfxMuted
+                                              ? '🔇 Muted'
+                                              : '🔊 SFX',
+                                          borderColor: isSfxMuted
+                                              ? Colors.white24
+                                              : const Color(0xFF34D399)
+                                                  .withOpacity(0.60),
+                                          onTap: () {
+                                            LobbyAudioService.instance
+                                                .toggleMute();
+                                          },
                                         ),
                                         const SizedBox(width: 6),
 
@@ -1360,8 +1676,17 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
                                         ),
                                         const SizedBox(width: 6),
 
-                                        // Teacher Quick "Manage Links" & "+ Post Activity" HUD Buttons
+                                        // Teacher Quick "Manage Links", "+ Post Activity" & "🛡️ Mod" HUD Buttons
                                         if (widget.session.isFaculty) ...[
+                                          _HudPillButton(
+                                            icon: Icons.shield_rounded,
+                                            iconColor: const Color(0xFFFACC15),
+                                            label: '🛡️ Mod',
+                                            borderColor:
+                                                const Color(0xFFFACC15),
+                                            onTap: _openTeacherModeration,
+                                          ),
+                                          const SizedBox(width: 6),
                                           _HudPillButton(
                                             icon: Icons.link_rounded,
                                             iconColor: const Color(0xFFFACC15),
@@ -1456,6 +1781,44 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
                                     ),
                                   ),
 
+                                  // Live Campus Announcement Banner (`📢` broadcast from Teacher Moderation Console)
+                                  if (activeAnnouncement != null &&
+                                      activeAnnouncement.isNotEmpty) ...[
+                                    const SizedBox(height: 6),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 12, vertical: 7),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFF422006)
+                                            .withOpacity(0.95),
+                                        borderRadius: BorderRadius.circular(12),
+                                        border: Border.all(
+                                          color: const Color(0xFFFACC15),
+                                          width: 1.5,
+                                        ),
+                                      ),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          const Text('📢',
+                                              style: TextStyle(fontSize: 15)),
+                                          const SizedBox(width: 7),
+                                          Flexible(
+                                            child: Text(
+                                              '[$announcementSender]: $activeAnnouncement',
+                                              style: GoogleFonts.inter(
+                                                color:
+                                                    const Color(0xFFFEF08A),
+                                                fontSize: 11.5,
+                                                fontWeight: FontWeight.w800,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+
                                   // Active Zone Proximity Banner under Top HUD
                                   if (_highlightedZone != null) ...[
                                     const SizedBox(height: 6),
@@ -1517,6 +1880,10 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
                                 isCompact:
                                     !isLandscape && screenSize.width < 390,
                                 onTapWorldPoint: (worldTarget) {
+                                  final startPos = (_playerRestState.isResting &&
+                                          _activeRestSpot != null)
+                                      ? _activeRestSpot!.standPosition
+                                      : _playerPos;
                                   final solids = buildLobbySolids(
                                     service.subjectChests,
                                     room: _currentRoom,
@@ -1527,11 +1894,16 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
                                     solids: solids,
                                   );
                                   final path =
-                                      nav.findPath(_playerPos, worldTarget);
+                                      nav.findPath(startPos, worldTarget);
                                   setState(() {
                                     _tapPulseTarget = worldTarget;
                                     _tapPulseProgress = 0.0;
                                     if (path.isNotEmpty) {
+                                      if (_activeRestSpot != null) {
+                                        _playerPos =
+                                            _activeRestSpot!.standPosition;
+                                        _activeRestSpot = null;
+                                      }
                                       _playerRestState = PlayerRestState.none;
                                       _activePath = path;
                                     }
@@ -1575,6 +1947,7 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
                               child: SchoolLobbyInteractCluster(
                                 activeZone: _highlightedZone,
                                 playerRestState: _playerRestState,
+                                nearbyRestSpot: nearbyRestSpot,
                                 onInteract: _triggerInteract,
                                 onWave: _triggerWave,
                                 onThoughtBubble: () =>

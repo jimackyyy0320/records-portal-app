@@ -9,6 +9,8 @@ import 'package:flutter/material.dart';
 import '../models/portal_models.dart';
 import '../services/api_service.dart';
 import 'lobby_data_service.dart';
+import 'lobby_moderation_service.dart';
+import 'lobby_radio_service.dart';
 import 'school_lobby_avatar.dart';
 import 'school_lobby_config.dart';
 
@@ -201,6 +203,41 @@ class LobbyPresenceService extends ChangeNotifier {
   /// Remote players currently inside [room].
   List<RemoteLobbyPlayer> playersForRoom(LobbyRoomId room) {
     return _remotePlayers.values.where((p) => p.room == room).toList();
+  }
+
+  /// Section 4.1 Critique Fix: Live per-room occupancy counts across the 5-room campus
+  /// (including the local player in `_selfRoom` and all active `_remotePlayers`) so Campus Doors
+  /// display `🟢 X Inside` badges!
+  Map<LobbyRoomId, int> get roomOccupancyCounts {
+    final counts = <LobbyRoomId, int>{
+      for (final r in LobbyRoomId.values) r: 0,
+    };
+    counts[_selfRoom] = (counts[_selfRoom] ?? 0) + 1;
+    for (final rp in _remotePlayers.values) {
+      counts[rp.room] = (counts[rp.room] ?? 0) + 1;
+    }
+    return counts;
+  }
+
+  /// Broadcasts an immediate Campus Radio tune or Faculty Moderation update to all online peers.
+  void broadcastCampusRadioOrModerationUpdate() {
+    if (_isDisposedOrStopped || !enableNetworkTransport) return;
+    _broadcastPacketSync(type: 'campus_sync', burstDuplicate: true);
+  }
+
+  static String _computePacketSignature({
+    required String peerKey,
+    required String userId,
+    required String roomName,
+    required int seq,
+  }) {
+    final raw = 'mis_v5|$peerKey|$userId|$roomName|$seq';
+    var hash = 0x811c9dc5;
+    for (final unit in raw.codeUnits) {
+      hash ^= unit;
+      hash = (hash * 0x01000193) & 0x7fffffff;
+    }
+    return hash.toRadixString(16);
   }
 
   /// Starts live multiplayer presence for the current user session.
@@ -419,8 +456,14 @@ class LobbyPresenceService extends ChangeNotifier {
   }
 
   /// Advances 60 FPS position dead-reckoning & smooth interpolation for all remote players in [activeRoom].
+  /// Item #1 Fix: Clamps dead-reckoning projections against [roomSolids] so remote players never glide
+  /// through walls or furniture during network jitter!
   /// Returns `true` if any remote player moved or animated this frame so the canvas can repaint.
-  bool tickInterpolation(double dt, LobbyRoomId activeRoom) {
+  bool tickInterpolation(
+    double dt,
+    LobbyRoomId activeRoom, {
+    List<Rect>? roomSolids,
+  }) {
     var anyVisualChange = false;
     final nowMs = DateTime.now().millisecondsSinceEpoch;
 
@@ -448,7 +491,24 @@ class LobbyPresenceService extends ChangeNotifier {
             .clamp(38.0, kLobbyWorldWidth - 38.0);
         final projectedY = (p.targetPos.dy + p.velocity.dy * dt)
             .clamp(90.0, kLobbyWorldHeight - 30.0);
-        p.targetPos = Offset(projectedX, projectedY);
+        final candidatePos = Offset(projectedX, projectedY);
+        var blockedBySolid = false;
+        if (roomSolids != null && roomSolids.isNotEmpty) {
+          final footBox = Rect.fromCenter(
+            center: candidatePos,
+            width: kPlayerHalfWidth * 1.8,
+            height: 14.0,
+          );
+          for (final solid in roomSolids) {
+            if (solid.overlaps(footBox)) {
+              blockedBySolid = true;
+              break;
+            }
+          }
+        }
+        if (!blockedBySolid) {
+          p.targetPos = candidatePos;
+        }
       }
 
       final toTarget = p.targetPos - p.currentPos;
@@ -542,7 +602,35 @@ class LobbyPresenceService extends ChangeNotifier {
       (r) => r.name == restName,
       orElse: () => PlayerRestState.none,
     );
-    final thoughtText = data['thought']?.toString();
+    final rawThoughtText = data['thought']?.toString();
+    final thoughtText = rawThoughtText != null
+        ? LobbyModerationService.instance.sanitizeText(rawThoughtText)
+        : null;
+
+    // Sync Campus Radio 1-hour channel lock if carried in packet
+    final radioId = (data['radioId'] ?? '').toString().trim();
+    final radioTs =
+        (data['radioTs'] is num) ? (data['radioTs'] as num).toInt() : 0;
+    final radioBy = (data['radioBy'] ?? '').toString().trim();
+    if (radioId.isNotEmpty && radioTs > 0) {
+      LobbyRadioService.instance.applyRemoteRadioSync(
+        stationId: radioId,
+        changedAtMs: radioTs,
+        changedBy: radioBy.isEmpty ? nickname : radioBy,
+      );
+    }
+
+    // Sync Teacher Moderation (Room Mutes & Campus-Wide Announcement Banner) if sender is Faculty
+    if (isFaculty && data.containsKey('mutedRooms')) {
+      LobbyModerationService.instance.applyRemoteFacultyModeration(
+        mutedRoomsCsv: (data['mutedRooms'] ?? '').toString(),
+        announcementText: data['announceText']?.toString(),
+        announcementSender: nickname,
+        announcementTsMs: (data['announceTs'] is num)
+            ? (data['announceTs'] as num).toInt()
+            : null,
+      );
+    }
 
     if (existing == null) {
       final created = RemoteLobbyPlayer(
@@ -675,6 +763,14 @@ class LobbyPresenceService extends ChangeNotifier {
         ? _selfThoughtText
         : '';
     final vel = _computeSelfVelocityVector();
+    final radio = LobbyRadioService.instance;
+    final mod = LobbyModerationService.instance;
+    final sig = _computePacketSignature(
+      peerKey: _selfPeerKey,
+      userId: _selfUserId,
+      roomName: _selfRoom.name,
+      seq: _selfSeq,
+    );
     return <String, dynamic>{
       'app': 'mis_shs_lobby_v1',
       'type': type,
@@ -693,9 +789,18 @@ class LobbyPresenceService extends ChangeNotifier {
       'isWalking': _selfIsWalking,
       'rest': _selfRestState.name,
       'thought': activeThought,
+      'radioId': radio.activeStationId,
+      'radioTs': radio.lastChangedAtMs,
+      'radioBy': radio.lastChangedBy,
+      if (_selfIsFaculty) ...{
+        'mutedRooms': mod.mutedRoomsCsv,
+        'announceText': mod.activeAnnouncement ?? '',
+        'announceTs': mod.announcementTimestampMs,
+      },
       'sessionMs': _selfSessionStartMs,
       'seq': _selfSeq,
       'ts': nowMs,
+      'sig': sig,
     };
   }
 

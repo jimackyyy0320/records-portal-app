@@ -6,6 +6,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/portal_models.dart';
 import '../services/api_service.dart';
+import 'lobby_exam_bank.dart';
+import 'lobby_shop_service.dart';
 
 /// Selectable pixel-style badge presets for Teacher "+ Post an Activity" & Student Achievements.
 class LobbyBadgePreset {
@@ -413,9 +415,11 @@ class MiniQuizQuestion {
       };
 }
 
-/// Per-student RPG state (XP, Level, Rank Title, Launched/Completed Activities & Reviewers, Earned Badges, Equipped Badge, Cooldowns).
+/// Per-student RPG state (XP, Spent Shop XP, Level, Rank Title, Launched/Completed Activities & Reviewers,
+/// Earned Badges, Equipped Badge, 24h Chest Cooldowns, Unlocked Shop Cosmetics, and Non-Repeating Question History).
 class StudentLobbyProgress {
   final int xp;
+  final int spentXp;
   final Set<String> launchedActivityIds;
   final Set<String> completedActivityIds;
   final Set<String> launchedReviewerIds;
@@ -424,9 +428,12 @@ class StudentLobbyProgress {
   final String? equippedBadgeId;
   final Map<String, int> smallChestCooldownUntilMs;
   final int smallChestsSolvedCount;
+  final Set<String> unlockedCosmetics;
+  final List<String> answeredQuestionIds;
 
   const StudentLobbyProgress({
     this.xp = 0,
+    this.spentXp = 0,
     this.launchedActivityIds = const {},
     this.completedActivityIds = const {},
     this.launchedReviewerIds = const {},
@@ -435,7 +442,13 @@ class StudentLobbyProgress {
     this.equippedBadgeId,
     this.smallChestCooldownUntilMs = const {},
     this.smallChestsSolvedCount = 0,
+    this.unlockedCosmetics = LobbyShopService.kStarterUnlockedCosmetics,
+    this.answeredQuestionIds = const [],
   });
+
+  /// Spendable XP wallet in the Campus Cosmetics Shop (`xp - spentXp`).
+  /// Spending XP in the shop never reduces lifetime `level` or `rankTitle`!
+  int get availableXp => math.max(0, xp - spentXp);
 
   int get level => (xp ~/ 100) + 1;
   int get currentLevelXp => xp % 100;
@@ -474,6 +487,7 @@ class StudentLobbyProgress {
 
   StudentLobbyProgress copyWith({
     int? xp,
+    int? spentXp,
     Set<String>? launchedActivityIds,
     Set<String>? completedActivityIds,
     Set<String>? launchedReviewerIds,
@@ -482,9 +496,12 @@ class StudentLobbyProgress {
     String? equippedBadgeId,
     Map<String, int>? smallChestCooldownUntilMs,
     int? smallChestsSolvedCount,
+    Set<String>? unlockedCosmetics,
+    List<String>? answeredQuestionIds,
   }) {
     return StudentLobbyProgress(
       xp: xp ?? this.xp,
+      spentXp: spentXp ?? this.spentXp,
       launchedActivityIds: launchedActivityIds ?? this.launchedActivityIds,
       completedActivityIds: completedActivityIds ?? this.completedActivityIds,
       launchedReviewerIds: launchedReviewerIds ?? this.launchedReviewerIds,
@@ -495,6 +512,8 @@ class StudentLobbyProgress {
           smallChestCooldownUntilMs ?? this.smallChestCooldownUntilMs,
       smallChestsSolvedCount:
           smallChestsSolvedCount ?? this.smallChestsSolvedCount,
+      unlockedCosmetics: unlockedCosmetics ?? this.unlockedCosmetics,
+      answeredQuestionIds: answeredQuestionIds ?? this.answeredQuestionIds,
     );
   }
 
@@ -529,8 +548,18 @@ class StudentLobbyProgress {
         if (v is num) cooldowns[k.toString()] = v.toInt();
       });
     }
+    final unlocked = <String>{
+      ...LobbyShopService.kStarterUnlockedCosmetics,
+      ...((json['unlockedCosmetics'] as List?)?.map((e) => e.toString()) ??
+          const <String>[]),
+    };
+    final answered = (json['answeredQuestionIds'] as List?)
+            ?.map((e) => e.toString())
+            .toList() ??
+        <String>[];
     return StudentLobbyProgress(
       xp: (json['xp'] as num?)?.toInt() ?? 0,
+      spentXp: (json['spentXp'] as num?)?.toInt() ?? 0,
       launchedActivityIds: launched,
       completedActivityIds: completed,
       launchedReviewerIds: launchedRevs,
@@ -540,11 +569,14 @@ class StudentLobbyProgress {
       smallChestCooldownUntilMs: cooldowns,
       smallChestsSolvedCount:
           (json['smallChestsSolvedCount'] as num?)?.toInt() ?? 0,
+      unlockedCosmetics: unlocked,
+      answeredQuestionIds: answered,
     );
   }
 
   Map<String, dynamic> toJson() => {
         'xp': xp,
+        'spentXp': spentXp,
         'launchedActivityIds': launchedActivityIds.toList(),
         'completedActivityIds': completedActivityIds.toList(),
         'launchedReviewerIds': launchedReviewerIds.toList(),
@@ -553,6 +585,8 @@ class StudentLobbyProgress {
         'equippedBadgeId': equippedBadgeId,
         'smallChestCooldownUntilMs': smallChestCooldownUntilMs,
         'smallChestsSolvedCount': smallChestsSolvedCount,
+        'unlockedCosmetics': unlockedCosmetics.toList(),
+        'answeredQuestionIds': answeredQuestionIds,
       };
 }
 
@@ -567,11 +601,13 @@ class LobbyDataService extends ChangeNotifier {
 
   static const String _kActivitiesKey = 'mis_school_lobby_activities_v4';
   static const String _kSubjectChestsKey = 'mis_school_lobby_subject_chests_v4';
-  static const String _kQuizQuestionsKey = 'mis_school_lobby_quiz_questions_v2';
+  static const String _kQuizQuestionsKey = 'mis_school_lobby_quiz_questions_v3';
   static const String _kProgressPrefix = 'mis_school_lobby_progress_v1_';
   static const String _kCloudManifestId = '999999001';
+  static const String _kCloudProgressPrefix = '999999003_';
 
-  static const int kSmallChestCooldownMs = 120 * 1000; // 2 minutes
+  /// 24-hour refresh interval per student for each Small Mystery Chest (86,400,000 ms).
+  static const int kSmallChestCooldownMs = 24 * 60 * 60 * 1000;
 
   String _activeUserId = 'guest';
   bool _initialized = false;
@@ -749,7 +785,7 @@ class LobbyDataService extends ChangeNotifier {
       await _saveActivities(prefs);
     }
 
-    // 3. Load or seed Mini Quiz Questions
+    // 3. Load or seed Mini Quiz Questions (merging all authentic `.docx` exam questions)
     final rawQuestions = prefs.getString(_kQuizQuestionsKey);
     if (rawQuestions != null && rawQuestions.isNotEmpty) {
       try {
@@ -763,6 +799,17 @@ class LobbyDataService extends ChangeNotifier {
       }
     } else {
       _quizQuestions = _defaultQuizQuestions();
+    }
+    // Ensure all authentic `.docx` exam questions from `exams/` are present
+    final existingIds = _quizQuestions.map((q) => q.id).toSet();
+    var addedExamQuestions = false;
+    for (final examQ in _defaultQuizQuestions()) {
+      if (!existingIds.contains(examQ.id)) {
+        _quizQuestions.add(examQ);
+        addedExamQuestions = true;
+      }
+    }
+    if (rawQuestions == null || addedExamQuestions) {
       await _saveQuizQuestions(prefs);
     }
 
@@ -872,6 +919,9 @@ class LobbyDataService extends ChangeNotifier {
 
       // 2. Pull Teacher's live Cloud Manifest (Activities & Reviewer Links)
       await _pullCloudManifest();
+
+      // 2b. Pull & merge Student's Cloud RPG & Shop Progress (`999999003_<studentId>`)
+      await _pullAndMergeCloudProgress();
 
       // 3. Ensure every enrolled active subject has a SubjectChest ready
       var chestsChanged = false;
@@ -1295,17 +1345,53 @@ class LobbyDataService extends ChangeNotifier {
     return ((until - now) / 1000).ceil();
   }
 
+  /// Human-readable remaining cooldown string for the 24-hour Small Mystery Chest timer (`XXh YYm` or `MMm SSs`).
+  String smallChestFormattedCooldown(String smallChestId, [int? nowMs]) {
+    final remSec = smallChestRemainingSeconds(smallChestId, nowMs);
+    if (remSec <= 0) return 'Ready';
+    final hours = remSec ~/ 3600;
+    final mins = (remSec % 3600) ~/ 60;
+    final secs = remSec % 60;
+    if (hours > 0) {
+      return '${hours}h ${mins.toString().padLeft(2, '0')}m';
+    }
+    return '${mins}m ${secs.toString().padLeft(2, '0')}s';
+  }
+
   bool isSmallChestOnCooldown(String smallChestId, [int? nowMs]) {
     return smallChestRemainingSeconds(smallChestId, nowMs) > 0;
   }
 
-  /// Feature 3: Picks a random Pop-Quiz Question strictly from the student's active enrolled subjects.
+  /// Feature 3 & Item #4: Picks an authentic `.docx` exam question strictly from the student's
+  /// active enrolled subjects and rotates through `answeredQuestionIds` so questions NEVER repeat
+  /// until the student has completed the entire deck for their enrolled subjects!
   MiniQuizQuestion pickRandomQuestionForSmallChest(String smallChestId) {
     final pool = quizQuestions;
     if (pool.isEmpty) {
       final fallback = _defaultQuizQuestions();
       return fallback.first;
     }
+
+    final answeredSet = _progress.answeredQuestionIds.toSet();
+    final unanswered =
+        pool.where((q) => !answeredSet.contains(q.id)).toList();
+
+    if (unanswered.isNotEmpty) {
+      // Deterministic + rotational selection so different chests in the same session never show the same question
+      final chestHash = smallChestId.codeUnits.fold<int>(0, (a, b) => a + b);
+      final idx =
+          ( _progress.answeredQuestionIds.length + chestHash) % unanswered.length;
+      return unanswered[idx];
+    }
+
+    // All questions in the student's enrolled pool have been answered!
+    // Automatically reset the rotation for this subject pool and start a fresh deck cycle.
+    final poolIds = pool.map((q) => q.id).toSet();
+    final retainedOtherSubjects = _progress.answeredQuestionIds
+        .where((id) => !poolIds.contains(id))
+        .toList();
+    _progress = _progress.copyWith(answeredQuestionIds: retainedOtherSubjects);
+    unawaited(_saveProgress());
     final rng = math.Random();
     return pool[rng.nextInt(pool.length)];
   }
@@ -1313,27 +1399,50 @@ class LobbyDataService extends ChangeNotifier {
   MiniQuizQuestion? drawRandomMysteryQuestion() {
     final pool = quizQuestions;
     if (pool.isEmpty) return null;
-    final rng = math.Random();
-    return pool[rng.nextInt(pool.length)];
+    return pickRandomQuestionForSmallChest('chest_draw_${_progress.answeredQuestionIds.length}');
   }
 
-  /// Records a successful Small Mystery Chest Pop-Quiz answer, starts the 2-minute cooldown,
-  /// and unlocks the `🏆 Treasure Hunter` badge on the 5th solved chest!
+  /// Records a Small Mystery Chest Pop-Quiz attempt (whether right or wrong on the first click),
+  /// locks the chest for **24 hours (`kSmallChestCooldownMs = 86,400,000 ms`)**, rotates `question.id`
+  /// into `answeredQuestionIds`, and awards XP + `🏆 Treasure Hunter` badge if solved!
   Future<EarnedStudentBadge?> recordSmallChestSuccess({
     required String smallChestId,
     required MiniQuizQuestion question,
+    int? nowMs,
   }) async {
-    final now = DateTime.now().millisecondsSinceEpoch;
+    return _recordSmallChestAttemptInternal(
+      smallChestId: smallChestId,
+      question: question,
+      isCorrect: true,
+      nowMs: nowMs,
+    );
+  }
+
+  Future<EarnedStudentBadge?> _recordSmallChestAttemptInternal({
+    required String smallChestId,
+    required MiniQuizQuestion question,
+    required bool isCorrect,
+    int? nowMs,
+  }) async {
+    final now = nowMs ?? DateTime.now().millisecondsSinceEpoch;
     final nextCooldowns =
         Map<String, int>.from(_progress.smallChestCooldownUntilMs);
     nextCooldowns[smallChestId] = now + kSmallChestCooldownMs;
-    final nextSolved = _progress.smallChestsSolvedCount + 1;
+
+    final nextAnswered = List<String>.from(_progress.answeredQuestionIds);
+    if (!nextAnswered.contains(question.id)) {
+      nextAnswered.add(question.id);
+    }
+
+    final nextSolved = isCorrect
+        ? _progress.smallChestsSolvedCount + 1
+        : _progress.smallChestsSolvedCount;
 
     EarnedStudentBadge? unlockedBadge;
     var nextBadges = List<EarnedStudentBadge>.from(_progress.earnedBadges);
     final alreadyHasHunter =
         nextBadges.any((b) => b.id == 'badge_treasure_hunter');
-    if (nextSolved >= 5 && !alreadyHasHunter) {
+    if (isCorrect && nextSolved >= 5 && !alreadyHasHunter) {
       unlockedBadge = EarnedStudentBadge(
         id: 'badge_treasure_hunter',
         badgeName: 'Treasure Hunter',
@@ -1347,9 +1456,10 @@ class LobbyDataService extends ChangeNotifier {
     }
 
     _progress = _progress.copyWith(
-      xp: _progress.xp + question.xpReward,
+      xp: isCorrect ? _progress.xp + question.xpReward : _progress.xp,
       smallChestCooldownUntilMs: nextCooldowns,
       smallChestsSolvedCount: nextSolved,
+      answeredQuestionIds: nextAnswered,
       earnedBadges: nextBadges,
       equippedBadgeId: _progress.equippedBadgeId ?? unlockedBadge?.id,
     );
@@ -1358,20 +1468,48 @@ class LobbyDataService extends ChangeNotifier {
     return unlockedBadge;
   }
 
-  /// Feature 3: Submits an answer to a Small Mystery Chest Pop-Quiz.
-  /// Correct -> awards `question.xpReward` (+25 XP) and starts the 2-minute cooldown on `smallChestId`.
+  /// Feature 3 & Items #5 & #6: Submits the student's locked first-click answer to a Small Mystery Chest Pop-Quiz.
+  /// Immediately starts the **24-hour (`86,400s`) cooldown** on `smallChestId` and rotates the question
+  /// whether the answer is right or wrong so students cannot retry or change their answer!
   Future<bool> submitSmallChestQuizAnswer({
     required String smallChestId,
     required MiniQuizQuestion question,
     required int selectedIndex,
+    int? nowMs,
   }) async {
-    if (selectedIndex != question.correctIndex) {
-      return false;
-    }
-    await recordSmallChestSuccess(
+    final isCorrect = selectedIndex == question.correctIndex;
+    await _recordSmallChestAttemptInternal(
       smallChestId: smallChestId,
       question: question,
+      isCorrect: isCorrect,
+      nowMs: nowMs,
     );
+    return isCorrect;
+  }
+
+  /// Item #8: Exchanges earned `availableXp` (`xp - spentXp`) for a cosmetic item in the Campus Shop.
+  /// Lifetime `xp`, `level`, and `rankTitle` are never reduced!
+  Future<bool> purchaseShopCosmetic({
+    required String itemKey,
+    required int costXp,
+  }) async {
+    final cleanKey = itemKey.trim();
+    if (cleanKey.isEmpty) return false;
+    if (_progress.unlockedCosmetics.contains(cleanKey)) {
+      return true;
+    }
+    final clampedCost = math.max(0, costXp);
+    if (_progress.availableXp < clampedCost) {
+      return false;
+    }
+    final nextUnlocked = Set<String>.from(_progress.unlockedCosmetics)
+      ..add(cleanKey);
+    _progress = _progress.copyWith(
+      spentXp: _progress.spentXp + clampedCost,
+      unlockedCosmetics: nextUnlocked,
+    );
+    await _saveProgress();
+    notifyListeners();
     return true;
   }
 
@@ -1426,6 +1564,92 @@ class LobbyDataService extends ChangeNotifier {
       '$_kProgressPrefix$_activeUserId',
       jsonEncode(_progress.toJson()),
     );
+    unawaited(_pushCloudProgress());
+  }
+
+  /// Section 4.2 Critique Fix: Cloud-backed RPG & Shop state persistence (`999999003_<studentId>`)
+  /// so a student reinstalling the APK or switching phones never loses their XP, Badges, or Shop Cosmetics.
+  Future<void> _pushCloudProgress() async {
+    if (_activeUserId.isEmpty || _activeUserId == 'guest') return;
+    try {
+      final rawJson = jsonEncode(_progress.toJson());
+      final encoded = base64Encode(utf8.encode(rawJson));
+      final dataUrl = 'data:application/json;base64,$encoded';
+      await ApiService.instance.uploadStudentAvatar(
+        id: '$_kCloudProgressPrefix$_activeUserId',
+        dataUrl: dataUrl,
+      );
+    } catch (_) {}
+  }
+
+  Future<void> _pullAndMergeCloudProgress() async {
+    if (_activeUserId.isEmpty || _activeUserId == 'guest') return;
+    try {
+      final rawDataUrl = await ApiService.instance
+          .getStudentAvatar('$_kCloudProgressPrefix$_activeUserId');
+      if (rawDataUrl == null || !rawDataUrl.contains(',')) return;
+      final b64 = rawDataUrl.split(',').last.trim();
+      if (b64.isEmpty) return;
+      final decodedStr = utf8.decode(base64Decode(b64));
+      final map = jsonDecode(decodedStr);
+      if (map is! Map) return;
+
+      final cloud =
+          StudentLobbyProgress.fromJson(Map<String, dynamic>.from(map));
+      final mergedBadges = <String, EarnedStudentBadge>{};
+      for (final b in [..._progress.earnedBadges, ...cloud.earnedBadges]) {
+        mergedBadges[b.id] = b;
+      }
+      final mergedCooldowns =
+          Map<String, int>.from(_progress.smallChestCooldownUntilMs);
+      cloud.smallChestCooldownUntilMs.forEach((k, v) {
+        final cur = mergedCooldowns[k] ?? 0;
+        if (v > cur) mergedCooldowns[k] = v;
+      });
+      final mergedAnswered = <String>[..._progress.answeredQuestionIds];
+      for (final qid in cloud.answeredQuestionIds) {
+        if (!mergedAnswered.contains(qid)) mergedAnswered.add(qid);
+      }
+
+      _progress = _progress.copyWith(
+        xp: math.max(_progress.xp, cloud.xp),
+        spentXp: math.max(_progress.spentXp, cloud.spentXp),
+        launchedActivityIds: {
+          ..._progress.launchedActivityIds,
+          ...cloud.launchedActivityIds,
+        },
+        completedActivityIds: {
+          ..._progress.completedActivityIds,
+          ...cloud.completedActivityIds,
+        },
+        launchedReviewerIds: {
+          ..._progress.launchedReviewerIds,
+          ...cloud.launchedReviewerIds,
+        },
+        completedReviewerIds: {
+          ..._progress.completedReviewerIds,
+          ...cloud.completedReviewerIds,
+        },
+        earnedBadges: mergedBadges.values.toList(),
+        equippedBadgeId: _progress.equippedBadgeId ?? cloud.equippedBadgeId,
+        smallChestCooldownUntilMs: mergedCooldowns,
+        smallChestsSolvedCount: math.max(
+          _progress.smallChestsSolvedCount,
+          cloud.smallChestsSolvedCount,
+        ),
+        unlockedCosmetics: {
+          ..._progress.unlockedCosmetics,
+          ...cloud.unlockedCosmetics,
+        },
+        answeredQuestionIds: mergedAnswered,
+      );
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        '$_kProgressPrefix$_activeUserId',
+        jsonEncode(_progress.toJson()),
+      );
+      notifyListeners();
+    } catch (_) {}
   }
 
   /// Phase 4: All Subject Chests start completely empty (`reviewers: const []`)
@@ -1476,134 +1700,9 @@ class LobbyDataService extends ChangeNotifier {
     return const [];
   }
 
+  /// Phase 5: Seeds all 40+ authentic multiple-choice questions extracted directly
+  /// from the 11 `.docx` examination files in the project's `exams/` folder!
   static List<MiniQuizQuestion> _defaultQuizQuestions() {
-    return const [
-      MiniQuizQuestion(
-        id: 'q_pgp_1',
-        subject: 'PGP',
-        question:
-            'Which branch of the Philippine government is vested with the power to enact, amend, and repeal laws?',
-        options: [
-          'Executive Branch',
-          'Legislative Branch',
-          'Judicial Branch',
-          'Commission on Audit',
-        ],
-        correctIndex: 1,
-        xpReward: 25,
-      ),
-      MiniQuizQuestion(
-        id: 'q_pgp_2',
-        subject: 'PGP',
-        question:
-            'What element of the State refers to its supreme and absolute power to command and enforce obedience within its territory?',
-        options: [
-          'People',
-          'Government',
-          'Sovereignty',
-          'Diplomacy',
-        ],
-        correctIndex: 2,
-        xpReward: 25,
-      ),
-      MiniQuizQuestion(
-        id: 'q_ucsp_1',
-        subject: 'UCSP',
-        question:
-            'Viewing another culture using the standards and beliefs of one\'s own culture as superior is known as:',
-        options: [
-          'Cultural Relativism',
-          'Ethnocentrism',
-          'Enculturation',
-          'Xenocentrism',
-        ],
-        correctIndex: 1,
-        xpReward: 25,
-      ),
-      MiniQuizQuestion(
-        id: 'q_ucsp_2',
-        subject: 'UCSP',
-        question:
-            'Which social science discipline primarily studies human biological and cultural evolution across time?',
-        options: [
-          'Anthropology',
-          'Political Science',
-          'Macroeconomics',
-          'Demography',
-        ],
-        correctIndex: 0,
-        xpReward: 25,
-      ),
-      MiniQuizQuestion(
-        id: 'q_ppg_1',
-        subject: 'PPG',
-        question:
-            'Under the 1987 Philippine Constitution, who serves as the Commander-in-Chief of the Armed Forces of the Philippines?',
-        options: [
-          'Senate President',
-          'Chief Justice',
-          'President of the Philippines',
-          'Secretary of National Defense',
-        ],
-        correctIndex: 2,
-        xpReward: 25,
-      ),
-      MiniQuizQuestion(
-        id: 'q_pklp_t2_1',
-        subject: 'PKLP TERM 2',
-        question:
-            'Alin sa mga sumusunod ang halimbawa ng Primaryang Batis (Primary Source) sa pag-aaral ng kasaysayan?',
-        options: [
-          'Orihinal na talaarawan at liham ng saksi sa pangyayari',
-          'Aklat-aralin sa paaralan na isinulat ngayong taon',
-          'Artikulo sa encyclopedia',
-          'Rebyu ng pelikula tungkol sa bayani',
-        ],
-        correctIndex: 0,
-        xpReward: 25,
-      ),
-      MiniQuizQuestion(
-        id: 'q_pklp_t2_2',
-        subject: 'PKLP TERM 2',
-        question:
-            'Sino ang historyador na nagtaguyod ng "Pantayong Pananaw" sa pag-unawa ng kasaysayan at kalinangang Pilipino?',
-        options: [
-          'Zeus Salazar',
-          'Jose Rizal',
-          'Graciano Lopez Jaena',
-          'Pedro Paterno',
-        ],
-        correctIndex: 0,
-        xpReward: 25,
-      ),
-      MiniQuizQuestion(
-        id: 'q_philo_1',
-        subject: 'PHILO',
-        question:
-            'Who among the ancient Greek philosophers is famous for the dictum "The unexamined life is not worth living"?',
-        options: [
-          'Socrates',
-          'Pythagoras',
-          'Thales of Miletus',
-          'Epicurus',
-        ],
-        correctIndex: 0,
-        xpReward: 25,
-      ),
-      MiniQuizQuestion(
-        id: 'q_philo_2',
-        subject: 'PHILO',
-        question:
-            'Attacking the character or motive of the person making an argument rather than addressing the argument itself is which fallacy?',
-        options: [
-          'Ad Hominem',
-          'Appeal to Force (Ad Baculum)',
-          'False Cause (Post Hoc)',
-          'Begging the Question',
-        ],
-        correctIndex: 0,
-        xpReward: 25,
-      ),
-    ];
+    return List<MiniQuizQuestion>.from(kAuthenticExamQuestionBank);
   }
 }

@@ -12,8 +12,13 @@ import 'package:student_portal_app/screens/teacher_scanner_screen.dart';
 import 'package:student_portal_app/services/session_service.dart';
 import 'package:student_portal_app/utils/reviewer_outline_extractor.dart';
 import 'package:student_portal_app/widgets/student_qr_generator.dart';
+import 'package:student_portal_app/school_lobby/lobby_audio_service.dart';
 import 'package:student_portal_app/school_lobby/lobby_data_service.dart';
+import 'package:student_portal_app/school_lobby/lobby_exam_bank.dart';
+import 'package:student_portal_app/school_lobby/lobby_moderation_service.dart';
 import 'package:student_portal_app/school_lobby/lobby_presence_service.dart';
+import 'package:student_portal_app/school_lobby/lobby_radio_service.dart';
+import 'package:student_portal_app/school_lobby/lobby_shop_service.dart';
 import 'package:student_portal_app/school_lobby/school_lobby_avatar.dart';
 import 'package:student_portal_app/school_lobby/school_lobby_config.dart';
 import 'package:student_portal_app/school_lobby/school_lobby_engine.dart';
@@ -605,6 +610,195 @@ void main() {
       });
       expect(presence.totalOnlineCount, 1);
       expect(presence.allRemotePlayers, isEmpty);
+    },
+  );
+
+  test(
+    'Phase 5: Authentic .docx Exam Bank rotation, 24h Chest Cooldown & 2h Relocation, Furniture Rest/Cushion Layering, Shop XP Exchange, 1h Radio Garden Lock, SFX & Moderation',
+    () async {
+      final service = LobbyDataService.instance;
+      await service.init('2024-00888');
+
+      // 1. Authentic .docx Exam Bank (40+ questions across PKLP TERM 2, PPG, PGP, UCSP, PHILO)
+      //    & Non-Repeating Per-Student Question Rotation
+      expect(kAuthenticExamQuestionBank.length, greaterThanOrEqualTo(40));
+      final subjectsInBank =
+          kAuthenticExamQuestionBank.map((q) => q.subject).toSet();
+      expect(
+        subjectsInBank,
+        containsAll(['PKLP TERM 2', 'PPG', 'PGP', 'UCSP', 'PHILO']),
+      );
+
+      final seenIds = <String>{};
+      final totalPool = service.quizQuestions.length;
+      expect(totalPool, greaterThanOrEqualTo(40));
+      for (var i = 0; i < totalPool; i++) {
+        final q = service.pickRandomQuestionForSmallChest('small_chest_1');
+        expect(seenIds.contains(q.id), isFalse,
+            reason: 'Question ${q.id} repeated before pool exhaustion at draw $i');
+        seenIds.add(q.id);
+        await service.submitSmallChestQuizAnswer(
+          smallChestId: 'small_chest_${(i % 8) + 1}',
+          question: q,
+          wasCorrect: true,
+        );
+      }
+      expect(seenIds.length, totalPool);
+      // Next draw after exhausting all 40+ questions cleanly resets and continues rotating
+      final afterResetQuestion =
+          service.pickRandomQuestionForSmallChest('small_chest_1');
+      expect(afterResetQuestion.id, isNotEmpty);
+
+      // 2. 24-Hour (86,400s) Small Mystery Chest Cooldown + Lock on First Click (even on wrong answer)
+      expect(
+        LobbyDataService.kSmallChestCooldownMs,
+        equals(24 * 60 * 60 * 1000),
+      );
+      final nowMs = DateTime.now().millisecondsSinceEpoch;
+      await service.submitSmallChestQuizAnswer(
+        smallChestId: 'small_chest_7',
+        question: afterResetQuestion,
+        wasCorrect: false,
+      );
+      expect(service.isSmallChestOnCooldown('small_chest_7', nowMs), isTrue);
+      final remSec = service.smallChestRemainingSeconds('small_chest_7', nowMs);
+      expect(remSec, greaterThan(86000));
+      expect(remSec, lessThanOrEqualTo(86400));
+      expect(
+        LobbyDataService.formatCooldownDuration(remSec),
+        contains('23h'),
+      );
+
+      // 3. Dynamic 2-Hour Small Mystery Chest Walkable Relocation
+      final windowA = 1000 * (2 * 60 * 60 * 1000);
+      final windowB = 1001 * (2 * 60 * 60 * 1000);
+      final posA =
+          smallChestPositionFor2HourWindow('small_chest_1', nowMs: windowA);
+      final posB =
+          smallChestPositionFor2HourWindow('small_chest_1', nowMs: windowB);
+      expect(posA != posB, isTrue);
+
+      final mainSolids = buildLobbySolids(
+        service.subjectChests,
+        room: LobbyRoomId.mainLobby,
+        includeSmallChests: false,
+      );
+      for (var i = 1; i <= 8; i++) {
+        final pos = smallChestPositionFor2HourWindow(
+          'small_chest_$i',
+          nowMs: windowA,
+        );
+        final chestBox =
+            Rect.fromCenter(center: pos, width: 36, height: 28);
+        for (final solid in mainSolids) {
+          expect(chestBox.overlaps(solid), isFalse);
+        }
+      }
+
+      // 4. Furniture Anti-Bump Colliders + Furniture-Only Rest Spots + Elevated Cushion SortY
+      for (final room in LobbyRoomId.values) {
+        final spots = restSpotsForRoom(room);
+        expect(spots, isNotEmpty);
+        for (final s in spots) {
+          // Every rest spot has a distinct walkable standPosition dismount offset
+          expect(s.standPosition != s.position, isTrue);
+          // Resting characters sort at pos.dy + 38.0 so they render ON TOP OF furniture cushions
+          expect(
+            s.effectiveSortY(PlayerRestState.sleeping),
+            equals(s.position.dy + 38.0),
+          );
+          expect(
+            s.effectiveSortY(PlayerRestState.none),
+            equals(s.position.dy),
+          );
+        }
+      }
+
+      // Verify Campus Shop (`🛍️`) & Campus Radio Base (`📻`) interactive zones exist in Main Lobby
+      final mainZones = buildActiveInteractiveZones(
+        service.subjectChests,
+        room: LobbyRoomId.mainLobby,
+      );
+      expect(
+        mainZones.any((z) => z.kind == InteractiveZoneKind.campusShop),
+        isTrue,
+      );
+      expect(
+        mainZones.any((z) => z.kind == InteractiveZoneKind.radioBase),
+        isTrue,
+      );
+
+      // 5. Campus Cosmetics Shop (`LobbyShopService`): Starter items free, locked items exchanged for XP
+      final shop = LobbyShopService.instance;
+      expect(
+        shop.isCosmeticUnlocked('outfit', '1-1', isFaculty: false),
+        isTrue,
+      );
+      expect(
+        shop.isCosmeticUnlocked('hat', '5-1', isFaculty: false),
+        isFalse,
+      );
+      final xpBeforeShop = service.progress.xp;
+      final levelBeforeShop = service.progress.level;
+      final availBeforeShop = service.progress.availableXp;
+      final hatCost = shop.costForCosmetic('hat', '5-1');
+      expect(hatCost, 90);
+      expect(availBeforeShop, greaterThanOrEqualTo(hatCost));
+
+      final bought = await service.purchaseShopCosmetic(
+        itemKey: 'hat:5-1',
+        costXp: hatCost,
+      );
+      expect(bought, isTrue);
+      expect(
+        shop.isCosmeticUnlocked('hat', '5-1', isFaculty: false),
+        isTrue,
+      );
+      expect(service.progress.availableXp, availBeforeShop - hatCost);
+      // Lifetime XP and Level are preserved when spending XP in the Campus Shop!
+      expect(service.progress.xp, xpBeforeShop);
+      expect(service.progress.level, levelBeforeShop);
+
+      // 6. Campus Radio Base (`LobbyRadioService`): 1-Hour (3,600s) Channel Lock
+      final radio = LobbyRadioService.instance;
+      radio.resetForTesting();
+      expect(radio.canChangeChannel(nowMs: 1000000), isTrue);
+      final tuned = await radio.changeStation(
+        'rg_manila_opm',
+        changedBy: 'Juan',
+        nowMs: 1000000,
+      );
+      expect(tuned, isTrue);
+      expect(radio.activeStationId, 'rg_manila_opm');
+      // 10 minutes later: channel is locked (50 minutes / 3,000s remaining)
+      expect(radio.canChangeChannel(nowMs: 1000000 + 600000), isFalse);
+      expect(radio.remainingCooldownSeconds(nowMs: 1000000 + 600000), 3000);
+      final blockedTune = await radio.changeStation(
+        'rg_cebu_fm',
+        changedBy: 'Pedro',
+        nowMs: 1000000 + 600000,
+      );
+      expect(blockedTune, isFalse);
+      expect(radio.activeStationId, 'rg_manila_opm');
+      // 60 minutes later: 1-hour lock expires and channel can be changed again!
+      expect(radio.canChangeChannel(nowMs: 1000000 + 3600000), isTrue);
+
+      // 7. Bilingual Profanity Filter (`LobbyModerationService`) & Synthesized WAV SFX (`LobbyAudioService`)
+      final mod = LobbyModerationService.instance;
+      expect(mod.containsProfanity('Hello classmates, let us study PGP!'), isFalse);
+      expect(mod.containsProfanity('Hoy gago ka'), isTrue);
+      expect(mod.containsProfanity('What the fuck is this'), isTrue);
+      expect(mod.sanitizeText('Hoy gago ka'), 'Hoy **** ka');
+
+      final wavBytes = LobbyAudioService.synthesizeToneSequenceWav(
+        const [
+          (freqHz: 523.25, durationMs: 40),
+          (freqHz: 659.25, durationMs: 60),
+        ],
+      );
+      expect(wavBytes.length, greaterThan(44));
+      expect(String.fromCharCodes(wavBytes.sublist(0, 4)), 'RIFF');
+      expect(String.fromCharCodes(wavBytes.sublist(8, 12)), 'WAVE');
     },
   );
 }

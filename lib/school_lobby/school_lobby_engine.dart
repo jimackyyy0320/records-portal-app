@@ -318,6 +318,7 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
   final Map<String, String> activePeerThoughts;
   final List<RemoteLobbyPlayer> remotePlayers;
   final bool showOfflineClassmates;
+  final Map<LobbyRoomId, int> roomOccupancyCounts;
 
   const SchoolLobbyCanvasPainter({
     required this.assets,
@@ -345,6 +346,7 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
     this.activePeerThoughts = const {},
     this.remotePlayers = const [],
     this.showOfflineClassmates = false,
+    this.roomOccupancyCounts = const {},
   });
 
   @override
@@ -409,7 +411,10 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
     for (final rp in remotePlayers) {
       drawables.add(
         _YSortedDrawable(
-          sortY: rp.currentPos.dy,
+          // Resting characters sort at +38px so they render ON TOP OF sofa/bench/chair cushions!
+          sortY: rp.restState.isResting
+              ? rp.currentPos.dy + 38.0
+              : rp.currentPos.dy,
           draw: (c) => _drawRemotePlayer(c, rp, pixelPaint),
         ),
       );
@@ -420,14 +425,14 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
       for (final peer in peersForRoom(currentRoom)) {
         drawables.add(
           _YSortedDrawable(
-            sortY: peer.y,
+            sortY: peer.restState.isResting ? peer.y + 38.0 : peer.y,
             draw: (c) => _drawPeerStudent(c, peer, pixelPaint),
           ),
         );
       }
     }
 
-    // 6d. Subject-Labeled Large Treasure Chests & Small Mystery Chests (in Main Lobby)
+    // 6d. Subject-Labeled Large Treasure Chests & 2-Hour Relocating Small Mystery Chests (in Main Lobby)
     if (currentRoom == LobbyRoomId.mainLobby) {
       for (var i = 0; i < subjectChests.length; i++) {
         final chest = subjectChests[i];
@@ -447,7 +452,9 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
         );
       }
 
-      for (final zone in INTERACTIVE_ZONES) {
+      final activeZones =
+          buildActiveInteractiveZones(subjectChests, room: currentRoom);
+      for (final zone in activeZones) {
         if (zone.kind != InteractiveZoneKind.smallMysteryChest) continue;
         final remainingSec = smallChestRemainingSec[zone.id] ?? 0;
         final isHighlighted = highlightedZone?.id == zone.id;
@@ -465,10 +472,12 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
       }
     }
 
-    // 6e. Player Avatar + Rest Pose (Sit/Nap/Sleep) + Floating Nameplate + Thought Bubble
+    // 6e. Player Avatar + Rest Pose (Sit/Nap/Sleep on furniture cushion) + Floating Nameplate + Thought Bubble
     drawables.add(
       _YSortedDrawable(
-        sortY: playerPos.dy,
+        sortY: playerRestState.isResting
+            ? playerPos.dy + 38.0
+            : playerPos.dy,
         draw: (c) => _drawPlayer(c, pixelPaint),
       ),
     );
@@ -913,7 +922,9 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
           isHighlighted: highlightedZone?.id == z.id,
         );
       } else if (z.kind == InteractiveZoneKind.vendingMachine ||
-          z.kind == InteractiveZoneKind.classroomPodium) {
+          z.kind == InteractiveZoneKind.classroomPodium ||
+          z.kind == InteractiveZoneKind.campusShop ||
+          z.kind == InteractiveZoneKind.radioBase) {
         _drawSpecialStationIndicator(
           canvas,
           zone: z,
@@ -1029,10 +1040,13 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
         ..color = Color.lerp(const Color(0xFF78350F), doorColor, 0.32)!,
     );
 
-    // Floating Door Banner overhead
+    // Floating Door Banner overhead (with live Room Occupancy badge if peers are inside!)
+    final targetOcc =
+        zone.targetRoom != null ? (roomOccupancyCounts[zone.targetRoom!] ?? 0) : 0;
+    final occSuffix = targetOcc > 0 ? ' • 🟢 $targetOcc Inside' : '';
     final tp = TextPainter(
       text: TextSpan(
-        text: '🚪 ${zone.label}',
+        text: '🚪 ${zone.label}$occSuffix',
         style: const TextStyle(
           color: Colors.white,
           fontSize: 9.0,
@@ -1379,6 +1393,8 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
   }
 
   /// Shared character sprite + rest pose renderer (recycled & expanded from `SeatManager.ts`).
+  /// Fixes Item #3: Sitting, Napping, and Sleeping elevate the character onto the furniture
+  /// cushion (`pos.dy - 10` to `pos.dy - 22`) with a sofa pillow & blanket instead of lying on the floor!
   void _drawCharacterWithRestState(
     Canvas canvas, {
     required ui.Image? sheet,
@@ -1388,14 +1404,21 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
     required PlayerRestState restState,
     required Paint pixelPaint,
   }) {
-    // Ground shadow
+    // Shadow: on the floor when standing, or subtly on the seat cushion when resting
     canvas.drawOval(
       Rect.fromCenter(
-        center: Offset(pos.dx, pos.dy + 4),
-        width: restState == PlayerRestState.sleeping ? 38 : 24,
+        center: Offset(
+          pos.dx,
+          restState == PlayerRestState.sleeping
+              ? pos.dy - 14
+              : (restState.isResting ? pos.dy - 4 : pos.dy + 4),
+        ),
+        width: restState == PlayerRestState.sleeping ? 42 : 24,
         height: restState == PlayerRestState.sleeping ? 12 : 9,
       ),
-      Paint()..color = Colors.black.withOpacity(0.35),
+      Paint()
+        ..color = Colors.black
+            .withValues(alpha: restState.isResting ? 0.22 : 0.35),
     );
 
     if (sheet == null) return;
@@ -1416,10 +1439,13 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
     );
 
     if (restState == PlayerRestState.sleeping) {
-      // Cozy pixel pillow underneath the sleeping student's head
+      // Elevate the sleeping character up onto the horizontal sofa/bench cushion (`pos.dy - 22`)
+      final cushionY = pos.dy - 22.0;
+
+      // Cozy pixel pillow positioned on the sofa/bench armrest cushion under their head
       final pillowRect = RRect.fromRectAndRadius(
         Rect.fromCenter(
-          center: Offset(pos.dx - 14, pos.dy - 4),
+          center: Offset(pos.dx - 16, cushionY - 1),
           width: 18,
           height: 13,
         ),
@@ -1434,9 +1460,9 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
           ..strokeWidth = 1.2,
       );
 
-      // Rotate character sprite horizontally (-90 deg) for lying down sleep pose
+      // Rotate character sprite horizontally (-90 deg) elevated ON the sofa/bench cushion
       canvas.save();
-      canvas.translate(pos.dx, pos.dy - 6);
+      canvas.translate(pos.dx + 2, cushionY);
       canvas.rotate(-math.pi / 2);
       final dst = Rect.fromCenter(
         center: Offset.zero,
@@ -1445,6 +1471,27 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
       );
       canvas.drawImageRect(sheet, src, dst, pixelPaint);
       canvas.restore();
+
+      // Cozy pixel blanket draped over the sleeping student's torso on the sofa cushion
+      final blanketRect = RRect.fromRectAndRadius(
+        Rect.fromCenter(
+          center: Offset(pos.dx + 9, cushionY + 2),
+          width: 24,
+          height: 14,
+        ),
+        const Radius.circular(4),
+      );
+      canvas.drawRRect(
+        blanketRect,
+        Paint()..color = const Color(0xFF38BDF8).withValues(alpha: 0.82),
+      );
+      canvas.drawRRect(
+        blanketRect,
+        Paint()
+          ..color = const Color(0xFF0284C7)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.1,
+      );
 
       // Animated rising `💤 Zzz...` sleep particles
       final floatOffset = (animTick % 12) * 1.4;
@@ -1461,18 +1508,19 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
       )..layout();
       zzzTp.paint(
         canvas,
-        Offset(pos.dx + 10, pos.dy - 36 - floatOffset),
+        Offset(pos.dx + 6, cushionY - 26 - floatOffset),
       );
     } else {
-      // Standing, Sitting (`+6px` seat drop), or Napping (`+7px` seat drop + gentle nod)
-      final seatDropY = restState == PlayerRestState.sitting
-          ? 6.0
+      // Standing (`0px`), Sitting (`-10px` elevated onto chair/sofa seat cushion),
+      // or Napping (`-9px` elevated on seat cushion + gentle head-nod)
+      final seatLiftY = restState == PlayerRestState.sitting
+          ? -10.0
           : (restState == PlayerRestState.napping
-              ? 7.0 + math.sin(animTick * 0.25) * 1.2
+              ? -9.0 + math.sin(animTick * 0.25) * 1.2
               : 0.0);
       final dst = Rect.fromLTWH(
         pos.dx - kCharFrameWidth / 2,
-        pos.dy - kCharFrameHeight + 8 + seatDropY,
+        pos.dy - kCharFrameHeight + 8 + seatLiftY,
         kCharFrameWidth,
         kCharFrameHeight,
       );
@@ -1489,7 +1537,7 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
         )..layout();
         napTp.paint(
           canvas,
-          Offset(pos.dx + 12, pos.dy - 42 - floatOffset),
+          Offset(pos.dx + 12, pos.dy - 52 - floatOffset),
         );
       }
     }
@@ -1663,11 +1711,14 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
         Paint()..color = const Color(0xFF78350F),
       );
 
-      final mins = remainingCooldownSec ~/ 60;
+      final hours = remainingCooldownSec ~/ 3600;
+      final mins = (remainingCooldownSec % 3600) ~/ 60;
       final secs = (remainingCooldownSec % 60).toString().padLeft(2, '0');
+      final cooldownLabel =
+          hours > 0 ? '⏳ ${hours}h ${mins}m' : '⏳ $mins:$secs';
       final tp = TextPainter(
         text: TextSpan(
-          text: '⏳ $mins:$secs',
+          text: cooldownLabel,
           style: const TextStyle(
             color: Color(0xFFCBD5E1),
             fontSize: 8.5,

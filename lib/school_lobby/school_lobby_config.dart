@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'lobby_data_service.dart';
 import 'school_lobby_avatar.dart';
@@ -163,6 +164,8 @@ enum InteractiveZoneKind {
   peerStudent,
   vendingMachine,
   classroomPodium,
+  campusShop,
+  radioBase,
 }
 
 /// Interactive zone definition (recycled from TinyFloor's `ProximityManager.ts`).
@@ -233,6 +236,9 @@ class LobbyFloorSignpost {
 
 /// Interactive Rest Spot (Chair, Sofa, Park Bench, Classroom Desk, Canteen Seat, Nap Couch)
 /// where students can Sit (`🪑`), Nap (`😪`), or Sleep (`🛌`).
+/// Recycled from TinyFloor `SeatManager.ts`: includes exact cushion coordinates (`x, y`),
+/// walkable exit coordinates (`standX, standY`), and Y-depth override (`sortY`) so
+/// characters render ON TOP OF the furniture cushion instead of on the floor or behind the sprite.
 class LobbyRestSpot {
   final String id;
   final String label;
@@ -241,6 +247,9 @@ class LobbyRestSpot {
   final double y;
   final AvatarFacing facing;
   final bool canSleepFlat;
+  final double? standX;
+  final double? standY;
+  final double? sortY;
 
   const LobbyRestSpot({
     required this.id,
@@ -250,9 +259,21 @@ class LobbyRestSpot {
     required this.y,
     this.facing = AvatarFacing.down,
     this.canSleepFlat = true,
+    this.standX,
+    this.standY,
+    this.sortY,
   });
 
   Offset get position => Offset(x, y);
+
+  /// Walkable dismount position right in front of the furniture piece when standing up.
+  Offset get standPosition => Offset(
+        standX ?? x,
+        standY ?? (facing == AvatarFacing.up ? y + 30.0 : y + 32.0),
+      );
+
+  /// Depth-sort Y coordinate ensuring the resting character renders on top of the seat cushion.
+  double get effectiveSortY => sortY ?? (y + 38.0);
 }
 
 /// Classmate / Peer Student in a room whom the player can approach to chat via Thought Bubbles (`💭`).
@@ -713,7 +734,31 @@ const List<InteractiveZone> INTERACTIVE_ZONES = [
     room: LobbyRoomId.mainLobby,
     x: 768,
     y: 215,
-    radius: 105,
+    radius: 95,
+    accentColor: 0xFFF59E0B,
+  ),
+  // 2b. Campus Radio Base (Powered by Radio Garden — 1-Hour Channel Lock)
+  InteractiveZone(
+    id: 'campus_radio_base',
+    label: '📻 Campus Radio Base (Radio Garden)',
+    subtitle: 'Tune live Radio Garden stations for the campus (1-hour channel lock)',
+    kind: InteractiveZoneKind.radioBase,
+    room: LobbyRoomId.mainLobby,
+    x: 604,
+    y: 222,
+    radius: 78,
+    accentColor: 0xFF10B981,
+  ),
+  // 2c. Campus Cosmetics Shop (Exchange Earned XP for Outfits & Accessories)
+  InteractiveZone(
+    id: 'campus_shop_kiosk',
+    label: '🛍️ Campus Cosmetics Shop',
+    subtitle: 'Exchange earned XP for outfits, hairstyles, glasses, hats, bags & presets!',
+    kind: InteractiveZoneKind.campusShop,
+    room: LobbyRoomId.mainLobby,
+    x: 932,
+    y: 222,
+    radius: 78,
     accentColor: 0xFFF59E0B,
   ),
   // 3. Teacher's Corner (Top-Right Wing)
@@ -1031,20 +1076,20 @@ const List<LobbyRestSpot> kLobbyRestSpots = [
   ),
   LobbyRestSpot(
     id: 'rest_park_picnic_1',
-    label: 'Lagoon Picnic Nap Blanket (West)',
+    label: 'Lagoon Garden Daybed Bench (West)',
     room: LobbyRoomId.park,
     x: 420,
-    y: 724,
-    facing: AvatarFacing.right,
+    y: 716,
+    facing: AvatarFacing.down,
     canSleepFlat: true,
   ),
   LobbyRestSpot(
     id: 'rest_park_picnic_2',
-    label: 'Sunset Tree Sleeping Lawn (East)',
+    label: 'Sunset Garden Daybed Bench (East)',
     room: LobbyRoomId.park,
     x: 1100,
-    y: 724,
-    facing: AvatarFacing.left,
+    y: 716,
+    facing: AvatarFacing.down,
     canSleepFlat: true,
   ),
 
@@ -1558,7 +1603,7 @@ const List<LobbyFurniturePiece> kParkRoomPieces = [
   LobbyFurniturePiece(spriteKey: 'tree', x: 900, y: 876),
   LobbyFurniturePiece(spriteKey: 'tree-small', x: 1140, y: 890),
 
-  // ── PARK BENCHES (non-collidable so students can sit, nap, or sleep!) ──
+  // ── PARK BENCHES & GARDEN DAYBEDS (non-collidable so students can sit, nap, or sleep on furniture!) ──
   LobbyFurniturePiece(
       spriteKey: 'bench-pale', x: 420, y: 296, collidable: false),
   LobbyFurniturePiece(
@@ -1567,6 +1612,10 @@ const List<LobbyFurniturePiece> kParkRoomPieces = [
       spriteKey: 'bench-pale', x: 736, y: 332, collidable: false),
   LobbyFurniturePiece(
       spriteKey: 'bench-pale', x: 736, y: 668, collidable: false),
+  LobbyFurniturePiece(
+      spriteKey: 'sofa-three', x: 388, y: 684, collidable: false),
+  LobbyFurniturePiece(
+      spriteKey: 'sofa-three', x: 1068, y: 684, collidable: false),
 
   // ── FLOWERING BUSHES, SHRUBS, WILDFLOWERS & NATURAL BOULDERS ──
   LobbyFurniturePiece(spriteKey: 'bush', x: 340, y: 220),
@@ -2020,8 +2069,8 @@ List<LobbyRestSpot> restSpotsForRoom(LobbyRoomId room) {
 }
 
 /// Builds solid collision rectangles (`Rect`) for wall boundaries, furniture counters,
-/// and dynamic Subject Chests in the given [room].
-/// Walk paths and interactive chairs/benches/rugs are kept 100% clear so pathfinding is seamless!
+/// trees, boulders, bookshelves, and dynamic Subject Chests in the given [room].
+/// Walk paths and interactive seat cushions are kept clear so pathfinding and sitting are seamless!
 List<Rect> buildLobbySolids(
   List<SubjectChest> subjectChests, {
   LobbyRoomId room = LobbyRoomId.mainLobby,
@@ -2036,6 +2085,23 @@ List<Rect> buildLobbySolids(
         kLobbyWorldWidth - 32, 0, 32, kLobbyWorldHeight), // Right wall
   ];
 
+  // Add beveled base footprints for all collidable room props (trees, rocks, bookshelves, plants, tables)
+  for (final piece in furnitureForRoom(room)) {
+    if (!piece.collidable || piece.isFloorRug) continue;
+    if (piece.spriteKey.startsWith('tree')) {
+      // Tree trunk base collider so players can walk behind the leafy canopy but never through the trunk
+      solids.add(Rect.fromLTWH(piece.x + 22, piece.y + 68, 36, 30));
+    } else if (piece.spriteKey.startsWith('rocks') ||
+        piece.spriteKey.startsWith('bush') ||
+        piece.spriteKey.startsWith('ours-bush')) {
+      solids.add(Rect.fromLTWH(piece.x + 6, piece.y + 10, 26, 20));
+    } else if (piece.spriteKey.startsWith('plant') ||
+        piece.spriteKey.startsWith('lamp') ||
+        piece.spriteKey.startsWith('water-cooler')) {
+      solids.add(Rect.fromLTWH(piece.x + 6, piece.y + 24, 20, 20));
+    }
+  }
+
   switch (room) {
     case LobbyRoomId.mainLobby:
       solids.addAll(const [
@@ -2047,6 +2113,9 @@ List<Rect> buildLobbySolids(
         Rect.fromLTWH(88, 82, 64, 34),
         Rect.fromLTWH(416, 82, 64, 36),
         Rect.fromLTWH(1056, 82, 128, 36),
+        // Lounge sofa top-backrest bumpers (prevent walking through the back of sofas while keeping seat cushions open)
+        Rect.fromLTWH(182, 486, 84, 16),
+        Rect.fromLTWH(470, 486, 84, 16),
         // Student Lounge study tables (chairs & sofas remain walkable for sitting/napping/sleeping!)
         Rect.fromLTWH(168, 586, 144, 38),
         Rect.fromLTWH(456, 586, 144, 38),
@@ -2093,6 +2162,8 @@ List<Rect> buildLobbySolids(
         Rect.fromLTWH(488, 696, 144, 36),
         Rect.fromLTWH(888, 696, 144, 36),
         Rect.fromLTWH(1108, 696, 144, 36),
+        // Back-row bookshelves
+        Rect.fromLTWH(96, 844, 132, 36),
       ]);
       break;
 
@@ -2110,6 +2181,8 @@ List<Rect> buildLobbySolids(
         // Row 2 Dining tables
         Rect.fromLTWH(268, 632, 204, 44),
         Rect.fromLTWH(928, 632, 204, 44),
+        // Canteen South Coffee Table
+        Rect.fromLTWH(1148, 882, 60, 28),
       ]);
       break;
 
@@ -2119,6 +2192,9 @@ List<Rect> buildLobbySolids(
         Rect.fromLTWH(368, 312, 144, 42),
         Rect.fromLTWH(696, 312, 144, 42),
         Rect.fromLTWH(1028, 312, 144, 42),
+        // Archive bookshelves & coffee table
+        Rect.fromLTWH(240, 704, 132, 36),
+        Rect.fromLTWH(1148, 782, 60, 28),
       ]);
       break;
   }
@@ -2126,20 +2202,99 @@ List<Rect> buildLobbySolids(
   return solids;
 }
 
+/// 2-hour relocation interval (`7,200,000 ms`) for the 8 Small Mystery Chests.
+const int kSmallChestRelocationIntervalMs = 2 * 60 * 60 * 1000;
+
+/// Verified walkable candidate coordinates across all wings of the Main School Lobby
+/// so Small Mystery Chests randomly relocate every 2 hours without ever spawning inside walls or furniture!
+const List<Offset> _kWalkableSmallChestCandidateSpots = <Offset>[
+  Offset(128, 352),
+  Offset(640, 448),
+  Offset(1408, 416),
+  Offset(560, 944),
+  Offset(144, 944),
+  Offset(928, 368),
+  Offset(848, 944),
+  Offset(1424, 944),
+  Offset(240, 340),
+  Offset(380, 340),
+  Offset(510, 340),
+  Offset(660, 320),
+  Offset(880, 300),
+  Offset(1040, 320),
+  Offset(1180, 320),
+  Offset(1340, 290),
+  Offset(136, 460),
+  Offset(340, 460),
+  Offset(640, 620),
+  Offset(640, 760),
+  Offset(860, 620),
+  Offset(860, 780),
+  Offset(440, 860),
+  Offset(220, 840),
+];
+
+/// Deterministically computes the current 2-hour window position for a Small Mystery Chest (`small_chest_1`..`8`).
+/// Relocates every 2 hours (`7,200,000 ms`) across verified walkable coordinates!
+Offset smallChestPositionFor2HourWindow(
+  String smallChestId, {
+  int? nowMs,
+}) {
+  final windowBucket =
+      (nowMs ?? DateTime.now().millisecondsSinceEpoch) ~/
+          kSmallChestRelocationIntervalMs;
+  // Parse chest index 0..7 from id (e.g. 'small_chest_1' -> 0)
+  final digits = RegExp(r'\d+').firstMatch(smallChestId)?.group(0);
+  final chestIdx = ((int.tryParse(digits ?? '1') ?? 1) - 1)
+      .clamp(0, _kWalkableSmallChestCandidateSpots.length - 1);
+
+  if (windowBucket <= 0) {
+    return _kWalkableSmallChestCandidateSpots[chestIdx];
+  }
+
+  // Deterministic permutation of `_kWalkableSmallChestCandidateSpots` seeded by `windowBucket`
+  // so all 8 chests get unique, non-overlapping walkable spots that change every 2 hours!
+  final indices =
+      List<int>.generate(_kWalkableSmallChestCandidateSpots.length, (i) => i);
+  final rng = math.Random(windowBucket * 9973 + 31337);
+  indices.shuffle(rng);
+  return _kWalkableSmallChestCandidateSpots[indices[chestIdx]];
+}
+
 /// Builds the full list of active `InteractiveZone`s in [room], combining:
-/// - Static room zones & doors
+/// - Static room zones & doors (with 2-hour dynamic relocation for Small Mystery Chests)
 /// - Enrolled active `SubjectChest`s (in `mainLobby`)
 /// - Rest spots (`🪑 Sit / 😪 Nap / 🛌 Sleep`) in [room]
 /// - Classmate Peer Students (`💭 Thought Bubble Chat`) in [room]
 List<InteractiveZone> buildActiveInteractiveZones(
   List<SubjectChest> subjectChests, {
   LobbyRoomId room = LobbyRoomId.mainLobby,
+  int? nowMs,
 }) {
   final zones = <InteractiveZone>[];
 
   if (room == LobbyRoomId.mainLobby) {
-    zones.addAll(
-        INTERACTIVE_ZONES.where((z) => z.room == LobbyRoomId.mainLobby));
+    for (final z in INTERACTIVE_ZONES.where((z) => z.room == LobbyRoomId.mainLobby)) {
+      if (z.kind == InteractiveZoneKind.smallMysteryChest) {
+        final pos = smallChestPositionFor2HourWindow(z.id, nowMs: nowMs);
+        zones.add(
+          InteractiveZone(
+            id: z.id,
+            label: z.label,
+            subtitle:
+                'Answer 1 authentic exam question (+25 XP) • 24h refresh • Relocates every 2h!',
+            kind: z.kind,
+            room: z.room,
+            x: pos.dx,
+            y: pos.dy,
+            radius: z.radius,
+            accentColor: z.accentColor,
+          ),
+        );
+      } else {
+        zones.add(z);
+      }
+    }
     for (var i = 0; i < subjectChests.length; i++) {
       final chest = subjectChests[i];
       final pos = subjectChestPosition(i);

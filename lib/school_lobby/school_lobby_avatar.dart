@@ -5,6 +5,9 @@ import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'lobby_data_service.dart';
+import 'lobby_shop_service.dart';
+
 /// Recycled from TinyFloor `character.ts` & `characters.json`:
 /// 32x64 pixel frame dimensions, 48 frames per strip:
 /// - Frames 0..23: Idle (6 frames per facing: right=0..5, up=6..11, left=12..17, down=18..23)
@@ -693,7 +696,10 @@ class _LobbyAvatarCustomizerSheetState
   @override
   void initState() {
     super.initState();
-    _look = widget.initialLook;
+    _look = LobbyShopService.instance.sanitizeLookForUnlocked(
+      widget.initialLook,
+      isFaculty: widget.isFaculty,
+    );
     _nicknameCtrl = TextEditingController(text: widget.initialNickname);
   }
 
@@ -754,6 +760,24 @@ class _LobbyAvatarCustomizerSheetState
   }
 
   void _selectPartValue(String category, String id) {
+    final unlocked = LobbyShopService.instance.isCosmeticUnlocked(
+      category,
+      id,
+      isFaculty: widget.isFaculty,
+    );
+    if (!unlocked) {
+      final cost = LobbyShopService.instance.costForCosmetic(category, id);
+      HapticFeedback.vibrate();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            '🔒 Locked Cosmetic ($cost XP)! Earn XP from Quests, Reviewers & Mini Chests and unlock it in the 🛍️ Campus Cosmetics Shop!',
+          ),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
     setState(() {
       _look = _look.copyWith(
         isPreset: false,
@@ -1108,27 +1132,60 @@ class _LobbyAvatarCustomizerSheetState
   }
 
   Widget _buildModeSwitcherRow() {
+    final availableXp = LobbyDataService.instance.progress.availableXp;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
       child: Row(
         children: [
           Expanded(
             child: _buildModeTab(
-              label: 'Presets (16)',
+              label: 'Starter & Presets',
               selected: _look.isPreset,
               onTap: () =>
                   setState(() => _look = _look.copyWith(isPreset: true)),
             ),
           ),
-          const SizedBox(width: 10),
+          const SizedBox(width: 8),
           Expanded(
             child: _buildModeTab(
-              label: 'Custom Layered Mix',
+              label: 'Layered Wardrobe',
               selected: !_look.isPreset,
               onTap: () =>
                   setState(() => _look = _look.copyWith(isPreset: false)),
             ),
           ),
+          if (!widget.isFirstTimeOnboarding) ...[
+            const SizedBox(width: 8),
+            ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFF59E0B),
+                foregroundColor: Colors.black,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              onPressed: () async {
+                final updated = await showCampusShopModal(
+                  context: context,
+                  currentLook: _look,
+                  isFaculty: widget.isFaculty,
+                );
+                if (updated != null && mounted) {
+                  setState(() => _look = updated);
+                }
+              },
+              icon: const Text('🛍️', style: TextStyle(fontSize: 13)),
+              label: Text(
+                'Shop ($availableXp XP)',
+                style: GoogleFonts.outfit(
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -1213,37 +1270,66 @@ class _LobbyAvatarCustomizerSheetState
       itemBuilder: (context, index) {
         final name = kBundledPresets[index];
         final isSelected = _look.isPreset && _look.presetName == name;
+        final isUnlocked = LobbyShopService.instance.isPresetUnlocked(
+          name,
+          isFaculty: widget.isFaculty,
+        );
+        final cost = LobbyShopService.instance.costForCosmetic('preset', name);
         return InkWell(
-          onTap: () => setState(() {
-            _look = _look.copyWith(isPreset: true, presetName: name);
-          }),
+          onTap: () {
+            if (!isUnlocked) {
+              HapticFeedback.vibrate();
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    '🔒 Preset "$name" is locked ($cost XP). Unlock it in the 🛍️ Campus Cosmetics Shop using your earned XP!',
+                  ),
+                  behavior: SnackBarBehavior.floating,
+                ),
+              );
+              return;
+            }
+            setState(() {
+              _look = _look.copyWith(isPreset: true, presetName: name);
+            });
+          },
           borderRadius: BorderRadius.circular(14),
           child: Container(
             decoration: BoxDecoration(
               color: isSelected
-                  ? const Color(0xFF38BDF8).withOpacity(0.18)
-                  : Colors.white.withOpacity(0.04),
+                  ? const Color(0xFF38BDF8).withValues(alpha: 0.18)
+                  : Colors.white.withValues(alpha: 0.04),
               borderRadius: BorderRadius.circular(14),
               border: Border.all(
-                color: isSelected ? const Color(0xFF38BDF8) : Colors.white12,
+                color: isSelected
+                    ? const Color(0xFF38BDF8)
+                    : (isUnlocked
+                        ? Colors.white24
+                        : Colors.amber.withValues(alpha: 0.3)),
                 width: isSelected ? 2 : 1,
               ),
             ),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                PixelAvatarPreview(
-                  look: LobbyAvatarLook(isPreset: true, presetName: name),
-                  facing: AvatarFacing.down,
-                  animateWalk: false,
-                  scale: 1.1,
+                Opacity(
+                  opacity: isUnlocked ? 1.0 : 0.45,
+                  child: PixelAvatarPreview(
+                    look: LobbyAvatarLook(isPreset: true, presetName: name),
+                    facing: AvatarFacing.down,
+                    animateWalk: false,
+                    scale: 1.05,
+                  ),
                 ),
-                const SizedBox(height: 4),
+                const SizedBox(height: 3),
                 Text(
-                  name,
+                  isUnlocked ? name : '🔒 $name ($cost XP)',
+                  textAlign: TextAlign.center,
                   style: GoogleFonts.inter(
-                    color: isSelected ? const Color(0xFF38BDF8) : Colors.white,
-                    fontSize: 11,
+                    color: isSelected
+                        ? const Color(0xFF38BDF8)
+                        : (isUnlocked ? Colors.white : const Color(0xFFFDE047)),
+                    fontSize: isUnlocked ? 11 : 9.5,
                     fontWeight: FontWeight.w700,
                   ),
                 ),
@@ -1315,6 +1401,13 @@ class _LobbyAvatarCustomizerSheetState
               final label = opt['label']!;
               final hex = opt['hex'] ?? '#38BDF8';
               final selected = currentVal == id;
+              final unlocked = LobbyShopService.instance.isCosmeticUnlocked(
+                _selectedPartCategory,
+                id,
+                isFaculty: widget.isFaculty,
+              );
+              final cost = LobbyShopService.instance
+                  .costForCosmetic(_selectedPartCategory, id);
               return InkWell(
                 onTap: () => _selectPartValue(_selectedPartCategory, id),
                 borderRadius: BorderRadius.circular(12),
@@ -1322,12 +1415,15 @@ class _LobbyAvatarCustomizerSheetState
                   padding: const EdgeInsets.symmetric(horizontal: 10),
                   decoration: BoxDecoration(
                     color: selected
-                        ? const Color(0xFF38BDF8).withOpacity(0.2)
-                        : Colors.white.withOpacity(0.05),
+                        ? const Color(0xFF38BDF8).withValues(alpha: 0.2)
+                        : Colors.white.withValues(alpha: 0.05),
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(
-                      color:
-                          selected ? const Color(0xFF38BDF8) : Colors.white12,
+                      color: selected
+                          ? const Color(0xFF38BDF8)
+                          : (unlocked
+                              ? Colors.white24
+                              : Colors.amber.withValues(alpha: 0.3)),
                       width: selected ? 1.8 : 1,
                     ),
                   ),
@@ -1345,14 +1441,16 @@ class _LobbyAvatarCustomizerSheetState
                       const SizedBox(width: 6),
                       Expanded(
                         child: Text(
-                          label,
+                          unlocked ? label : '🔒 $label ($cost XP)',
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                           style: GoogleFonts.inter(
-                            color: Colors.white,
-                            fontSize: 10.5,
+                            color: unlocked
+                                ? Colors.white
+                                : const Color(0xFFFDE047),
+                            fontSize: 10,
                             fontWeight:
-                                selected ? FontWeight.w800 : FontWeight.w500,
+                                selected ? FontWeight.w800 : FontWeight.w600,
                           ),
                         ),
                       ),
