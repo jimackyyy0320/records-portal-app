@@ -163,6 +163,10 @@ class AiSubjectMentorNpc {
     required this.greetingPrompt,
     required this.studyThoughts,
   });
+
+  String get roleTitle => roleBadge;
+  String get fullSubjectTitle => subjectFullTitle;
+  String get greeting => greetingPrompt;
 }
 
 /// The 8 Autonomous AI Subject Mentors (strictly for PKLP, PPG, and UCSP)
@@ -329,6 +333,8 @@ AiSubjectMentorNpc? findAiMentorById(String id) {
   return null;
 }
 
+AiSubjectMentorNpc? findAiSubjectMentor(String id) => findAiMentorById(id);
+
 List<AiSubjectMentorNpc> aiMentorsForRoom(LobbyRoomId room) {
   return kAiSubjectMentors.where((m) => m.primaryRoom == room).toList();
 }
@@ -432,9 +438,12 @@ LobbyGroupStudySpace groupStudySpaceForRoom(LobbyRoomId room) {
   );
 }
 
+/// Primary local student's personal Classroom Desk RestSpot ID (`Row 1, Desk 2`).
+const String kLocalPlayerClassroomDeskSpotId = 'rest_classroom_r1_c2';
+
 /// Ordered list of personal Classroom Student Desk RestSpot IDs (`Row 1` & `Row 2`).
 const List<String> kClassroomPersonalDeskSpotIds = <String>[
-  'rest_classroom_r1_c2', // Desk #1 (Front Center-Left — Primary Player Personal Table)
+  kLocalPlayerClassroomDeskSpotId, // Desk #1 (Front Center-Left — Primary Player Personal Table)
   'rest_classroom_r1_c3', // Desk #2 (Front Center-Right)
   'rest_classroom_r1_c1', // Desk #3 (Front West)
   'rest_classroom_r1_c4', // Desk #4 (Front East)
@@ -456,7 +465,7 @@ String assignedClassroomDeskSpotIdForStudent(
   bool isLocalPrimaryStudent = true,
 }) {
   if (isLocalPrimaryStudent) {
-    return 'rest_classroom_r1_c2';
+    return kLocalPlayerClassroomDeskSpotId;
   }
   final clean = studentId.trim();
   if (clean.isEmpty) return 'rest_classroom_r1_c3';
@@ -470,15 +479,17 @@ String assignedClassroomDeskSpotIdForStudent(
 /// In the Classroom, each personal student desk is locked to its assigned student owner!
 bool canStudentSitAtSpot({
   required String spotId,
-  required String studentId,
+  String studentId = 'local_player',
   required bool isFaculty,
   bool isLocalPrimaryStudent = true,
+  bool? isLocalPlayer,
 }) {
   if (isFaculty) return true;
   if (!isPersonalClassroomDeskSpot(spotId)) return true;
+  final effectiveIsLocal = isLocalPlayer ?? isLocalPrimaryStudent;
   final myDeskId = assignedClassroomDeskSpotIdForStudent(
     studentId,
-    isLocalPrimaryStudent: isLocalPrimaryStudent,
+    isLocalPrimaryStudent: effectiveIsLocal,
   );
   return spotId == myDeskId;
 }
