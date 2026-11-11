@@ -800,14 +800,15 @@ void main() {
       expect(kAiSubjectMentors.length, 8);
       const allowedPortalSubjects = {'PKLP', 'PPG', 'UCSP'};
       for (final mentor in kAiSubjectMentors) {
+        final baseSubject = mentor.subjectCode.split(' ').first;
         expect(
-          allowedPortalSubjects.contains(mentor.subjectCode),
+          allowedPortalSubjects.contains(baseSubject),
           isTrue,
           reason:
               'AI Mentor ${mentor.name} has subjectCode ${mentor.subjectCode}, which is outside {PKLP, PPG, UCSP}',
         );
-        expect(aiMentorForId(mentor.id), isNotNull);
-        expect(mentor.thoughtPrompts, isNotEmpty);
+        expect(findAiMentorById(mentor.id), isNotNull);
+        expect(mentor.studyThoughts, isNotEmpty);
 
         // Verify AI Mentor strictly draws questions matching its Portal subject
         final q = service.pickRandomQuestionForSmallChest(
@@ -815,7 +816,7 @@ void main() {
           preferredSubjectCode: mentor.subjectCode,
         );
         expect(
-          q.subject.toUpperCase().startsWith(mentor.subjectCode),
+          q.subject.toUpperCase().startsWith(baseSubject),
           isTrue,
           reason:
               'AI Mentor ${mentor.name} (${mentor.subjectCode}) drew question with subject ${q.subject}',
@@ -823,19 +824,14 @@ void main() {
       }
 
       // 2. Group Study & Chat Spaces exist in all 5 rooms (`LobbyRoomId.values`)
-      expect(kGroupStudySpaces.length, greaterThanOrEqualTo(5));
+      expect(kGroupStudySpaces.length, equals(5));
       for (final room in LobbyRoomId.values) {
-        final roomStudySpaces = groupStudySpacesForRoom(room);
+        final roomStudySpace = groupStudySpaceForRoom(room);
+        expect(roomStudySpace.room, equals(room));
         expect(
-          roomStudySpaces,
+          roomStudySpace.seatSpotIds,
           isNotEmpty,
-          reason: 'Room $room is missing a Group Study Space',
-        );
-        final roomRestSpots = restSpotsForRoom(room);
-        expect(
-          roomRestSpots.any((s) => s.isGroupStudySpace),
-          isTrue,
-          reason: 'Room $room has no Group Study rest spots',
+          reason: 'Room $room is missing Group Study Space seats',
         );
       }
 
@@ -850,30 +846,50 @@ void main() {
 
       // 4. Personal Student Classroom Table Assignment & Exclusive Ownership Lock
       expect(
-        kPersonalStudentClassroomSpotId,
+        assignedClassroomDeskSpotIdForStudent('2024-00777'),
         equals('rest_classroom_r1_c2'),
       );
       expect(
-        canStudentSitAtSpot('rest_classroom_r1_c2', isFaculty: false),
+        canStudentSitAtSpot(
+          spotId: 'rest_classroom_r1_c2',
+          studentId: '2024-00777',
+          isFaculty: false,
+        ),
         isTrue,
       );
       // Other students' personal Classroom tables are locked for non-faculty students
       expect(
-        canStudentSitAtSpot('rest_classroom_r1_c1', isFaculty: false),
+        canStudentSitAtSpot(
+          spotId: 'rest_classroom_r1_c1',
+          studentId: '2024-00777',
+          isFaculty: false,
+        ),
         isFalse,
       );
       expect(
-        canStudentSitAtSpot('rest_classroom_r2_c3', isFaculty: false),
+        canStudentSitAtSpot(
+          spotId: 'rest_classroom_r2_c3',
+          studentId: '2024-00777',
+          isFaculty: false,
+        ),
         isFalse,
       );
       // Group Study tables in the Classroom are open to all students!
       expect(
-        canStudentSitAtSpot('rest_classroom_group_study_1', isFaculty: false),
+        canStudentSitAtSpot(
+          spotId: 'rest_classroom_group_1',
+          studentId: '2024-00777',
+          isFaculty: false,
+        ),
         isTrue,
       );
       // Faculty advisers can inspect any seat
       expect(
-        canStudentSitAtSpot('rest_classroom_r1_c1', isFaculty: true),
+        canStudentSitAtSpot(
+          spotId: 'rest_classroom_r1_c1',
+          studentId: 'FAC-001',
+          isFaculty: true,
+        ),
         isTrue,
       );
 
@@ -885,34 +901,34 @@ void main() {
       expect(shop.itemsForCategory('table_mat').length, greaterThanOrEqualTo(4));
       expect(shop.itemsForCategory('table_prop').length, greaterThanOrEqualTo(4));
 
-      // Starter table chair ('classic_wood') is unlocked by default; 'ergo_emerald' costs XP
+      // Starter table chair ('tan_classic') is unlocked by default; 'emerald_ergo' costs XP
       expect(
-        shop.isCosmeticUnlocked('table_chair', 'classic_wood', isFaculty: false),
+        shop.isCosmeticUnlocked('table_chair', 'tan_classic', isFaculty: false),
         isTrue,
       );
       expect(
-        shop.isCosmeticUnlocked('table_chair', 'ergo_emerald', isFaculty: false),
+        shop.isCosmeticUnlocked('table_chair', 'emerald_ergo', isFaculty: false),
         isFalse,
       );
 
       // Update and persist the student's Classroom Table Space Decor
       await service.updateTableDecor(
         const LobbyTableDecorConfig(
-          chairStyle: 'ergo_emerald',
-          miniLight: 'warm_lamp',
-          deskFrame: 'gold_honor',
-          deskMat: 'mint_grid',
-          tableProp: 'succulent',
+          chairStyle: 'emerald_ergo',
+          miniLight: 'fairy_warm',
+          deskFrame: 'gold_cert',
+          deskMat: 'mint_pad',
+          deskProp: 'zen_bonsai',
         ),
       );
-      expect(service.progress.tableDecor.chairStyle, 'ergo_emerald');
-      expect(service.progress.tableDecor.miniLight, 'warm_lamp');
-      expect(service.progress.tableDecor.deskFrame, 'gold_honor');
-      expect(service.progress.tableDecor.deskMat, 'mint_grid');
-      expect(service.progress.tableDecor.tableProp, 'succulent');
+      expect(service.progress.tableDecor.chairStyle, 'emerald_ergo');
+      expect(service.progress.tableDecor.miniLight, 'fairy_warm');
+      expect(service.progress.tableDecor.deskFrame, 'gold_cert');
+      expect(service.progress.tableDecor.deskMat, 'mint_pad');
+      expect(service.progress.tableDecor.deskProp, 'zen_bonsai');
 
       // 6. Radio Fallback Streams configured for reliable Android MediaPlayer streaming
-      for (final station in kCampusRadioStations) {
+      for (final station in LobbyRadioService.kStations) {
         expect(station.streamUrl, isNotEmpty);
         expect(station.fallbackStreamUrls, isNotEmpty);
       }
