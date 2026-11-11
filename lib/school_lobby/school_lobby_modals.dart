@@ -120,20 +120,31 @@ Future<void> showBulletinBoardModal({
   );
 }
 
-/// Opens the Student Rest Spot Picker (`🪑 Sit`, `😪 Nap`, `🛌 Sleep`, or `🚶 Stand Up`).
+/// Opens the Student Rest Spot Picker (`🪑 Sit`, `😪 Nap`, `🛌 Sleep`, or `🚶 Stand Up`),
+/// plus shortcuts to **🎨 Decorate My Table Space** (at the student's Personal Classroom Table)
+/// and **💬 Open Group Study Chat (`💭`)** (at any Group Study & Chat Space)!
 Future<PlayerRestState?> showRestSpotActionModal({
   required BuildContext context,
   required String spotLabel,
   required PlayerRestState currentState,
   bool canSleepFlat = true,
+  bool isPersonalClassroomTable = false,
+  bool isGroupStudySpace = false,
+  VoidCallback? onDecorateTable,
+  VoidCallback? onOpenGroupChat,
 }) async {
   return showModalBottomSheet<PlayerRestState>(
     context: context,
+    isScrollControlled: true,
     backgroundColor: Colors.transparent,
     builder: (ctx) => _RestSpotPickerSheet(
       spotLabel: spotLabel,
       currentState: currentState,
       canSleepFlat: canSleepFlat,
+      isPersonalClassroomTable: isPersonalClassroomTable,
+      isGroupStudySpace: isGroupStudySpace,
+      onDecorateTable: onDecorateTable,
+      onOpenGroupChat: onOpenGroupChat,
     ),
   );
 }
@@ -169,131 +180,226 @@ class _RestSpotPickerSheet extends StatelessWidget {
   final String spotLabel;
   final PlayerRestState currentState;
   final bool canSleepFlat;
+  final bool isPersonalClassroomTable;
+  final bool isGroupStudySpace;
+  final VoidCallback? onDecorateTable;
+  final VoidCallback? onOpenGroupChat;
 
   const _RestSpotPickerSheet({
     required this.spotLabel,
     required this.currentState,
     required this.canSleepFlat,
+    this.isPersonalClassroomTable = false,
+    this.isGroupStudySpace = false,
+    this.onDecorateTable,
+    this.onOpenGroupChat,
   });
 
   @override
   Widget build(BuildContext context) {
     return Container(
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.of(context).size.height * 0.85,
+      ),
       margin: const EdgeInsets.fromLTRB(12, 16, 12, 16),
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
         color: const Color(0xFF0F172A),
         borderRadius: BorderRadius.circular(24),
         border: Border.all(
-          color: const Color(0xFF10B981).withOpacity(0.55),
+          color: isPersonalClassroomTable
+              ? const Color(0xFFF59E0B)
+              : (isGroupStudySpace
+                  ? const Color(0xFF38BDF8)
+                  : const Color(0xFF10B981).withOpacity(0.55)),
           width: 1.6,
         ),
       ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 44,
-                height: 44,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: const Color(0xFF10B981).withOpacity(0.18),
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: const Color(0xFF10B981)),
-                ),
-                child: const Text('🪑', style: TextStyle(fontSize: 22)),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      spotLabel,
-                      style: GoogleFonts.outfit(
-                        color: Colors.white,
-                        fontSize: 17,
-                        fontWeight: FontWeight.w800,
-                      ),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 44,
+                  height: 44,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: (isPersonalClassroomTable
+                            ? const Color(0xFFF59E0B)
+                            : (isGroupStudySpace
+                                ? const Color(0xFF38BDF8)
+                                : const Color(0xFF10B981)))
+                        .withOpacity(0.18),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                      color: isPersonalClassroomTable
+                          ? const Color(0xFFF59E0B)
+                          : (isGroupStudySpace
+                              ? const Color(0xFF38BDF8)
+                              : const Color(0xFF10B981)),
                     ),
-                    Text(
-                      'Choose how your avatar wants to rest here:',
-                      style: GoogleFonts.inter(
-                        color: Colors.white70,
-                        fontSize: 12,
+                  ),
+                  child: Text(
+                    isPersonalClassroomTable
+                        ? '📌'
+                        : (isGroupStudySpace ? '📚' : '🪑'),
+                    style: const TextStyle(fontSize: 22),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        spotLabel,
+                        style: GoogleFonts.outfit(
+                          color: Colors.white,
+                          fontSize: 17,
+                          fontWeight: FontWeight.w800,
+                        ),
                       ),
-                    ),
-                  ],
+                      Text(
+                        isPersonalClassroomTable
+                            ? 'Your Exclusive Personal Classroom Table — Sit, Nap, or Customize with Table Decor!'
+                            : (isGroupStudySpace
+                                ? 'Collaborative Group Study & Chat Space — Sit with classmates & share Thought Bubbles!'
+                                : 'Choose how your avatar wants to rest here:'),
+                        style: GoogleFonts.inter(
+                          color: Colors.white70,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-              IconButton(
-                onPressed: () => Navigator.of(context).pop(),
-                icon: const Icon(Icons.close_rounded, color: Colors.white70),
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          Row(
-            children: [
-              Expanded(
-                child: _RestOptionCard(
-                  emoji: '🪑',
-                  title: 'Sit Down',
-                  subtitle: 'Relax & study',
-                  color: const Color(0xFF10B981),
-                  isSelected: currentState == PlayerRestState.sitting,
-                  onTap: () =>
-                      Navigator.of(context).pop(PlayerRestState.sitting),
+                IconButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  icon: const Icon(Icons.close_rounded, color: Colors.white70),
                 ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _RestOptionCard(
-                  emoji: '😪',
-                  title: 'Take a Nap',
-                  subtitle: 'Power nap 💤',
-                  color: const Color(0xFFA855F7),
-                  isSelected: currentState == PlayerRestState.napping,
-                  onTap: () =>
-                      Navigator.of(context).pop(PlayerRestState.napping),
+              ],
+            ),
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                Expanded(
+                  child: _RestOptionCard(
+                    emoji: '🪑',
+                    title: 'Sit Down',
+                    subtitle: 'Relax & study',
+                    color: const Color(0xFF10B981),
+                    isSelected: currentState == PlayerRestState.sitting,
+                    onTap: () =>
+                        Navigator.of(context).pop(PlayerRestState.sitting),
+                  ),
                 ),
-              ),
-              if (canSleepFlat) ...[
                 const SizedBox(width: 8),
                 Expanded(
                   child: _RestOptionCard(
-                    emoji: '🛌',
-                    title: 'Sleep',
-                    subtitle: 'Sofa / Bench 💤',
-                    color: const Color(0xFF6366F1),
-                    isSelected: currentState == PlayerRestState.sleeping,
+                    emoji: '😪',
+                    title: 'Take a Nap',
+                    subtitle: 'Power nap 💤',
+                    color: const Color(0xFFA855F7),
+                    isSelected: currentState == PlayerRestState.napping,
                     onTap: () =>
-                        Navigator.of(context).pop(PlayerRestState.sleeping),
+                        Navigator.of(context).pop(PlayerRestState.napping),
                   ),
                 ),
+                if (canSleepFlat) ...[
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _RestOptionCard(
+                      emoji: '🛌',
+                      title: 'Sleep',
+                      subtitle: 'Sofa / Bench 💤',
+                      color: const Color(0xFF6366F1),
+                      isSelected: currentState == PlayerRestState.sleeping,
+                      onTap: () =>
+                          Navigator.of(context).pop(PlayerRestState.sleeping),
+                    ),
+                  ),
+                ],
               ],
-            ],
-          ),
-          if (currentState.isResting) ...[
-            const SizedBox(height: 12),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: const Color(0xFFFACC15),
-                  side: const BorderSide(color: Color(0xFFFACC15)),
-                ),
-                onPressed: () =>
-                    Navigator.of(context).pop(PlayerRestState.none),
-                icon: const Icon(Icons.directions_walk_rounded, size: 18),
-                label: const Text('Stand Up & Resume Walking'),
-              ),
             ),
+            if (isPersonalClassroomTable && onDecorateTable != null) ...[
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFF59E0B),
+                    foregroundColor: const Color(0xFF0F172A),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                  onPressed: () {
+                    Navigator.of(context).pop();
+                    onDecorateTable!();
+                  },
+                  icon: const Text('🎨', style: TextStyle(fontSize: 16)),
+                  label: Text(
+                    'Decorate My Table Space (Chair, Lights, Frames & Props)',
+                    style: GoogleFonts.outfit(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 13,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+            if (isGroupStudySpace && onOpenGroupChat != null) ...[
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF0284C7),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                  onPressed: () {
+                    Navigator.of(context).pop(PlayerRestState.sitting);
+                    Future.delayed(const Duration(milliseconds: 180), () {
+                      onOpenGroupChat!();
+                    });
+                  },
+                  icon: const Text('💭', style: TextStyle(fontSize: 16)),
+                  label: Text(
+                    'Sit & Open Group Study Chat (💭)',
+                    style: GoogleFonts.outfit(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 13.5,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+            if (currentState.isResting) ...[
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: const Color(0xFFFACC15),
+                    side: const BorderSide(color: Color(0xFFFACC15)),
+                  ),
+                  onPressed: () =>
+                      Navigator.of(context).pop(PlayerRestState.none),
+                  icon: const Icon(Icons.directions_walk_rounded, size: 18),
+                  label: const Text('Stand Up & Resume Walking'),
+                ),
+              ),
+            ],
           ],
-        ],
+        ),
       ),
     );
   }
@@ -1803,73 +1909,79 @@ class _SubjectChestModalSheet extends StatelessWidget {
           borderRadius: BorderRadius.circular(20),
           side: BorderSide(color: accentColor, width: 1.6),
         ),
-        child: Padding(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                    decoration: BoxDecoration(
-                      color: accentColor.withOpacity(0.22),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text(
-                      '${item.subject} • ${item.fileType}',
-                      style: GoogleFonts.outfit(
-                        color: Colors.white,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w800,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(ctx).size.height * 0.84,
+            maxWidth: 520,
+          ),
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding:
+                          const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: accentColor.withOpacity(0.22),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        '${item.subject} • ${item.fileType}',
+                        style: GoogleFonts.outfit(
+                          color: Colors.white,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w800,
+                        ),
                       ),
                     ),
-                  ),
-                  const Spacer(),
-                  IconButton(
-                    onPressed: () => Navigator.of(ctx).pop(),
-                    icon:
-                        const Icon(Icons.close_rounded, color: Colors.white70),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 6),
-              Text(
-                item.title,
-                style: GoogleFonts.outfit(
-                  color: Colors.white,
-                  fontSize: 17,
-                  fontWeight: FontWeight.w800,
+                    const Spacer(),
+                    IconButton(
+                      onPressed: () => Navigator.of(ctx).pop(),
+                      icon:
+                          const Icon(Icons.close_rounded, color: Colors.white70),
+                    ),
+                  ],
                 ),
-              ),
-              const SizedBox(height: 8),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF1E293B),
-                  borderRadius: BorderRadius.circular(14),
+                const SizedBox(height: 6),
+                Text(
+                  item.title,
+                  style: GoogleFonts.outfit(
+                    color: Colors.white,
+                    fontSize: 17,
+                    fontWeight: FontWeight.w800,
+                  ),
                 ),
-                child: Text(
-                  item.urlOrContent,
+                const SizedBox(height: 8),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF1E293B),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Text(
+                    item.urlOrContent,
+                    style: GoogleFonts.inter(
+                      color: Colors.white.withOpacity(0.92),
+                      fontSize: 13,
+                      height: 1.5,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  item.summary,
                   style: GoogleFonts.inter(
-                    color: Colors.white.withOpacity(0.92),
-                    fontSize: 13,
-                    height: 1.5,
+                    color: Colors.white60,
+                    fontSize: 11.5,
                   ),
                 ),
-              ),
-              const SizedBox(height: 10),
-              Text(
-                item.summary,
-                style: GoogleFonts.inter(
-                  color: Colors.white60,
-                  fontSize: 11.5,
-                ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -2882,6 +2994,9 @@ class _AddOrRenameSubjectChestSheetState
   Widget build(BuildContext context) {
     final bottomInset = MediaQuery.of(context).viewInsets.bottom;
     return Container(
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.of(context).size.height * 0.86,
+      ),
       margin: EdgeInsets.fromLTRB(12, 24, 12, 12 + bottomInset),
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
@@ -2889,82 +3004,84 @@ class _AddOrRenameSubjectChestSheetState
         borderRadius: BorderRadius.circular(24),
         border: Border.all(color: Color(_selectedColor)),
       ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            _createNew
-                ? '📦 Add New Subject Chest to Map'
-                : '✏️ Rename Subject Chest',
-            style: GoogleFonts.outfit(
-              color: Colors.white,
-              fontSize: 17,
-              fontWeight: FontWeight.w800,
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              _createNew
+                  ? '📦 Add New Subject Chest to Map'
+                  : '✏️ Rename Subject Chest',
+              style: GoogleFonts.outfit(
+                color: Colors.white,
+                fontSize: 17,
+                fontWeight: FontWeight.w800,
+              ),
             ),
-          ),
-          const SizedBox(height: 8),
-          SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            title: const Text(
-              'Create as a brand-new Subject Chest on the map',
-              style: TextStyle(color: Colors.white70, fontSize: 12.5),
+            const SizedBox(height: 8),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text(
+                'Create as a brand-new Subject Chest on the map',
+                style: TextStyle(color: Colors.white70, fontSize: 12.5),
+              ),
+              value: _createNew,
+              onChanged: (v) => setState(() {
+                _createNew = v;
+                if (v) _nameCtrl.clear();
+              }),
             ),
-            value: _createNew,
-            onChanged: (v) => setState(() {
-              _createNew = v;
-              if (v) _nameCtrl.clear();
-            }),
-          ),
-          _buildTextField(
-            controller: _nameCtrl,
-            label: 'Subject Code (Floating Banner Label)',
-            hint: 'e.g., PGP, UCSP, PPG, PKLP TERM 2, PHILO',
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: _palette.map((c) {
-              final selected = c == _selectedColor;
-              return Padding(
-                padding: const EdgeInsets.only(right: 10),
-                child: InkWell(
-                  onTap: () => setState(() => _selectedColor = c),
-                  child: Container(
-                    width: 32,
-                    height: 32,
-                    decoration: BoxDecoration(
-                      color: Color(c),
-                      shape: BoxShape.circle,
-                      border: Border.all(
-                        color: selected ? Colors.white : Colors.transparent,
-                        width: 2.5,
+            _buildTextField(
+              controller: _nameCtrl,
+              label: 'Subject Code (Floating Banner Label)',
+              hint: 'e.g., PKLP, PPG, UCSP',
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: _palette.map((c) {
+                final selected = c == _selectedColor;
+                return Padding(
+                  padding: const EdgeInsets.only(right: 10),
+                  child: InkWell(
+                    onTap: () => setState(() => _selectedColor = c),
+                    child: Container(
+                      width: 32,
+                      height: 32,
+                      decoration: BoxDecoration(
+                        color: Color(c),
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: selected ? Colors.white : Colors.transparent,
+                          width: 2.5,
+                        ),
                       ),
                     ),
                   ),
-                ),
-              );
-            }).toList(),
-          ),
-          const SizedBox(height: 16),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Color(_selectedColor),
-                foregroundColor: Colors.white,
-              ),
-              onPressed: _submit,
-              child: Text(_createNew ? 'Add Subject Chest' : 'Save Changes'),
+                );
+              }).toList(),
             ),
-          ),
-        ],
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Color(_selectedColor),
+                  foregroundColor: Colors.white,
+                ),
+                onPressed: _submit,
+                child: Text(_createNew ? 'Add Subject Chest' : 'Save Changes'),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-//  FEATURE 3: SMALL MYSTERY CHESTS (POP-QUIZ + 2-MINUTE COOLDOWN)
+//  FEATURE 3: AI SUBJECT MENTOR NPCs (`PKLP`, `PPG`, `UCSP` — 24H EXAM ROTATION)
 // ═══════════════════════════════════════════════════════════════════════════
 
 class _SmallMysteryChestQuizSheet extends StatefulWidget {
@@ -2996,8 +3113,7 @@ class _SmallMysteryChestQuizSheetState
   }
 
   Future<void> _selectOption(int index) async {
-    // Item #6 Fix: Strictly lock the student's answer on the first click!
-    // Once an option is clicked, it cannot be changed or retried.
+    // Strictly lock the student's answer on the first click!
     if (_selectedOption != null) return;
     setState(() {
       _selectedOption = index;
@@ -3032,43 +3148,63 @@ class _SmallMysteryChestQuizSheetState
     final service = LobbyDataService.instance;
     final remainingSec =
         service.smallChestRemainingSeconds(widget.smallChestId);
+    final mentor = findAiSubjectMentor(widget.smallChestId);
+    final accentCol = Color(mentor?.accentColor ?? 0xFFA855F7);
 
     if (remainingSec > 0 && _selectedOption == null) {
       final formattedWait =
           service.smallChestFormattedCooldown(widget.smallChestId);
       return Container(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.84,
+        ),
         margin: const EdgeInsets.all(16),
         padding: const EdgeInsets.all(22),
         decoration: BoxDecoration(
           color: const Color(0xFF0F172A),
           borderRadius: BorderRadius.circular(24),
-          border: Border.all(color: Colors.white24),
+          border: Border.all(color: accentCol.withValues(alpha: 0.55)),
         ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text('⏳', style: TextStyle(fontSize: 40)),
-            const SizedBox(height: 10),
-            Text(
-              '24-Hour Chest Cooldown ($formattedWait)',
-              style: GoogleFonts.outfit(
-                color: Colors.white,
-                fontSize: 18,
-                fontWeight: FontWeight.w800,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('🤖⏳', style: TextStyle(fontSize: 38)),
+              const SizedBox(height: 10),
+              Text(
+                '${mentor?.name ?? widget.smallChestLabel} • 24h Cooldown ($formattedWait)',
+                textAlign: TextAlign.center,
+                style: GoogleFonts.outfit(
+                  color: Colors.white,
+                  fontSize: 17.5,
+                  fontWeight: FontWeight.w800,
+                ),
               ),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              'Each Small Mystery Chest refreshes once every 24 hours per student and relocates across the campus every 2 hours. Explore the other Mystery Chests around the lobby!',
-              textAlign: TextAlign.center,
-              style: GoogleFonts.inter(color: Colors.white70, fontSize: 12.5),
-            ),
-            const SizedBox(height: 14),
-            OutlinedButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Got it'),
-            ),
-          ],
+              if (mentor != null) ...[
+                const SizedBox(height: 4),
+                Text(
+                  '${mentor.roleTitle} • ${mentor.fullSubjectTitle}',
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.inter(
+                    color: const Color(0xFFFDE047),
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+              const SizedBox(height: 8),
+              Text(
+                'Each AI Subject Mentor (PKLP, PPG, UCSP) prepares a new exam question for you once every 24 hours and patrols to a new campus station every 2 hours. Talk to the other AI Mentors around the lobby!',
+                textAlign: TextAlign.center,
+                style: GoogleFonts.inter(color: Colors.white70, fontSize: 12.5),
+              ),
+              const SizedBox(height: 14),
+              OutlinedButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('Got it'),
+              ),
+            ],
+          ),
         ),
       );
     }
@@ -3077,6 +3213,9 @@ class _SmallMysteryChestQuizSheetState
     final isLocked = _selectedOption != null;
 
     return Container(
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.of(context).size.height * 0.88,
+      ),
       margin: const EdgeInsets.fromLTRB(12, 24, 12, 16),
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -3085,208 +3224,250 @@ class _SmallMysteryChestQuizSheetState
         border: Border.all(
           color: _answeredCorrect
               ? const Color(0xFF10B981)
-              : (_answeredWrong
-                  ? const Color(0xFFEF4444)
-                  : const Color(0xFFA855F7)),
+              : (_answeredWrong ? const Color(0xFFEF4444) : accentCol),
           width: 1.8,
         ),
       ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFA855F7).withValues(alpha: 0.22),
-                  borderRadius: BorderRadius.circular(99),
-                  border: Border.all(color: const Color(0xFFA855F7)),
-                ),
-                child: Text(
-                  '✨ ${_question.subject} EXAM ROTATION • +${_question.xpReward} XP',
-                  style: GoogleFonts.outfit(
-                    color: const Color(0xFFFDE047),
-                    fontSize: 11.5,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              ),
-              const Spacer(),
-              IconButton(
-                onPressed: () => Navigator.of(context).pop(),
-                icon: const Icon(Icons.close_rounded, color: Colors.white70),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Text(
-            _question.question,
-            style: GoogleFonts.outfit(
-              color: Colors.white,
-              fontSize: 16.5,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            isLocked
-                ? '🔒 Answer locked! Options cannot be changed after clicking.'
-                : '⚠️ First click locks your answer for 24 hours — choose carefully!',
-            style: GoogleFonts.inter(
-              color: isLocked ? Colors.white54 : const Color(0xFFFDE047),
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(height: 12),
-          ...List.generate(_question.options.length, (idx) {
-            final isSelected = _selectedOption == idx;
-            final isCorrectOption = idx == _question.correctIndex;
-
-            Color borderColor = Colors.white24;
-            Color bgColor = const Color(0xFF1E293B);
-            if (isLocked && isCorrectOption) {
-              borderColor = const Color(0xFF10B981);
-              bgColor = const Color(0xFF065F46).withValues(alpha: 0.6);
-            } else if (_answeredWrong && isSelected && !isCorrectOption) {
-              borderColor = const Color(0xFFEF4444);
-              bgColor = const Color(0xFF7F1D1D).withValues(alpha: 0.5);
-            }
-
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: InkWell(
-                onTap: isLocked ? null : () => _selectOption(idx),
-                borderRadius: BorderRadius.circular(14),
-                child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 42,
+                  height: 42,
+                  alignment: Alignment.center,
                   decoration: BoxDecoration(
-                    color: bgColor,
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: borderColor, width: 1.4),
+                    color: accentCol.withValues(alpha: 0.22),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: accentCol),
                   ),
-                  child: Row(
+                  child: const Text('🤖', style: TextStyle(fontSize: 22)),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Container(
-                        width: 26,
-                        height: 26,
-                        alignment: Alignment.center,
-                        decoration: BoxDecoration(
-                          color: Colors.white12,
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Text(
-                          letters[idx],
-                          style: GoogleFonts.outfit(
-                            color: const Color(0xFFFACC15),
-                            fontWeight: FontWeight.w800,
-                          ),
+                      Text(
+                        mentor != null
+                            ? '${mentor.name} • ${mentor.roleTitle}'
+                            : widget.smallChestLabel,
+                        style: GoogleFonts.outfit(
+                          color: Colors.white,
+                          fontSize: 15.5,
+                          fontWeight: FontWeight.w800,
                         ),
                       ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          _question.options[idx],
-                          style: GoogleFonts.inter(
-                            color: Colors.white,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                          ),
+                      Text(
+                        mentor != null
+                            ? '📚 ${mentor.fullSubjectTitle} (+${_question.xpReward} XP)'
+                            : '✨ ${_question.subject} EXAM ROTATION • +${_question.xpReward} XP',
+                        style: GoogleFonts.inter(
+                          color: const Color(0xFFFDE047),
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
                         ),
                       ),
-                      if (isLocked && isSelected)
-                        Icon(
-                          isCorrectOption
-                              ? Icons.check_circle_rounded
-                              : Icons.cancel_rounded,
-                          color: isCorrectOption
-                              ? const Color(0xFF10B981)
-                              : const Color(0xFFEF4444),
-                          size: 18,
-                        ),
                     ],
                   ),
                 ),
-              ),
-            );
-          }),
-          if (_answeredWrong && !_answeredCorrect) ...[
-            const SizedBox(height: 8),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: const Color(0xFF7F1D1D).withValues(alpha: 0.45),
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: const Color(0xFFEF4444)),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.lock_clock_rounded,
-                      color: Color(0xFFFCA5A5), size: 22),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      'Answer locked! The correct answer was ${letters[_question.correctIndex]} (${_question.options[_question.correctIndex]}). This chest refreshes in 24 hours.',
-                      style: GoogleFonts.inter(
-                        color: Colors.white,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
+                IconButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  icon: const Icon(Icons.close_rounded, color: Colors.white70),
+                ),
+              ],
+            ),
+            if (mentor != null) ...[
+              const SizedBox(height: 8),
+              Container(
+                width: double.infinity,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF1E293B),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: accentCol.withValues(alpha: 0.4)),
+                ),
+                child: Text(
+                  '"${mentor.greeting}"',
+                  style: GoogleFonts.inter(
+                    color: Colors.white.withValues(alpha: 0.88),
+                    fontSize: 11.5,
+                    fontStyle: FontStyle.italic,
                   ),
-                  const SizedBox(width: 8),
-                  OutlinedButton(
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: Colors.white,
-                      side: const BorderSide(color: Colors.white38),
-                    ),
-                    onPressed: () => Navigator.of(context).pop(),
-                    child: const Text('Close'),
-                  ),
-                ],
+                ),
+              ),
+            ],
+            const SizedBox(height: 10),
+            Text(
+              _question.question,
+              style: GoogleFonts.outfit(
+                color: Colors.white,
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
               ),
             ),
-          ],
-          if (_answeredCorrect) ...[
-            const SizedBox(height: 8),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: const Color(0xFF065F46).withValues(alpha: 0.45),
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: const Color(0xFF10B981)),
-              ),
-              child: Row(
-                children: [
-                  const Text('🎉', style: TextStyle(fontSize: 22)),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      'Correct! +${_question.xpReward} XP added to your profile & Shop Wallet! This chest will refresh in 24 hours.',
-                      style: GoogleFonts.inter(
-                        color: Colors.white,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                  ElevatedButton(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF10B981),
-                      foregroundColor: Colors.white,
-                    ),
-                    onPressed: () => Navigator.of(context).pop(),
-                    child: const Text('Claim'),
-                  ),
-                ],
+            const SizedBox(height: 4),
+            Text(
+              isLocked
+                  ? '🔒 Answer locked! Options cannot be changed after clicking.'
+                  : '⚠️ First click locks your answer for 24 hours — choose carefully!',
+              style: GoogleFonts.inter(
+                color: isLocked ? Colors.white54 : const Color(0xFFFDE047),
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
               ),
             ),
+            const SizedBox(height: 12),
+            ...List.generate(_question.options.length, (idx) {
+              final isSelected = _selectedOption == idx;
+              final isCorrectOption = idx == _question.correctIndex;
+
+              Color borderColor = Colors.white24;
+              Color bgColor = const Color(0xFF1E293B);
+              if (isLocked && isCorrectOption) {
+                borderColor = const Color(0xFF10B981);
+                bgColor = const Color(0xFF065F46).withValues(alpha: 0.6);
+              } else if (_answeredWrong && isSelected && !isCorrectOption) {
+                borderColor = const Color(0xFFEF4444);
+                bgColor = const Color(0xFF7F1D1D).withValues(alpha: 0.5);
+              }
+
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: InkWell(
+                  onTap: isLocked ? null : () => _selectOption(idx),
+                  borderRadius: BorderRadius.circular(14),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 14, vertical: 12),
+                    decoration: BoxDecoration(
+                      color: bgColor,
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: borderColor, width: 1.4),
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 26,
+                          height: 26,
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            color: Colors.white12,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            letters[idx],
+                            style: GoogleFonts.outfit(
+                              color: const Color(0xFFFACC15),
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            _question.options[idx],
+                            style: GoogleFonts.inter(
+                              color: Colors.white,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                        if (isLocked && isSelected)
+                          Icon(
+                            isCorrectOption
+                                ? Icons.check_circle_rounded
+                                : Icons.cancel_rounded,
+                            color: isCorrectOption
+                                ? const Color(0xFF10B981)
+                                : const Color(0xFFEF4444),
+                            size: 18,
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            }),
+            if (_answeredWrong && !_answeredCorrect) ...[
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF7F1D1D).withValues(alpha: 0.45),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: const Color(0xFFEF4444)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.lock_clock_rounded,
+                        color: Color(0xFFFCA5A5), size: 22),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'Answer locked! The correct answer was ${letters[_question.correctIndex]} (${_question.options[_question.correctIndex]}). This AI Mentor refreshes in 24 hours.',
+                        style: GoogleFonts.inter(
+                          color: Colors.white,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    OutlinedButton(
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.white,
+                        side: const BorderSide(color: Colors.white38),
+                      ),
+                      onPressed: () => Navigator.of(context).pop(),
+                      child: const Text('Close'),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+            if (_answeredCorrect) ...[
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF065F46).withValues(alpha: 0.45),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: const Color(0xFF10B981)),
+                ),
+                child: Row(
+                  children: [
+                    const Text('🎉', style: TextStyle(fontSize: 22)),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'Correct! +${_question.xpReward} XP added to your profile & Shop Wallet! This AI Mentor refreshes in 24 hours.',
+                        style: GoogleFonts.inter(
+                          color: Colors.white,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                    ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF10B981),
+                        foregroundColor: Colors.white,
+                      ),
+                      onPressed: () => Navigator.of(context).pop(),
+                      child: const Text('Claim'),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ],
-        ],
+        ),
       ),
     );
   }
@@ -3304,6 +3485,9 @@ class _TeacherCornerSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.of(context).size.height * 0.85,
+      ),
       margin: const EdgeInsets.all(14),
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -3311,95 +3495,97 @@ class _TeacherCornerSheet extends StatelessWidget {
         borderRadius: BorderRadius.circular(24),
         border: Border.all(color: const Color(0xFFFACC15), width: 1.6),
       ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Text('🎓', style: TextStyle(fontSize: 28)),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      "Teacher's Advisory Corner",
-                      style: GoogleFonts.outfit(
-                        color: const Color(0xFFFACC15),
-                        fontSize: 18,
-                        fontWeight: FontWeight.w800,
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Text('🎓', style: TextStyle(fontSize: 28)),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        "Teacher's Advisory Corner",
+                        style: GoogleFonts.outfit(
+                          color: const Color(0xFFFACC15),
+                          fontSize: 18,
+                          fontWeight: FontWeight.w800,
+                        ),
                       ),
-                    ),
-                    Text(
-                      'Sir Jim Mark • Social Science & Humanities Faculty Desk',
-                      style: GoogleFonts.inter(
-                        color: Colors.white70,
-                        fontSize: 11.5,
+                      Text(
+                        'Sir Jim Mark • PKLP, PPG & UCSP Faculty Desk',
+                        style: GoogleFonts.inter(
+                          color: Colors.white70,
+                          fontSize: 11.5,
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
+                ),
+                IconButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  icon: const Icon(Icons.close_rounded, color: Colors.white70),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Text(
+              '"Keep exploring your enrolled Reviewer Chests and testing your mastery with the PKLP, PPG, and UCSP AI Subject Mentors! Remember: consistent preparation builds confidence."',
+              style: GoogleFonts.inter(
+                color: Colors.white.withOpacity(0.9),
+                fontSize: 13,
+                fontStyle: FontStyle.italic,
+              ),
+            ),
+            if (isFaculty) ...[
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFF59E0B),
+                    foregroundColor: const Color(0xFF0F172A),
+                  ),
+                  onPressed: () {
+                    Navigator.of(context).pop();
+                    showTeacherLinkManagerModal(
+                      context: context,
+                      teacherName: userName,
+                    );
+                  },
+                  icon: const Icon(Icons.link_rounded),
+                  label: const Text(
+                    '🔗 Open Teacher Content & Link Manager',
+                    style: TextStyle(fontWeight: FontWeight.w800),
+                  ),
                 ),
               ),
-              IconButton(
-                onPressed: () => Navigator.of(context).pop(),
-                icon: const Icon(Icons.close_rounded, color: Colors.white70),
+              const SizedBox(height: 8),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: const Color(0xFFFACC15),
+                    side: const BorderSide(color: Color(0xFFFACC15)),
+                  ),
+                  onPressed: () {
+                    Navigator.of(context).pop();
+                    showPostActivityModal(context: context, postedBy: userName);
+                  },
+                  icon: const Icon(Icons.add_task_rounded),
+                  label: const Text(
+                    '+ Quick Post Quest Activity',
+                    style: TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                ),
               ),
             ],
-          ),
-          const SizedBox(height: 12),
-          Text(
-            '"Keep exploring your enrolled Reviewer Chests and testing your mastery on the Small Mystery Chests! Remember: consistent preparation builds confidence."',
-            style: GoogleFonts.inter(
-              color: Colors.white.withOpacity(0.9),
-              fontSize: 13,
-              fontStyle: FontStyle.italic,
-            ),
-          ),
-          if (isFaculty) ...[
-            const SizedBox(height: 16),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFFF59E0B),
-                  foregroundColor: const Color(0xFF0F172A),
-                ),
-                onPressed: () {
-                  Navigator.of(context).pop();
-                  showTeacherLinkManagerModal(
-                    context: context,
-                    teacherName: userName,
-                  );
-                },
-                icon: const Icon(Icons.link_rounded),
-                label: const Text(
-                  '🔗 Open Teacher Content & Link Manager',
-                  style: TextStyle(fontWeight: FontWeight.w800),
-                ),
-              ),
-            ),
-            const SizedBox(height: 8),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: const Color(0xFFFACC15),
-                  side: const BorderSide(color: Color(0xFFFACC15)),
-                ),
-                onPressed: () {
-                  Navigator.of(context).pop();
-                  showPostActivityModal(context: context, postedBy: userName);
-                },
-                icon: const Icon(Icons.add_task_rounded),
-                label: const Text(
-                  '+ Quick Post Quest Activity',
-                  style: TextStyle(fontWeight: FontWeight.w800),
-                ),
-              ),
-            ),
           ],
-        ],
+        ),
       ),
     );
   }
@@ -3411,6 +3597,9 @@ class _BulletinBoardSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.of(context).size.height * 0.86,
+      ),
       margin: const EdgeInsets.all(14),
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -3418,59 +3607,61 @@ class _BulletinBoardSheet extends StatelessWidget {
         borderRadius: BorderRadius.circular(24),
         border: Border.all(color: const Color(0xFF38BDF8), width: 1.6),
       ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Text('📌', style: TextStyle(fontSize: 26)),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  'MIS-SHS School Lobby Guide & Bulletin',
-                  style: GoogleFonts.outfit(
-                    color: Colors.white,
-                    fontSize: 18,
-                    fontWeight: FontWeight.w800,
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Text('📌', style: TextStyle(fontSize: 26)),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'MIS-SHS School Lobby Guide & Bulletin',
+                    style: GoogleFonts.outfit(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
                 ),
-              ),
-              IconButton(
-                onPressed: () => Navigator.of(context).pop(),
-                icon: const Icon(Icons.close_rounded, color: Colors.white70),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          const _GuideRow(
-            icon: '🚪',
-            title: 'Campus Doors (Park, Class Room, Canteen, Faculty)',
-            desc:
-                'Walk up to any glowing Door or tap the Room Switcher pill in the top HUD to explore all 5 campus rooms!',
-          ),
-          const SizedBox(height: 8),
-          const _GuideRow(
-            icon: '🪑',
-            title: 'Sit, Nap, or Sleep Anywhere',
-            desc:
-                'Walk near any sofa, bench, classroom desk, or park lawn—or tap the Sit / Nap / Sleep buttons in the bottom-right corner!',
-          ),
-          const SizedBox(height: 8),
-          const _GuideRow(
-            icon: '💭',
-            title: 'Student Thought Bubbles',
-            desc:
-                'Approach any classmate or tap "💭 Think" to pop a cloud Thought Bubble above your avatar and chat!',
-          ),
-          const SizedBox(height: 8),
-          const _GuideRow(
-            icon: '📦',
-            title: 'Enrolled Subject Chests (Google Drive Sync)',
-            desc:
-                'Only active subjects from the MIS Control Sheet that you are enrolled in appear in your Reviewer Vault!',
-          ),
-        ],
+                IconButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  icon: const Icon(Icons.close_rounded, color: Colors.white70),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            const _GuideRow(
+              icon: '🤖',
+              title: 'PKLP, PPG & UCSP AI Subject Mentors (+25 XP)',
+              desc:
+                  'Talk to the 8 AI Subject Mentors around the Lobby! Each Mentor asks rotating exam questions for PKLP, PPG, or UCSP once every 24 hours.',
+            ),
+            const SizedBox(height: 8),
+            const _GuideRow(
+              icon: '📚',
+              title: 'Group Study & Chat Spaces in Every Room',
+              desc:
+                  'Every campus room has a dedicated Group Study Table where multiple students can sit together and chat using Thought Bubbles (💭)!',
+            ),
+            const SizedBox(height: 8),
+            const _GuideRow(
+              icon: '📌',
+              title: 'Your Personal Classroom Table & Table Decor Shop',
+              desc:
+                  'In the Class Room, Row 1 Center is your exclusive Personal Table! Buy Chair Colors, Mini Lights, Frames & Props in the Campus Shop to decorate it.',
+            ),
+            const SizedBox(height: 8),
+            const _GuideRow(
+              icon: '📦',
+              title: 'Enrolled Subject Chests (Google Drive Sync)',
+              desc:
+                  'Only active subjects from the MIS Control Sheet that you are enrolled in appear in your Reviewer Vault!',
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -4351,18 +4542,26 @@ class _CharacterProgressSheet extends StatelessWidget {
         );
         final totalActivities = service.activities.length;
 
-        return Container(
-          margin: const EdgeInsets.fromLTRB(12, 24, 12, 16),
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            color: const Color(0xFF0F172A),
-            borderRadius: BorderRadius.circular(24),
-            border: Border.all(color: const Color(0xFFFACC15), width: 1.8),
+        return ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(context).size.height * 0.88,
           ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
+          child: SingleChildScrollView(
+            padding: EdgeInsets.only(
+              bottom: MediaQuery.of(context).viewInsets.bottom,
+            ),
+            child: Container(
+              margin: const EdgeInsets.fromLTRB(12, 24, 12, 16),
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: const Color(0xFF0F172A),
+                borderRadius: BorderRadius.circular(24),
+                border: Border.all(color: const Color(0xFFFACC15), width: 1.8),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
               Row(
                 children: [
                   Container(
@@ -4537,6 +4736,8 @@ class _CharacterProgressSheet extends StatelessWidget {
               ),
             ],
           ),
+            ),
+          ),
         );
       },
     );
@@ -4603,107 +4804,115 @@ Future<String?> showCanteenVendingModal({
 
   return showModalBottomSheet<String>(
     context: context,
+    isScrollControlled: true,
     backgroundColor: Colors.transparent,
-    builder: (ctx) => Container(
-      margin: const EdgeInsets.all(14),
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: const Color(0xFF0F172A),
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: const Color(0xFFFB923C), width: 1.8),
+    builder: (ctx) => ConstrainedBox(
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.of(ctx).size.height * 0.86,
       ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
+      child: SingleChildScrollView(
+        child: Container(
+          margin: const EdgeInsets.all(14),
+          padding: const EdgeInsets.all(18),
+          decoration: BoxDecoration(
+            color: const Color(0xFF0F172A),
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: const Color(0xFFFB923C), width: 1.8),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('🥤', style: TextStyle(fontSize: 26)),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'SHS Canteen Vending & Merienda Bar',
-                      style: GoogleFonts.outfit(
-                        color: Colors.white,
-                        fontSize: 17,
-                        fontWeight: FontWeight.w800,
-                      ),
+              Row(
+                children: [
+                  const Text('🥤', style: TextStyle(fontSize: 26)),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'SHS Canteen Vending & Merienda Bar',
+                          style: GoogleFonts.outfit(
+                            color: Colors.white,
+                            fontSize: 17,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        Text(
+                          'Pick a drink or snack to enjoy at the Canteen tables!',
+                          style: GoogleFonts.inter(
+                            color: Colors.white70,
+                            fontSize: 11.5,
+                          ),
+                        ),
+                      ],
                     ),
-                    Text(
-                      'Pick a drink or snack to enjoy at the Canteen tables!',
-                      style: GoogleFonts.inter(
-                        color: Colors.white70,
-                        fontSize: 11.5,
-                      ),
-                    ),
-                  ],
-                ),
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.of(ctx).pop(),
+                    icon: const Icon(Icons.close_rounded, color: Colors.white70),
+                  ),
+                ],
               ),
-              IconButton(
-                onPressed: () => Navigator.of(ctx).pop(),
-                icon: const Icon(Icons.close_rounded, color: Colors.white70),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: items.map((item) {
+                  final emoji = item['emoji']!;
+                  final name = item['name']!;
+                  final tag = item['tag']!;
+                  return InkWell(
+                    onTap: () =>
+                        Navigator.of(ctx).pop('$emoji Enjoying $name! 😋'),
+                    borderRadius: BorderRadius.circular(14),
+                    child: Container(
+                      width: (MediaQuery.of(ctx).size.width - 72) / 2,
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF1E293B),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                            color: const Color(0xFFFB923C).withOpacity(0.45)),
+                      ),
+                      child: Row(
+                        children: [
+                          Text(emoji, style: const TextStyle(fontSize: 22)),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  name,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: GoogleFonts.outfit(
+                                    color: Colors.white,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                Text(
+                                  tag,
+                                  style: GoogleFonts.inter(
+                                    color: const Color(0xFFFDBA74),
+                                    fontSize: 10,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                }).toList(),
               ),
             ],
           ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: items.map((item) {
-              final emoji = item['emoji']!;
-              final name = item['name']!;
-              final tag = item['tag']!;
-              return InkWell(
-                onTap: () =>
-                    Navigator.of(ctx).pop('$emoji Enjoying $name! 😋'),
-                borderRadius: BorderRadius.circular(14),
-                child: Container(
-                  width: (MediaQuery.of(ctx).size.width - 72) / 2,
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF1E293B),
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(
-                        color: const Color(0xFFFB923C).withOpacity(0.45)),
-                  ),
-                  child: Row(
-                    children: [
-                      Text(emoji, style: const TextStyle(fontSize: 22)),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              name,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: GoogleFonts.outfit(
-                                color: Colors.white,
-                                fontSize: 12,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                            Text(
-                              tag,
-                              style: GoogleFonts.inter(
-                                color: const Color(0xFFFDBA74),
-                                fontSize: 10,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            }).toList(),
-          ),
-        ],
+        ),
       ),
     ),
   );

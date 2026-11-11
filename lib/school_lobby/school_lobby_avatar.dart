@@ -890,63 +890,31 @@ class _LobbyAvatarCustomizerSheetState
                 ),
               ),
 
-              // Body: Adapts between Landscape (2-column split) and Portrait (vertical stack)
+              // Body: Unified scrollable layout in both Portrait and Landscape
               Expanded(
-                child: isLandscape
-                    ? Row(
-                        children: [
-                          SizedBox(
-                            width: media.size.width * 0.38,
-                            child: SingleChildScrollView(
-                              padding:
-                                  const EdgeInsets.symmetric(horizontal: 14),
-                              child: Column(
-                                children: [
-                                  _buildPreviewAndNicknameCard(compact: true),
-                                  const SizedBox(height: 10),
-                                  _buildSaveButton(),
-                                ],
-                              ),
-                            ),
-                          ),
-                          Expanded(
-                            child: Column(
-                              children: [
-                                _buildModeSwitcherRow(),
-                                Expanded(
-                                  child: _look.isPreset
-                                      ? _buildPresetGrid(crossAxisCount: 4)
-                                      : _buildCustomPartsEditor(),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      )
-                    : Column(
-                        children: [
-                          Padding(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 16, vertical: 4),
-                            child:
-                                _buildPreviewAndNicknameCard(compact: false),
-                          ),
-                          _buildModeSwitcherRow(),
-                          Expanded(
-                            child: _look.isPreset
-                                ? _buildPresetGrid(crossAxisCount: 4)
-                                : _buildCustomPartsEditor(),
-                          ),
-                          SafeArea(
-                            top: false,
-                            child: Padding(
-                              padding:
-                                  const EdgeInsets.fromLTRB(16, 6, 16, 12),
-                              child: _buildSaveButton(),
-                            ),
-                          ),
-                        ],
-                      ),
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _buildPreviewAndNicknameCard(compact: isLandscape),
+                      const SizedBox(height: 6),
+                      _buildModeSwitcherRow(),
+                      const SizedBox(height: 6),
+                      _look.isPreset
+                          ? _buildPresetGrid(
+                              crossAxisCount: isLandscape ? 6 : 4)
+                          : _buildCustomPartsEditor(isLandscape: isLandscape),
+                    ],
+                  ),
+                ),
+              ),
+              SafeArea(
+                top: false,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 6, 16, 12),
+                  child: _buildSaveButton(),
+                ),
               ),
             ],
           ),
@@ -1259,7 +1227,9 @@ class _LobbyAvatarCustomizerSheetState
 
   Widget _buildPresetGrid({required int crossAxisCount}) {
     return GridView.builder(
-      padding: const EdgeInsets.fromLTRB(16, 6, 16, 12),
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      padding: const EdgeInsets.symmetric(vertical: 6),
       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: crossAxisCount,
         mainAxisSpacing: 8,
@@ -1341,7 +1311,7 @@ class _LobbyAvatarCustomizerSheetState
     );
   }
 
-  Widget _buildCustomPartsEditor() {
+  Widget _buildCustomPartsEditor({bool isLandscape = false}) {
     final categories = [
       {'key': 'body', 'label': 'Skin'},
       {'key': 'eyes', 'label': 'Eyes'},
@@ -1357,12 +1327,12 @@ class _LobbyAvatarCustomizerSheetState
     final currentVal = _currentPartValue(_selectedPartCategory);
 
     return Column(
+      mainAxisSize: MainAxisSize.min,
       children: [
         SizedBox(
           height: 38,
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 16),
             itemCount: categories.length,
             separatorBuilder: (_, __) => const SizedBox(width: 8),
             itemBuilder: (context, i) {
@@ -1384,18 +1354,19 @@ class _LobbyAvatarCustomizerSheetState
             },
           ),
         ),
-        const SizedBox(height: 6),
-        Expanded(
-          child: GridView.builder(
-            padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 3,
-              mainAxisSpacing: 8,
-              crossAxisSpacing: 8,
-              childAspectRatio: 2.35,
-            ),
-            itemCount: options.length,
-            itemBuilder: (context, index) {
+        const SizedBox(height: 8),
+        GridView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          padding: const EdgeInsets.only(bottom: 8),
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: isLandscape ? 4 : 3,
+            mainAxisSpacing: 8,
+            crossAxisSpacing: 8,
+            childAspectRatio: 2.35,
+          ),
+          itemCount: options.length,
+          itemBuilder: (context, index) {
               final opt = options[index];
               final id = opt['id']!;
               final label = opt['label']!;
@@ -1460,7 +1431,6 @@ class _LobbyAvatarCustomizerSheetState
               );
             },
           ),
-        ),
       ],
     );
   }

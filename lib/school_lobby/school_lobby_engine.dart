@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 
 import 'lobby_data_service.dart';
 import 'lobby_presence_service.dart';
+import 'lobby_shop_service.dart';
 import 'school_lobby_avatar.dart';
 import 'school_lobby_config.dart';
 
@@ -273,6 +274,12 @@ class SchoolLobbyAssetBundle {
       npcSheets[peer.id] =
           await AvatarSpriteCache.instance.resolveLookSpriteSheet(
         LobbyAvatarLook(isPreset: true, presetName: peer.presetName),
+      );
+    }
+    for (final mentor in kAiSubjectMentors) {
+      npcSheets[mentor.id] =
+          await AvatarSpriteCache.instance.resolveLookSpriteSheet(
+        LobbyAvatarLook(isPreset: true, presetName: mentor.presetName),
       );
     }
 
@@ -763,43 +770,70 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
       Paint()..color = Colors.black.withOpacity(isDarkMode ? 0.35 : 0.14),
     );
 
-    // Perimeter dark architectural wall caps (`#3a3a50` from `shell.ts`)
+    // Perimeter dark architectural wall caps (`#3a3a50` from `shell.ts`) clamped to compact `currentRoom.roomBounds`
+    final bounds = currentRoom.roomBounds;
+    final voidMaskPaint = Paint()..color = const Color(0xFF090E1A);
+    // Mask exterior dead space outside compact room bounds
+    if (bounds.left > 0) {
+      canvas.drawRect(
+        Rect.fromLTWH(0, 0, bounds.left, kLobbyWorldHeight),
+        voidMaskPaint,
+      );
+    }
+    if (bounds.right < kLobbyWorldWidth) {
+      canvas.drawRect(
+        Rect.fromLTWH(
+            bounds.right, 0, kLobbyWorldWidth - bounds.right, kLobbyWorldHeight),
+        voidMaskPaint,
+      );
+    }
+    if (bounds.bottom < kLobbyWorldHeight) {
+      canvas.drawRect(
+        Rect.fromLTWH(
+            0, bounds.bottom, kLobbyWorldWidth, kLobbyWorldHeight - bounds.bottom),
+        voidMaskPaint,
+      );
+    }
+
     final wallCapPaint = Paint()
       ..color = isDarkMode ? const Color(0xFF0F172A) : const Color(0xFF3A3A50);
     canvas.drawRect(
-      const Rect.fromLTWH(0, 0, kLobbyWorldWidth, 16),
+      Rect.fromLTWH(bounds.left - 16, 0, bounds.width + 32, 16),
       wallCapPaint,
     );
     canvas.drawRect(
-      const Rect.fromLTWH(0, 0, 32, kLobbyWorldHeight),
+      Rect.fromLTWH(bounds.left - 24, 0, 24, bounds.bottom + 24),
       wallCapPaint,
     );
     canvas.drawRect(
-      const Rect.fromLTWH(kLobbyWorldWidth - 32, 0, 32, kLobbyWorldHeight),
+      Rect.fromLTWH(bounds.right, 0, 24, bounds.bottom + 24),
       wallCapPaint,
     );
     canvas.drawRect(
-      const Rect.fromLTWH(0, kLobbyWorldHeight - 24, kLobbyWorldWidth, 24),
+      Rect.fromLTWH(bounds.left - 24, bounds.bottom, bounds.width + 48, 24),
       wallCapPaint,
     );
   }
 
-  /// Renders Guided Walk Paths (`LobbyWalkPathSegment`) across the room using `floor-sheet.png`
-  /// cobblestone paving & carpet tiles, trimmed borders, and animated directional arrows (`▲ ▼ ◀ ▶`).
+  /// Renders Pokémon-inspired Walk Paths (`LobbyWalkPathSegment`) across each room:
+  /// - Outdoor (`park`): Pokémon Route sandy cobblestone trails (`#E7CBA9`) with rounded stepping stones
+  ///   and pixel grass-tuft borders (`#3F6212` / `#65A30D`).
+  /// - Indoor (`mainLobby`, `classroom`, `canteen`, `facultyRoom`): Pokémon Center / PokéMart woven runner
+  ///   carpets with double-stitched pixel gold/cream trim (`#FDE68A` / `#78350F`) and woven diamond emblems.
   void _paintGuidedWalkPaths(Canvas canvas, Paint pixelPaint) {
     final segments = walkPathsForRoom(currentRoom);
     for (final seg in segments) {
       final r = seg.rect;
-      final borderCol = Color(seg.borderColor);
+      final isOutdoor = currentRoom == LobbyRoomId.park || seg.style == 'paving';
 
-      // Tile the walk path using `floor-sheet.png` tiles
       final cStart = (r.left / kTileSize).floor();
       final cEnd = (r.right / kTileSize).ceil();
       final rStart = (r.top / kTileSize).floor();
       final rEnd = (r.bottom / kTileSize).ceil();
 
       canvas.save();
-      canvas.clipRRect(RRect.fromRectAndRadius(r, const Radius.circular(8)));
+      canvas.clipRRect(RRect.fromRectAndRadius(r, const Radius.circular(6)));
+
       for (var row = rStart; row < rEnd; row++) {
         for (var col = cStart; col < cEnd; col++) {
           final dst = Rect.fromLTWH(
@@ -807,24 +841,23 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
           int tileId;
           switch (seg.style) {
             case 'paving':
-              // TinyFloor `GROUND_TILES.paving`: row 18..19, col 8..11
               tileId = (18 + (row % 2)) * 16 + 8 + (col % 4) + 1;
               break;
             case 'carpet_gold':
-              tileId = 204; // `maroon` runner base
+              tileId = 204; // warm crimson Pokémon Center runner
               break;
             case 'carpet_royal':
-              tileId = 207; // `mauve` runner base
+              tileId = 207; // royal mauve runner
               break;
             case 'carpet_blue':
-              tileId = 140; // `graphite` runner base
+              tileId = 140; // slate runner
               break;
             case 'checker':
-              tileId = 175; // `olive-tile` checker runner
+              tileId = 175; // olive checker runner
               break;
             case 'wood_aisle':
             default:
-              tileId = 242; // `oak` aisle
+              tileId = 242; // warm oak aisle
               break;
           }
           canvas.drawImageRect(
@@ -836,65 +869,117 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
         }
       }
 
-      // Subtle color glaze so each path direction is color-coded
-      canvas.drawRect(
-        r,
-        Paint()
-          ..color = borderCol.withOpacity(isDarkMode ? 0.22 : 0.16),
-      );
-      canvas.restore();
-
-      // Crisp runner border trim
-      canvas.drawRRect(
-        RRect.fromRectAndRadius(r, const Radius.circular(8)),
-        Paint()
-          ..color = borderCol.withOpacity(isDarkMode ? 0.65 : 0.55)
+      if (isOutdoor) {
+        // Pokémon FireRed/Emerald sandy route tint + pixel stepping stones
+        canvas.drawRect(
+          r,
+          Paint()
+            ..color = const Color(0xFFE7CBA9)
+                .withValues(alpha: isDarkMode ? 0.22 : 0.34),
+        );
+        final stoneFill = Paint()
+          ..color = const Color(0xFFD6B48A)
+              .withValues(alpha: isDarkMode ? 0.45 : 0.65);
+        final stoneRim = Paint()
+          ..color = const Color(0xFF8C6D46)
+              .withValues(alpha: isDarkMode ? 0.55 : 0.65)
           ..style = PaintingStyle.stroke
-          ..strokeWidth = 1.8,
-      );
+          ..strokeWidth = 1.2;
 
-      // Draw directional floor arrows along the walk path
-      if (seg.arrowDir != null) {
-        final arrowSymbol = seg.arrowDir == 'up'
-            ? '▲'
-            : (seg.arrowDir == 'down'
-                ? '▼'
-                : (seg.arrowDir == 'left' ? '◀' : '▶'));
-        final isVertical = seg.arrowDir == 'up' || seg.arrowDir == 'down';
+        for (var y = r.top + 14; y < r.bottom - 10; y += 28) {
+          for (var x = r.left + 16; x < r.right - 12; x += 32) {
+            final jitterX = (((x.toInt() * 7 + y.toInt() * 13) % 7) - 3).toDouble();
+            final jitterY = (((x.toInt() * 11 + y.toInt() * 5) % 5) - 2).toDouble();
+            final stoneRect = RRect.fromRectAndRadius(
+              Rect.fromCenter(
+                center: Offset(x + jitterX, y + jitterY),
+                width: 16,
+                height: 10,
+              ),
+              const Radius.circular(4),
+            );
+            canvas.drawRRect(stoneRect, stoneFill);
+            canvas.drawRRect(stoneRect, stoneRim);
+          }
+        }
+      } else {
+        // Subtle woven indoor carpet texture lines (every 8px)
+        final weavePaint = Paint()
+          ..color = Colors.black.withValues(alpha: 0.08)
+          ..strokeWidth = 1.0;
+        for (var y = r.top + 4; y < r.bottom; y += 8) {
+          canvas.drawLine(Offset(r.left, y), Offset(r.right, y), weavePaint);
+        }
+
+        // Woven Pokémon Center diamond pattern along the center of the runner
+        final isVertical = r.height > r.width;
         final length = isVertical ? r.height : r.width;
-        final steps = (length / 110.0).floor().clamp(1, 8);
-        final pulseIdx = (animTick ~/ 2) % (steps + 1);
-
+        final steps = (length / 64.0).floor().clamp(1, 16);
+        final diamondFill = Paint()
+          ..color = const Color(0xFFFDE68A).withValues(alpha: 0.38);
+        final diamondStroke = Paint()
+          ..color = const Color(0xFF78350F).withValues(alpha: 0.45)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.0;
         for (var i = 1; i <= steps; i++) {
           final frac = i / (steps + 1);
-          final pos = isVertical
+          final center = isVertical
               ? Offset(r.center.dx, r.top + r.height * frac)
               : Offset(r.left + r.width * frac, r.center.dy);
-          final isLit = (i == pulseIdx) ||
-              (seg.arrowDir == 'up' || seg.arrowDir == 'left'
-                  ? (steps - i + 1) == pulseIdx
-                  : i == pulseIdx);
-          final tp = TextPainter(
-            text: TextSpan(
-              text: arrowSymbol,
-              style: TextStyle(
-                color: Colors.white.withOpacity(isLit ? 0.85 : 0.38),
-                fontSize: isLit ? 11.0 : 9.5,
-                fontWeight: FontWeight.w900,
-              ),
-            ),
-            textDirection: TextDirection.ltr,
-          )..layout();
-          tp.paint(
-            canvas,
-            Offset(pos.dx - tp.width / 2, pos.dy - tp.height / 2),
-          );
+          final path = Path()
+            ..moveTo(center.dx, center.dy - 6)
+            ..lineTo(center.dx + 6, center.dy)
+            ..lineTo(center.dx, center.dy + 6)
+            ..lineTo(center.dx - 6, center.dy)
+            ..close();
+          canvas.drawPath(path, diamondFill);
+          canvas.drawPath(path, diamondStroke);
         }
+      }
+      canvas.restore();
+
+      if (isOutdoor) {
+        // Pokémon grass-tuft & pebble edging along path perimeter
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(r, const Radius.circular(6)),
+          Paint()
+            ..color = const Color(0xFF3F6212)
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 2.6,
+        );
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(r.deflate(2.2), const Radius.circular(5)),
+          Paint()
+            ..color = const Color(0xFFA16207).withValues(alpha: 0.70)
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 1.4,
+        );
+      } else {
+        // Double-stitched pixel cream/gold carpet trim
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(r, const Radius.circular(4)),
+          Paint()
+            ..color = const Color(0xFF78350F)
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 2.6,
+        );
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(r.deflate(2.2), const Radius.circular(3)),
+          Paint()
+            ..color = const Color(0xFFFDE68A).withValues(alpha: 0.85)
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 1.6,
+        );
       }
     }
   }
 
   void _paintZoneFloorDecals(Canvas canvas) {
+    // 0. If in Classroom, render the student's Personal Table Space Decor & Desk Ownership Tags!
+    if (currentRoom == LobbyRoomId.classroom) {
+      _paintPersonalClassroomTableDecor(canvas);
+    }
+
     // 1. Render all room directional signposts (`floorSignpostsForRoom(currentRoom)`)
     for (final post in floorSignpostsForRoom(currentRoom)) {
       _drawFloorPlaque(
@@ -905,7 +990,7 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
       );
     }
 
-    // 2. Render glowing Campus Door Portals (`🚪`) & interactive Rest Spot indicators
+    // 2. Render glowing Campus Door Portals (`🚪`), Group Study Spaces (`📚💬`) & interactive Rest Spot indicators
     final allZones =
         buildActiveInteractiveZones(subjectChests, room: currentRoom);
     for (final z in allZones) {
@@ -924,7 +1009,8 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
       } else if (z.kind == InteractiveZoneKind.vendingMachine ||
           z.kind == InteractiveZoneKind.classroomPodium ||
           z.kind == InteractiveZoneKind.campusShop ||
-          z.kind == InteractiveZoneKind.radioBase) {
+          z.kind == InteractiveZoneKind.radioBase ||
+          z.kind == InteractiveZoneKind.studentLounge) {
         _drawSpecialStationIndicator(
           canvas,
           zone: z,
@@ -954,6 +1040,156 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
           ..strokeWidth = 2.2,
       );
     }
+  }
+
+  /// Renders the local student's custom Table Space decorations (`LobbyTableDecorConfig`)
+  /// on their Personal Classroom Table (`x: 480, y: 324`, chair `x: 544, y: 404`), plus
+  /// ownership plaques so every student knows which table is theirs!
+  void _paintPersonalClassroomTableDecor(Canvas canvas) {
+    final decor = LobbyDataService.instance.progress.tableDecor;
+    const deskRect = Rect.fromLTWH(488, 326, 112, 46);
+    const chairCenter = Offset(544, 404);
+
+    // 1. Custom Chair Cushion tint around the personal chair (`decor.chairPrimaryColor`)
+    final chairColor = decor.chairPrimaryColor;
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromCenter(center: chairCenter, width: 34, height: 26),
+        const Radius.circular(7),
+      ),
+      Paint()..color = chairColor.withValues(alpha: 0.78),
+    );
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromCenter(center: chairCenter, width: 34, height: 26),
+        const Radius.circular(7),
+      ),
+      Paint()
+        ..color = Colors.white.withValues(alpha: 0.65)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.4,
+    );
+
+    // 2. Desk Mat overlay on top of the student's personal desk (`decor.deskMatColor`)
+    final matColor = decor.deskMatColor;
+    if (matColor != null) {
+      final matRect = RRect.fromRectAndRadius(
+        Rect.fromCenter(center: deskRect.center, width: 90, height: 34),
+        const Radius.circular(5),
+      );
+      canvas.drawRRect(
+        matRect,
+        Paint()..color = matColor.withValues(alpha: 0.80),
+      );
+      canvas.drawRRect(
+        matRect,
+        Paint()
+          ..color = Colors.white.withValues(alpha: 0.55)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.2,
+      );
+    }
+
+    // 3. Mini Light (`fairy_warm`, `banker_brass`, `neon_strip`, `starlight_lantern`)
+    if (decor.miniLight != 'none') {
+      Color lightColor = const Color(0xFFFBBF24);
+      String lightIcon = '🪔';
+      if (decor.miniLight == 'fairy_warm') {
+        lightColor = const Color(0xFFFDE047);
+        lightIcon = '✨';
+      } else if (decor.miniLight == 'neon_strip') {
+        lightColor = const Color(0xFF06B6D4);
+        lightIcon = '🌈';
+      } else if (decor.miniLight == 'starlight_lantern') {
+        lightColor = const Color(0xFFC084FC);
+        lightIcon = '🏮';
+      }
+      final lampPos = Offset(deskRect.left + 18, deskRect.top + 15);
+      final glowShader = ui.Gradient.radial(
+        lampPos,
+        38,
+        [
+          lightColor.withValues(alpha: 0.50),
+          lightColor.withValues(alpha: 0.0),
+        ],
+      );
+      canvas.drawCircle(lampPos, 38, Paint()..shader = glowShader);
+      final tp = TextPainter(
+        text: TextSpan(text: lightIcon, style: const TextStyle(fontSize: 12)),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      tp.paint(canvas, Offset(lampPos.dx - tp.width / 2, lampPos.dy - tp.height / 2));
+    }
+
+    // 4. Desk Frame (`gold_cert`, `pixel_portrait`, `holo_plaque`)
+    if (decor.deskFrame != 'none') {
+      String frameIcon = '🖼️';
+      if (decor.deskFrame == 'gold_cert') frameIcon = '🏆';
+      if (decor.deskFrame == 'holo_plaque') frameIcon = '💠';
+      final framePos = Offset(deskRect.center.dx, deskRect.top + 13);
+      final tp = TextPainter(
+        text: TextSpan(text: frameIcon, style: const TextStyle(fontSize: 12)),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      tp.paint(
+          canvas, Offset(framePos.dx - tp.width / 2, framePos.dy - tp.height / 2));
+    }
+
+    // 5. Table Prop (`textbooks_stack`, `zen_bonsai`, `gaming_laptop`, `trophy_mug`)
+    if (decor.deskProp != 'none') {
+      String propIcon = '📚';
+      if (decor.deskProp == 'zen_bonsai') propIcon = '🪴';
+      if (decor.deskProp == 'gaming_laptop') propIcon = '💻';
+      if (decor.deskProp == 'trophy_mug') propIcon = '☕';
+      final propPos = Offset(deskRect.right - 18, deskRect.top + 15);
+      final tp = TextPainter(
+        text: TextSpan(text: propIcon, style: const TextStyle(fontSize: 12)),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      tp.paint(canvas, Offset(propPos.dx - tp.width / 2, propPos.dy - tp.height / 2));
+    }
+
+    // 6. Floating Ownership Badge above the player's Personal Classroom Table
+    final ownerLabel = playerName.trim().isEmpty
+        ? '📌 Your Personal Table'
+        : '📌 ${playerName.split(' ').first}\'s Table';
+    final tp = TextPainter(
+      text: TextSpan(
+        text: ownerLabel,
+        style: const TextStyle(
+          color: Color(0xFFFEF08A),
+          fontSize: 8.5,
+          fontWeight: FontWeight.w900,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    final badgeRect = RRect.fromRectAndRadius(
+      Rect.fromCenter(
+        center: Offset(deskRect.center.dx, deskRect.top - 10),
+        width: tp.width + 12,
+        height: tp.height + 5,
+      ),
+      const Radius.circular(8),
+    );
+    canvas.drawRRect(
+      badgeRect,
+      Paint()..color = const Color(0xFF0F172A).withValues(alpha: 0.90),
+    );
+    canvas.drawRRect(
+      badgeRect,
+      Paint()
+        ..color = const Color(0xFFF59E0B)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.4,
+    );
+    tp.paint(
+      canvas,
+      Offset(
+        badgeRect.center.dx - tp.width / 2,
+        badgeRect.center.dy - tp.height / 2,
+      ),
+    );
   }
 
   void _drawSpecialStationIndicator(
@@ -1393,8 +1629,12 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
   }
 
   /// Shared character sprite + rest pose renderer (recycled & expanded from `SeatManager.ts`).
-  /// Fixes Item #3: Sitting, Napping, and Sleeping elevate the character onto the furniture
-  /// cushion (`pos.dy - 10` to `pos.dy - 22`) with a sofa pillow & blanket instead of lying on the floor!
+  /// Phase 6 Fix:
+  /// - Sitting & Napping crop the standing lower legs (`srcHeight = 34.0`), lower the torso onto the
+  ///   seat cushion, render bent seated knees/shoes in front of the cushion, and draw a chair backrest
+  ///   bar when facing `up` at a desk so characters sit INSIDE the chair instead of standing on top of it!
+  /// - Sleeping crops the standing legs (`srcHeight = 32.0`), rests the head on a sofa pillow, and tucks
+  ///   the torso under a quilted pixel blanket with a folded sheet collar.
   void _drawCharacterWithRestState(
     Canvas canvas, {
     required ui.Image? sheet,
@@ -1411,10 +1651,10 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
           pos.dx,
           restState == PlayerRestState.sleeping
               ? pos.dy - 14
-              : (restState.isResting ? pos.dy - 4 : pos.dy + 4),
+              : (restState.isResting ? pos.dy - 2 : pos.dy + 4),
         ),
-        width: restState == PlayerRestState.sleeping ? 42 : 24,
-        height: restState == PlayerRestState.sleeping ? 12 : 9,
+        width: restState == PlayerRestState.sleeping ? 44 : 24,
+        height: restState == PlayerRestState.sleeping ? 13 : 9,
       ),
       Paint()
         ..color = Colors.black
@@ -1431,23 +1671,16 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
       isWalking: isWalking && !restState.isResting,
       stepFrame: stepFrame,
     );
-    final src = Rect.fromLTWH(
-      frameIdx * kCharFrameWidth,
-      0,
-      kCharFrameWidth,
-      kCharFrameHeight,
-    );
 
     if (restState == PlayerRestState.sleeping) {
-      // Elevate the sleeping character up onto the horizontal sofa/bench cushion (`pos.dy - 22`)
-      final cushionY = pos.dy - 22.0;
+      final cushionY = pos.dy - 18.0;
 
       // Cozy pixel pillow positioned on the sofa/bench armrest cushion under their head
       final pillowRect = RRect.fromRectAndRadius(
         Rect.fromCenter(
           center: Offset(pos.dx - 16, cushionY - 1),
-          width: 18,
-          height: 13,
+          width: 20,
+          height: 14,
         ),
         const Radius.circular(4),
       );
@@ -1457,40 +1690,60 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
         Paint()
           ..color = const Color(0xFF94A3B8)
           ..style = PaintingStyle.stroke
-          ..strokeWidth = 1.2,
+          ..strokeWidth = 1.3,
       );
 
-      // Rotate character sprite horizontally (-90 deg) elevated ON the sofa/bench cushion
+      // Crop standing legs: draw only head + upper torso (`srcHeight = 32.0`) rotated horizontally onto the pillow
+      const croppedHeight = 32.0;
+      final sleepSrc = Rect.fromLTWH(
+        frameIdx * kCharFrameWidth,
+        0,
+        kCharFrameWidth,
+        croppedHeight,
+      );
       canvas.save();
-      canvas.translate(pos.dx + 2, cushionY);
+      canvas.translate(pos.dx - 4, cushionY);
       canvas.rotate(-math.pi / 2);
       final dst = Rect.fromCenter(
         center: Offset.zero,
         width: kCharFrameWidth,
-        height: kCharFrameHeight,
+        height: croppedHeight,
       );
-      canvas.drawImageRect(sheet, src, dst, pixelPaint);
+      canvas.drawImageRect(sheet, sleepSrc, dst, pixelPaint);
       canvas.restore();
 
-      // Cozy pixel blanket draped over the sleeping student's torso on the sofa cushion
+      // Fitted quilted pixel blanket tucked over the sleeping student's body on the sofa cushion
       final blanketRect = RRect.fromRectAndRadius(
         Rect.fromCenter(
-          center: Offset(pos.dx + 9, cushionY + 2),
-          width: 24,
-          height: 14,
+          center: Offset(pos.dx + 8, cushionY + 1),
+          width: 28,
+          height: 16,
         ),
-        const Radius.circular(4),
+        const Radius.circular(5),
       );
       canvas.drawRRect(
         blanketRect,
-        Paint()..color = const Color(0xFF38BDF8).withValues(alpha: 0.82),
+        Paint()..color = const Color(0xFF38BDF8).withValues(alpha: 0.94),
       );
+      // Folded white sheet collar on the left edge of the blanket (near the neck)
       canvas.drawRRect(
-        blanketRect,
-        Paint()
-          ..color = const Color(0xFF0284C7)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 1.1,
+        RRect.fromRectAndRadius(
+          Rect.fromLTWH(
+              blanketRect.left, blanketRect.top, 6, blanketRect.height),
+          const Radius.circular(3),
+        ),
+        Paint()..color = const Color(0xFFF1F5F9),
+      );
+      // Blanket quilt stitch lines
+      final stitchPaint = Paint()
+        ..color = const Color(0xFF0284C7)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.2;
+      canvas.drawRRect(blanketRect, stitchPaint);
+      canvas.drawLine(
+        Offset(blanketRect.left + 14, blanketRect.top + 2),
+        Offset(blanketRect.left + 14, blanketRect.bottom - 2),
+        stitchPaint,
       );
 
       // Animated rising `💤 Zzz...` sleep particles
@@ -1508,23 +1761,91 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
       )..layout();
       zzzTp.paint(
         canvas,
-        Offset(pos.dx + 6, cushionY - 26 - floatOffset),
+        Offset(pos.dx + 4, cushionY - 26 - floatOffset),
       );
-    } else {
-      // Standing (`0px`), Sitting (`-10px` elevated onto chair/sofa seat cushion),
-      // or Napping (`-9px` elevated on seat cushion + gentle head-nod)
-      final seatLiftY = restState == PlayerRestState.sitting
-          ? -10.0
-          : (restState == PlayerRestState.napping
-              ? -9.0 + math.sin(animTick * 0.25) * 1.2
-              : 0.0);
-      final dst = Rect.fromLTWH(
-        pos.dx - kCharFrameWidth / 2,
-        pos.dy - kCharFrameHeight + 8 + seatLiftY,
+    } else if (restState == PlayerRestState.sitting ||
+        restState == PlayerRestState.napping) {
+      // Crop the standing lower legs (`srcHeight = 35.0` instead of `48.0`) so the student's hips
+      // rest directly on the chair/bench/sofa seat cushion (`pos.dy - 2`)!
+      final nodY = restState == PlayerRestState.napping
+          ? math.sin(animTick * 0.25) * 1.4
+          : 0.0;
+      const seatedCropHeight = 35.0;
+      final seatedSrc = Rect.fromLTWH(
+        frameIdx * kCharFrameWidth,
+        0,
         kCharFrameWidth,
-        kCharFrameHeight,
+        seatedCropHeight,
       );
-      canvas.drawImageRect(sheet, src, dst, pixelPaint);
+      final seatedDst = Rect.fromLTWH(
+        pos.dx - kCharFrameWidth / 2,
+        pos.dy - seatedCropHeight - 1.0 + nodY,
+        kCharFrameWidth,
+        seatedCropHeight,
+      );
+
+      // Draw bent seated knees & shoes in front of the cushion when facing down/left/right
+      if (facing != AvatarFacing.up) {
+        final pantPaint = Paint()..color = const Color(0xFF1E293B);
+        final shoePaint = Paint()..color = const Color(0xFF0F172A);
+        final kneeShiftX = facing == AvatarFacing.left
+            ? -3.0
+            : (facing == AvatarFacing.right ? 3.0 : 0.0);
+        // Left bent knee & shoe
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(
+            Rect.fromLTWH(pos.dx - 7 + kneeShiftX, pos.dy - 4, 5, 6),
+            const Radius.circular(1.5),
+          ),
+          pantPaint,
+        );
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(
+            Rect.fromLTWH(pos.dx - 7.5 + kneeShiftX, pos.dy + 1, 6, 3.5),
+            const Radius.circular(1.5),
+          ),
+          shoePaint,
+        );
+        // Right bent knee & shoe
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(
+            Rect.fromLTWH(pos.dx + 2 + kneeShiftX, pos.dy - 4, 5, 6),
+            const Radius.circular(1.5),
+          ),
+          pantPaint,
+        );
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(
+            Rect.fromLTWH(pos.dx + 1.5 + kneeShiftX, pos.dy + 1, 6, 3.5),
+            const Radius.circular(1.5),
+          ),
+          shoePaint,
+        );
+      }
+
+      // Draw upper body (head, torso, arms, hips) seated on the cushion
+      canvas.drawImageRect(sheet, seatedSrc, seatedDst, pixelPaint);
+
+      // When facing UP (at a Classroom desk chair or Canteen chair), draw the wooden chair backrest
+      // in front of the student's lower back so they appear tucked INSIDE the chair!
+      if (facing == AvatarFacing.up) {
+        final backRect = RRect.fromRectAndRadius(
+          Rect.fromCenter(
+            center: Offset(pos.dx, pos.dy - 5),
+            width: 22,
+            height: 8,
+          ),
+          const Radius.circular(2.5),
+        );
+        canvas.drawRRect(backRect, Paint()..color = const Color(0xFF92400E));
+        canvas.drawRRect(
+          backRect,
+          Paint()
+            ..color = const Color(0xFF451A03)
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 1.2,
+        );
+      }
 
       if (restState == PlayerRestState.napping) {
         final floatOffset = (animTick % 10) * 1.1;
@@ -1537,9 +1858,24 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
         )..layout();
         napTp.paint(
           canvas,
-          Offset(pos.dx + 12, pos.dy - 52 - floatOffset),
+          Offset(pos.dx + 12, pos.dy - 46 - floatOffset),
         );
       }
+    } else {
+      // Standing / Walking full sprite
+      final src = Rect.fromLTWH(
+        frameIdx * kCharFrameWidth,
+        0,
+        kCharFrameWidth,
+        kCharFrameHeight,
+      );
+      final dst = Rect.fromLTWH(
+        pos.dx - kCharFrameWidth / 2,
+        pos.dy - kCharFrameHeight + 8,
+        kCharFrameWidth,
+        kCharFrameHeight,
+      );
+      canvas.drawImageRect(sheet, src, dst, pixelPaint);
     }
   }
 
@@ -1670,7 +2006,8 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
     );
   }
 
-  /// Renders a Small Mystery Chest (`small_chest_1..8`).
+  /// Renders a `Parcha-ai/ai-office` AI Subject Mentor NPC (`small_chest_1..8`)
+  /// exclusively for the 3 official Portal subjects (`PKLP`, `PPG`, and `UCSP`)!
   void _drawSmallMysteryChest(
     Canvas canvas, {
     required InteractiveZone zone,
@@ -1679,92 +2016,91 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
   }) {
     final pos = zone.center;
     final isOnCooldown = remainingCooldownSec > 0;
-    final bob = math.sin((animTick + pos.dy) * 0.35) * 2.0;
+    final bob = math.sin((animTick + pos.dy) * 0.35) * 1.8;
+    final mentor = findAiSubjectMentor(zone.id);
+    final accentCol = Color(mentor?.accentColor ?? zone.accentColor);
+    final pixelPaint = Paint()..filterQuality = FilterQuality.none;
 
+    // 1. Glowing AI Mentor floor aura ring
     canvas.drawOval(
-      Rect.fromCenter(center: Offset(pos.dx, pos.dy + 4), width: 28, height: 10),
-      Paint()..color = Colors.black.withOpacity(0.38),
+      Rect.fromCenter(center: Offset(pos.dx, pos.dy + 4), width: 32, height: 12),
+      Paint()
+        ..color = isOnCooldown
+            ? const Color(0xFF475569).withValues(alpha: 0.45)
+            : accentCol.withValues(alpha: isHighlighted ? 0.55 : 0.32),
+    );
+    canvas.drawOval(
+      Rect.fromCenter(center: Offset(pos.dx, pos.dy + 4), width: 22, height: 8),
+      Paint()..color = Colors.black.withValues(alpha: 0.32),
     );
 
-    final boxRect =
-        Rect.fromCenter(center: Offset(pos.dx, pos.dy - 4), width: 24, height: 18);
+    // 2. Render AI Mentor Character Sprite Sheet (`assets.npcSheets[zone.id]`)
+    final sheet = assets.npcSheets[zone.id] ?? assets.npcSheets['npc_receptionist'];
+    if (sheet != null) {
+      final facing = ((animTick ~/ 18) % 2 == 0)
+          ? AvatarFacing.down
+          : ((pos.dx < playerPos.dx) ? AvatarFacing.right : AvatarFacing.left);
+      final frameIdx = computeCharacterFrameIndex(
+        facing: facing,
+        isWalking: !isOnCooldown && ((animTick ~/ 6) % 2 == 0),
+        stepFrame: (animTick ~/ 3) % kCharFramesPerDirection,
+      );
+      final src = Rect.fromLTWH(
+        frameIdx * kCharFrameWidth,
+        0,
+        kCharFrameWidth,
+        kCharFrameHeight,
+      );
+      final dst = Rect.fromLTWH(
+        pos.dx - kCharFrameWidth / 2,
+        pos.dy - kCharFrameHeight + 8,
+        kCharFrameWidth,
+        kCharFrameHeight,
+      );
+      canvas.drawImageRect(sheet, src, dst, pixelPaint);
+    }
 
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(boxRect.inflate(1.2), const Radius.circular(3)),
-      Paint()..color = const Color(0xFF1E1B18),
+    // 3. Floating Nameplate (`🤖 Guro Lakambini [PKLP AI Mentor]`)
+    final mentorName = mentor?.name ?? zone.label;
+    final mentorTag =
+        mentor != null ? '${mentor.subjectCode} AI Mentor' : 'AI Mentor';
+    _drawFloatingNameplate(
+      canvas,
+      anchor: Offset(pos.dx, pos.dy - 54),
+      name: mentorName,
+      roleTag: mentorTag,
+      isGoldTag: !isOnCooldown,
+      badgeIcon: '🤖',
     );
 
+    // 4. Rotating `Parcha-ai/ai-office` Study Thought Bubble when player is nearby
+    if (mentor != null &&
+        mentor.studyThoughts.isNotEmpty &&
+        (playerPos - pos).distance <= 240.0) {
+      final thoughtIdx = (animTick ~/ 28) % mentor.studyThoughts.length;
+      _drawCloudThoughtBubble(
+        canvas,
+        anchor: Offset(pos.dx, pos.dy - 88),
+        text: mentor.studyThoughts[thoughtIdx],
+        isHighlighted: isHighlighted,
+      );
+    }
+
+    // 5. Quest Status Pill (`❓ PKLP/PPG/UCSP Exam (+25 XP)` or `⏳ Cooldown`)
+    final badgeY = pos.dy - 70 + bob;
     if (isOnCooldown) {
-      final openLid =
-          Rect.fromLTWH(boxRect.left, boxRect.top - 6, boxRect.width, 8);
-      canvas.drawRRect(
-        RRect.fromRectAndRadius(openLid, const Radius.circular(2)),
-        Paint()..color = const Color(0xFF6B7280),
-      );
-      canvas.drawRect(
-        Rect.fromLTWH(boxRect.left + 2, boxRect.top, boxRect.width - 4, 7),
-        Paint()..color = const Color(0xFF111827),
-      );
-      canvas.drawRect(
-        Rect.fromLTWH(
-            boxRect.left, boxRect.top + 7, boxRect.width, boxRect.height - 7),
-        Paint()..color = const Color(0xFF78350F),
-      );
-
       final hours = remainingCooldownSec ~/ 3600;
       final mins = (remainingCooldownSec % 3600) ~/ 60;
       final secs = (remainingCooldownSec % 60).toString().padLeft(2, '0');
       final cooldownLabel =
-          hours > 0 ? '⏳ ${hours}h ${mins}m' : '⏳ $mins:$secs';
+          hours > 0 ? '⏳ Next Q: ${hours}h ${mins}m' : '⏳ $mins:$secs';
       final tp = TextPainter(
         text: TextSpan(
           text: cooldownLabel,
           style: const TextStyle(
             color: Color(0xFFCBD5E1),
-            fontSize: 8.5,
+            fontSize: 8.2,
             fontWeight: FontWeight.w800,
-          ),
-        ),
-        textDirection: TextDirection.ltr,
-      )..layout();
-      final pill = RRect.fromRectAndRadius(
-        Rect.fromCenter(
-          center: Offset(pos.dx, pos.dy - 24),
-          width: tp.width + 10,
-          height: tp.height + 4,
-        ),
-        const Radius.circular(6),
-      );
-      canvas.drawRRect(
-          pill, Paint()..color = const Color(0xFF0F172A).withOpacity(0.85));
-      tp.paint(
-        canvas,
-        Offset(pos.dx - tp.width / 2, pos.dy - 24 - tp.height / 2),
-      );
-    } else {
-      canvas.drawRRect(
-        RRect.fromRectAndRadius(boxRect, const Radius.circular(2.5)),
-        Paint()..color = const Color(0xFF6D28D9),
-      );
-      final gold = Paint()..color = const Color(0xFFFACC15);
-      canvas.drawRect(
-        Rect.fromLTWH(boxRect.left, boxRect.top + 7, boxRect.width, 2.5),
-        gold,
-      );
-      canvas.drawRect(
-        Rect.fromCenter(
-            center: Offset(pos.dx, boxRect.top + 8), width: 6, height: 6),
-        gold,
-      );
-
-      final badgeY = pos.dy - 25 + bob;
-      final tp = TextPainter(
-        text: const TextSpan(
-          text: '✨ ? QUIZ',
-          style: TextStyle(
-            color: Color(0xFFFDE047),
-            fontSize: 8.5,
-            fontWeight: FontWeight.w900,
           ),
         ),
         textDirection: TextDirection.ltr,
@@ -1775,20 +2111,47 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
           width: tp.width + 10,
           height: tp.height + 4,
         ),
+        const Radius.circular(6),
+      );
+      canvas.drawRRect(
+        pill,
+        Paint()..color = const Color(0xFF0F172A).withValues(alpha: 0.88),
+      );
+      tp.paint(
+        canvas,
+        Offset(pos.dx - tp.width / 2, badgeY - tp.height / 2),
+      );
+    } else {
+      final subjShort = mentor?.subjectCode ?? 'EXAM';
+      final tp = TextPainter(
+        text: TextSpan(
+          text: '❓ $subjShort EXAM (+25 XP)',
+          style: const TextStyle(
+            color: Color(0xFFFDE047),
+            fontSize: 8.2,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      final pill = RRect.fromRectAndRadius(
+        Rect.fromCenter(
+          center: Offset(pos.dx, badgeY),
+          width: tp.width + 12,
+          height: tp.height + 4,
+        ),
         const Radius.circular(99),
       );
       canvas.drawRRect(
         pill,
-        Paint()..color = const Color(0xFF3B0764).withOpacity(0.92),
+        Paint()..color = const Color(0xFF0F172A).withValues(alpha: 0.94),
       );
       canvas.drawRRect(
         pill,
         Paint()
-          ..color = isHighlighted
-              ? const Color(0xFFFDE047)
-              : const Color(0xFFA855F7)
+          ..color = isHighlighted ? const Color(0xFFFDE047) : accentCol
           ..style = PaintingStyle.stroke
-          ..strokeWidth = 1.3,
+          ..strokeWidth = 1.4,
       );
       tp.paint(
         canvas,

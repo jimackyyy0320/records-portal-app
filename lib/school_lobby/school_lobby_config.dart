@@ -103,15 +103,384 @@ extension LobbyRoomIdExt on LobbyRoomId {
       case LobbyRoomId.mainLobby:
         return kPlayerSpawnPoint;
       case LobbyRoomId.park:
-        return const Offset(1360, 544);
+        return const Offset(1180, 544);
       case LobbyRoomId.classroom:
-        return const Offset(768, 920);
+        return const Offset(768, 820);
       case LobbyRoomId.canteen:
-        return const Offset(768, 200);
+        return const Offset(768, 220);
       case LobbyRoomId.facultyRoom:
-        return const Offset(180, 544);
+        return const Offset(280, 544);
     }
   }
+
+  /// Compact playable room bounds (`Parcha-ai/ai-office` density) to eliminate empty dead space!
+  Rect get roomBounds {
+    switch (this) {
+      case LobbyRoomId.mainLobby:
+        return const Rect.fromLTWH(48, 48, 1440, 992);
+      case LobbyRoomId.park:
+        return const Rect.fromLTWH(160, 80, 1216, 848);
+      case LobbyRoomId.classroom:
+        return const Rect.fromLTWH(160, 80, 1216, 848);
+      case LobbyRoomId.canteen:
+        return const Rect.fromLTWH(128, 72, 1280, 864);
+      case LobbyRoomId.facultyRoom:
+        return const Rect.fromLTWH(160, 96, 1216, 784);
+    }
+  }
+}
+
+/// Autonomous AI Subject Teacher / Mentor NPC (`Parcha-ai/ai-office` architecture)
+/// strictly for the 3 official subjects available in the Portal:
+/// 1. `PKLP` — Pag-aaral ng Kasaysayan at Lipunang Pilipino
+/// 2. `PPG` — Philippine Politics and Governance
+/// 3. `UCSP` — Understanding Culture, Society and Politics
+class AiSubjectMentorNpc {
+  final String id; // Maps to 'small_chest_1'..'small_chest_8' for 24h cooldown & 2h patrol rotation
+  final String name;
+  final String subjectCode; // 'PKLP', 'PKLP TERM 2', 'PPG', or 'UCSP'
+  final String subjectFullTitle;
+  final String roleBadge;
+  final String presetName;
+  final LobbyRoomId primaryRoom;
+  final Offset stationPos;
+  final List<Offset> patrolWaypoints;
+  final int accentColor;
+  final String greetingPrompt;
+  final List<String> studyThoughts;
+
+  const AiSubjectMentorNpc({
+    required this.id,
+    required this.name,
+    required this.subjectCode,
+    required this.subjectFullTitle,
+    required this.roleBadge,
+    required this.presetName,
+    required this.primaryRoom,
+    required this.stationPos,
+    required this.patrolWaypoints,
+    required this.accentColor,
+    required this.greetingPrompt,
+    required this.studyThoughts,
+  });
+}
+
+/// The 8 Autonomous AI Subject Mentors (strictly for PKLP, PPG, and UCSP)
+/// replacing static mystery chests across the campus rooms.
+const List<AiSubjectMentorNpc> kAiSubjectMentors = [
+  AiSubjectMentorNpc(
+    id: 'small_chest_1',
+    name: 'Guro Lakambini (PKLP Mentor)',
+    subjectCode: 'PKLP TERM 2',
+    subjectFullTitle: 'Pag-aaral ng Kasaysayan at Lipunang Pilipino (PKLP)',
+    roleBadge: '🤖 PKLP AI Mentor 📜',
+    presetName: 'Amelia',
+    primaryRoom: LobbyRoomId.mainLobby,
+    stationPos: Offset(280, 340),
+    patrolWaypoints: [Offset(280, 340), Offset(420, 340), Offset(350, 420)],
+    accentColor: 0xFFF97316,
+    greetingPrompt:
+        'Magandang araw! Ako si Guro Lakambini, ang inyong AI Mentor sa PKLP (Pag-aaral ng Kasaysayan at Lipunang Pilipino). Handa ka na ba sa ating pagsusulit?',
+    studyThoughts: [
+      '💭 [PKLP] Ang kasaysayan ay salamin ng ating lipunan at pagkakakilanlan! 📜',
+      '💭 [PKLP] Naalala mo ba ang epekto ng Polo y Servicio at kilusang Suffrage noong 1937?',
+      '💭 Lumapit sa akin para sa PKLP Exam Question (+25 XP)! ✨',
+    ],
+  ),
+  AiSubjectMentorNpc(
+    id: 'small_chest_2',
+    name: 'Atty. Laurel (PPG Mentor)',
+    subjectCode: 'PPG',
+    subjectFullTitle: 'Philippine Politics and Governance (PPG)',
+    roleBadge: '🤖 PPG AI Mentor ⚖️',
+    presetName: 'Adam',
+    primaryRoom: LobbyRoomId.mainLobby,
+    stationPos: Offset(640, 390),
+    patrolWaypoints: [Offset(640, 390), Offset(640, 470), Offset(560, 430)],
+    accentColor: 0xFFF59E0B,
+    greetingPrompt:
+        'Good day, future leader! I am Atty. Laurel, your AI Mentor for PPG (Philippine Politics and Governance). Let us test your mastery of Power, State, and Governance!',
+    studyThoughts: [
+      '💭 [PPG] Politics is "who gets what, when, and how" — Harold Lasswell ⚖️',
+      '💭 [PPG] Do you know the 4 elements of a State: People, Territory, Government & Sovereignty?',
+      '💭 Talk to me for a live PPG Exam Challenge (+25 XP)! 🏛️',
+    ],
+  ),
+  AiSubjectMentorNpc(
+    id: 'small_chest_3',
+    name: 'Dr. Jocano (UCSP Mentor)',
+    subjectCode: 'UCSP',
+    subjectFullTitle: 'Understanding Culture, Society and Politics (UCSP)',
+    roleBadge: '🤖 UCSP AI Mentor 🏛️',
+    presetName: 'Bob',
+    primaryRoom: LobbyRoomId.mainLobby,
+    stationPos: Offset(1040, 360),
+    patrolWaypoints: [Offset(1040, 360), Offset(1160, 360), Offset(1100, 430)],
+    accentColor: 0xFF10B981,
+    greetingPrompt:
+        'Welcome, young social scientist! I am Dr. Jocano, your AI Mentor for UCSP (Understanding Culture, Society and Politics). Ready to analyze culture and society?',
+    studyThoughts: [
+      '💭 [UCSP] Cultural Relativism helps us understand cultures from their own context! 🌍',
+      '💭 [UCSP] Anthropology, Sociology & Political Science form the core of UCSP!',
+      '💭 Approach me for your daily UCSP Exam Question (+25 XP)! 🎓',
+    ],
+  ),
+  AiSubjectMentorNpc(
+    id: 'small_chest_4',
+    name: 'Prop. Bonifacio (PKLP Mentor)',
+    subjectCode: 'PKLP TERM 2',
+    subjectFullTitle: 'Pag-aaral ng Kasaysayan at Lipunang Pilipino (PKLP)',
+    roleBadge: '🤖 PKLP AI Mentor 📜',
+    presetName: 'Ash',
+    primaryRoom: LobbyRoomId.park,
+    stationPos: Offset(580, 490),
+    patrolWaypoints: [Offset(580, 490), Offset(660, 390), Offset(520, 540)],
+    accentColor: 0xFFF97316,
+    greetingPrompt:
+        'Mabuhay! Ako si Prop. Bonifacio, AI Mentor sa PKLP. Dito sa Campus Park, balikan natin ang pakikibaka at kamalayang panlipunan ng mga Pilipino!',
+    studyThoughts: [
+      '💭 [PKLP] Ang pakikibaka ay isinasagawa rin sa panulat, sining, at edukasyon! ✍️',
+      '💭 [PKLP] Alam mo ba ang kaibahan ng Repormista at Rebolusyonaryo?',
+      '💭 Kausapin ako para sa PKLP Park Quiz Challenge (+25 XP)! 🌳',
+    ],
+  ),
+  AiSubjectMentorNpc(
+    id: 'small_chest_5',
+    name: 'Prof. Randolf (UCSP Mentor)',
+    subjectCode: 'UCSP',
+    subjectFullTitle: 'Understanding Culture, Society and Politics (UCSP)',
+    roleBadge: '🤖 UCSP AI Mentor 🏛️',
+    presetName: 'Alex',
+    primaryRoom: LobbyRoomId.park,
+    stationPos: Offset(940, 490),
+    patrolWaypoints: [Offset(940, 490), Offset(880, 390), Offset(1010, 540)],
+    accentColor: 0xFF10B981,
+    greetingPrompt:
+        'Hello there! I am Prof. Randolf, UCSP AI Mentor. While enjoying the park breeze, let us review Enculturation, Socialization, and Social Groups!',
+    studyThoughts: [
+      '💭 [UCSP] Symbols, Language, Norms, and Values are key elements of Culture! 🏛️',
+      '💭 [UCSP] Why is Ethnocentrism a barrier to cultural understanding?',
+      '💭 Tap Interact to take my UCSP Exam Question (+25 XP)! ✨',
+    ],
+  ),
+  AiSubjectMentorNpc(
+    id: 'small_chest_6',
+    name: 'Sen. Tañada (PPG Mentor)',
+    subjectCode: 'PPG',
+    subjectFullTitle: 'Philippine Politics and Governance (PPG)',
+    roleBadge: '🤖 PPG AI Mentor ⚖️',
+    presetName: 'Jenny',
+    primaryRoom: LobbyRoomId.classroom,
+    stationPos: Offset(768, 340),
+    patrolWaypoints: [Offset(768, 340), Offset(768, 490), Offset(768, 640)],
+    accentColor: 0xFFF59E0B,
+    greetingPrompt:
+        'Class is in session! I am Sen. Tañada, your Classroom AI Mentor for PPG (Philippine Politics and Governance). Ready for a constitutional recitation question?',
+    studyThoughts: [
+      '💭 [PPG] Separation of Powers & Checks and Balances protect democracy! ⚖️',
+      '💭 [PPG] Legislative makes laws, Executive enforces laws, Judicial interprets laws!',
+      '💭 Challenge me in the Classroom for +25 PPG XP! 🏫',
+    ],
+  ),
+  AiSubjectMentorNpc(
+    id: 'small_chest_7',
+    name: 'Gat Mabini (PKLP Mentor)',
+    subjectCode: 'PKLP TERM 2',
+    subjectFullTitle: 'Pag-aaral ng Kasaysayan at Lipunang Pilipino (PKLP)',
+    roleBadge: '🤖 PKLP AI Mentor 📜',
+    presetName: 'Molly',
+    primaryRoom: LobbyRoomId.canteen,
+    stationPos: Offset(768, 340),
+    patrolWaypoints: [Offset(768, 340), Offset(768, 480), Offset(680, 340)],
+    accentColor: 0xFFF97316,
+    greetingPrompt:
+        'Kumusta, mag-aaral! Ako si Gat Mabini, AI Mentor sa PKLP dito sa Canteen. Habang nagmemerienda, subukin natin ang iyong talas sa Kasaysayan at Lipunang Pilipino!',
+    studyThoughts: [
+      '💭 [PKLP] Ano ang epekto ng Neokolonyalismo sa kamalayan at ekonomiya ng bansa? 📜',
+      '💭 [PKLP] Sina Pura Villanueva Kalaw ay nanguna sa kilusang Suffrage!',
+      '💭 Mag-aral ng PKLP habang nasa Canteen (+25 XP)! 🍱',
+    ],
+  ),
+  AiSubjectMentorNpc(
+    id: 'small_chest_8',
+    name: 'Dr. Miriam (PPG & UCSP Mentor)',
+    subjectCode: 'PPG',
+    subjectFullTitle: 'Philippine Politics and Governance (PPG) & UCSP',
+    roleBadge: '🤖 PPG & UCSP AI Mentor ⚖️',
+    presetName: 'Lucy',
+    primaryRoom: LobbyRoomId.facultyRoom,
+    stationPos: Offset(580, 480),
+    patrolWaypoints: [Offset(580, 480), Offset(768, 480), Offset(920, 480)],
+    accentColor: 0xFFA855F7,
+    greetingPrompt:
+        'Welcome to the Faculty Consultation Room! I am Dr. Miriam, AI Mentor for PPG & UCSP. Let us sharpen your analytical thinking with an official exam question!',
+    studyThoughts: [
+      '💭 [PPG & UCSP] Legitimacy + Authority = Stable Democratic Governance! 🎓',
+      '💭 [UCSP] Material vs. Non-Material Culture shapes every institution.',
+      '💭 Consult with me for a Faculty AI Exam Question (+25 XP)! ⚡',
+    ],
+  ),
+];
+
+AiSubjectMentorNpc? findAiMentorById(String id) {
+  for (final m in kAiSubjectMentors) {
+    if (m.id == id) return m;
+  }
+  return null;
+}
+
+List<AiSubjectMentorNpc> aiMentorsForRoom(LobbyRoomId room) {
+  return kAiSubjectMentors.where((m) => m.primaryRoom == room).toList();
+}
+
+/// Group Study & Chat Space (`📚💬`) placed in every room where multiple students
+/// can sit together around a shared table and chat via Thought Bubbles!
+class LobbyGroupStudySpace {
+  final String id;
+  final String title;
+  final String subtitle;
+  final LobbyRoomId room;
+  final Offset center;
+  final List<String> seatSpotIds;
+  final int accentColor;
+
+  const LobbyGroupStudySpace({
+    required this.id,
+    required this.title,
+    required this.subtitle,
+    required this.room,
+    required this.center,
+    required this.seatSpotIds,
+    required this.accentColor,
+  });
+}
+
+const List<LobbyGroupStudySpace> kGroupStudySpaces = [
+  LobbyGroupStudySpace(
+    id: 'group_study_main_lobby',
+    title: '📚💬 Main Lobby Group Study & Chat Hub',
+    subtitle: 'Sit with classmates around the Commons Table to discuss PKLP, PPG & UCSP!',
+    room: LobbyRoomId.mainLobby,
+    center: Offset(384, 610),
+    seatSpotIds: [
+      'rest_lobby_chair_1',
+      'rest_lobby_chair_2',
+      'rest_lobby_sofa_1',
+      'rest_lobby_sofa_2',
+    ],
+    accentColor: 0xFF10B981,
+  ),
+  LobbyGroupStudySpace(
+    id: 'group_study_park',
+    title: '🌳💬 Park Outdoor Group Study Circle',
+    subtitle: 'Sit on the shaded park benches & picnic rugs to study and chat with friends!',
+    room: LobbyRoomId.park,
+    center: Offset(420, 690),
+    seatSpotIds: [
+      'rest_park_picnic_1',
+      'rest_park_bench_1',
+      'rest_park_bench_3',
+      'rest_park_picnic_2',
+    ],
+    accentColor: 0xFF10B981,
+  ),
+  LobbyGroupStudySpace(
+    id: 'group_study_classroom',
+    title: '🏫💬 Classroom Collaborative Group Study Table',
+    subtitle: 'Sit together at the Back-Row Group Study Lounge to review PKLP, PPG & UCSP!',
+    room: LobbyRoomId.classroom,
+    center: Offset(1150, 815),
+    seatSpotIds: [
+      'rest_classroom_back_nap',
+      'rest_classroom_group_chair_1',
+      'rest_classroom_group_chair_2',
+    ],
+    accentColor: 0xFFF59E0B,
+  ),
+  LobbyGroupStudySpace(
+    id: 'group_study_canteen',
+    title: '🍱💬 Canteen Group Study & Merienda Booth',
+    subtitle: 'Grab a drink, sit around the Canteen Group Table, and chat with classmates!',
+    room: LobbyRoomId.canteen,
+    center: Offset(580, 440),
+    seatSpotIds: [
+      'rest_canteen_table_2',
+      'rest_canteen_table_1',
+      'rest_canteen_table_3',
+      'rest_canteen_booth_nap',
+    ],
+    accentColor: 0xFFF97316,
+  ),
+  LobbyGroupStudySpace(
+    id: 'group_study_faculty',
+    title: '🎓💬 Faculty Room Peer Study & Advisory Table',
+    subtitle: 'Sit at the Faculty Seminar Lounge for group consultation and peer review!',
+    room: LobbyRoomId.facultyRoom,
+    center: Offset(1164, 730),
+    seatSpotIds: [
+      'rest_faculty_lounge_sofa',
+      'rest_faculty_consult_1',
+    ],
+    accentColor: 0xFFA855F7,
+  ),
+];
+
+LobbyGroupStudySpace groupStudySpaceForRoom(LobbyRoomId room) {
+  return kGroupStudySpaces.firstWhere(
+    (g) => g.room == room,
+    orElse: () => kGroupStudySpaces.first,
+  );
+}
+
+/// Ordered list of personal Classroom Student Desk RestSpot IDs (`Row 1` & `Row 2`).
+const List<String> kClassroomPersonalDeskSpotIds = <String>[
+  'rest_classroom_r1_c2', // Desk #1 (Front Center-Left — Primary Player Personal Table)
+  'rest_classroom_r1_c3', // Desk #2 (Front Center-Right)
+  'rest_classroom_r1_c1', // Desk #3 (Front West)
+  'rest_classroom_r1_c4', // Desk #4 (Front East)
+  'rest_classroom_r2_c1', // Desk #5 (Row 2 West)
+  'rest_classroom_r2_c2', // Desk #6 (Row 2 Center-Left)
+  'rest_classroom_r2_c3', // Desk #7 (Row 2 Center-Right)
+  'rest_classroom_r2_c4', // Desk #8 (Row 2 East)
+];
+
+/// Returns true if [spotId] is one of the 8 personal student desks in the Classroom.
+bool isPersonalClassroomDeskSpot(String spotId) {
+  return kClassroomPersonalDeskSpotIds.contains(spotId);
+}
+
+/// Deterministically assigns a personal Classroom Desk (`rest_classroom_r1_c2` for the primary local student,
+/// or hashed by `studentId` for remote classmates) and enforces that ONLY that student can sit on their table!
+String assignedClassroomDeskSpotIdForStudent(
+  String studentId, {
+  bool isLocalPrimaryStudent = true,
+}) {
+  if (isLocalPrimaryStudent) {
+    return 'rest_classroom_r1_c2';
+  }
+  final clean = studentId.trim();
+  if (clean.isEmpty) return 'rest_classroom_r1_c3';
+  final hash = clean.codeUnits.fold<int>(0, (a, b) => a * 31 + b).abs();
+  // Assign remote classmates to desks 1..7 so they don't collide with the local student's front desk
+  final idx = 1 + (hash % (kClassroomPersonalDeskSpotIds.length - 1));
+  return kClassroomPersonalDeskSpotIds[idx];
+}
+
+/// Checks if a student is allowed to sit on [spotId].
+/// In the Classroom, each personal student desk is locked to its assigned student owner!
+bool canStudentSitAtSpot({
+  required String spotId,
+  required String studentId,
+  required bool isFaculty,
+  bool isLocalPrimaryStudent = true,
+}) {
+  if (isFaculty) return true;
+  if (!isPersonalClassroomDeskSpot(spotId)) return true;
+  final myDeskId = assignedClassroomDeskSpotIdForStudent(
+    studentId,
+    isLocalPrimaryStudent: isLocalPrimaryStudent,
+  );
+  return spotId == myDeskId;
 }
 
 /// Student Rest States recycled & expanded from TinyFloor `SeatManager.ts`:
@@ -662,250 +1031,296 @@ const List<InteractiveZone> INTERACTIVE_ZONES = [
   InteractiveZone(
     id: 'door_to_park',
     label: '🌳 Door to Campus Park',
-    subtitle: 'Follow the cobblestone trail to the Park trees, pond & picnic lawns',
+    subtitle: 'Follow the Pokémon garden trail to the Park trees, pond & PKLP/UCSP Mentors',
     kind: InteractiveZoneKind.doorPortal,
     room: LobbyRoomId.mainLobby,
-    x: 68,
+    x: 84,
     y: 544,
-    radius: 78,
+    radius: 96,
     accentColor: 0xFF10B981,
     targetRoom: LobbyRoomId.park,
-    targetSpawn: Offset(1360, 544),
+    targetSpawn: Offset(1180, 544),
   ),
   InteractiveZone(
     id: 'door_to_classroom',
     label: '🏫 Door to SHS Class Room',
-    subtitle: 'Enter the Class Room with Teacher Podium & 12 student desks',
+    subtitle: 'Enter the Class Room with your Personal Student Desk, Podium & PPG Mentor',
     kind: InteractiveZoneKind.doorPortal,
     room: LobbyRoomId.mainLobby,
     x: 520,
     y: 108,
-    radius: 78,
+    radius: 96,
     accentColor: 0xFFF59E0B,
     targetRoom: LobbyRoomId.classroom,
-    targetSpawn: Offset(768, 920),
+    targetSpawn: Offset(768, 820),
   ),
   InteractiveZone(
     id: 'door_to_canteen',
     label: '🍱 Door to Student Canteen',
-    subtitle: 'Visit the Canteen vending machines, coffee counter & dining tables',
+    subtitle: 'Visit the Canteen Barista, Vending Machines, Group Study Booths & PKLP Mentor',
     kind: InteractiveZoneKind.doorPortal,
     room: LobbyRoomId.mainLobby,
     x: 768,
-    y: 1030,
-    radius: 82,
+    y: 996,
+    radius: 96,
     accentColor: 0xFFF97316,
     targetRoom: LobbyRoomId.canteen,
-    targetSpawn: Offset(768, 200),
+    targetSpawn: Offset(768, 220),
   ),
   InteractiveZone(
     id: 'door_to_faculty_room',
     label: '🎓 Door to Faculty Room',
-    subtitle: 'Enter the Faculty Consultation Room, bookshelves & lounge sofas',
+    subtitle: 'Enter the Faculty Consultation Room, Group Study Lounge & PPG/UCSP Mentor',
     kind: InteractiveZoneKind.doorPortal,
     room: LobbyRoomId.mainLobby,
-    x: 1468,
+    x: 1440,
     y: 340,
-    radius: 78,
+    radius: 96,
     accentColor: 0xFFA855F7,
     targetRoom: LobbyRoomId.facultyRoom,
-    targetSpawn: Offset(180, 544),
+    targetSpawn: Offset(280, 544),
   ),
 
-  // ── 5 DISTINCT MAIN LOBBY ZONES ──
+  // ── MAIN LOBBY STATIONS (Generous 105-115px Reach) ──
   // 1. School Bulletin Board Wall (Top-Left Wing)
   InteractiveZone(
     id: 'bulletin_board',
-    label: '📌 School Bulletin Board Wall',
+    label: '📌 School Bulletin Board & Bookcase',
     subtitle: 'View school notices, academic calendar & honor roll tips',
     kind: InteractiveZoneKind.bulletinBoard,
     room: LobbyRoomId.mainLobby,
     x: 268,
     y: 175,
-    radius: 95,
+    radius: 110,
     accentColor: 0xFF38BDF8,
   ),
   // 2. Reception / Quest Counter (Top-Center Grand Hall)
   InteractiveZone(
     id: 'quest_counter',
-    label: '⚔️ Reception & Quest Counter',
+    label: '⚔️ Reception & Quest Counter (Aiko)',
     subtitle: 'Talk to Lobbyist Aiko • Launch Activity Links & Mark as Done (+XP)',
     kind: InteractiveZoneKind.questCounter,
     room: LobbyRoomId.mainLobby,
     x: 768,
     y: 215,
-    radius: 95,
+    radius: 110,
     accentColor: 0xFFF59E0B,
   ),
-  // 2b. Campus Radio Base (Powered by Radio Garden — 1-Hour Channel Lock)
+  // 2b. Campus Radio Base (DJ Rico — Powered by Radio Garden — 1-Hour Channel Lock)
   InteractiveZone(
     id: 'campus_radio_base',
-    label: '📻 Campus Radio Base (Radio Garden)',
+    label: '📻 Campus Radio Base (DJ Rico)',
     subtitle: 'Tune live Radio Garden stations for the campus (1-hour channel lock)',
     kind: InteractiveZoneKind.radioBase,
     room: LobbyRoomId.mainLobby,
     x: 604,
     y: 222,
-    radius: 78,
+    radius: 102,
     accentColor: 0xFF10B981,
   ),
-  // 2c. Campus Cosmetics Shop (Exchange Earned XP for Outfits & Accessories)
+  // 2c. Campus Cosmetics & Table Decor Shop (Shopkeeper Mina)
   InteractiveZone(
     id: 'campus_shop_kiosk',
-    label: '🛍️ Campus Cosmetics Shop',
-    subtitle: 'Exchange earned XP for outfits, hairstyles, glasses, hats, bags & presets!',
+    label: '🛍️ Campus Shop (Shopkeeper Mina)',
+    subtitle: 'Buy Classroom Table Decor (Mini Lights, Frames, Chairs) & Outfits with XP!',
     kind: InteractiveZoneKind.campusShop,
     room: LobbyRoomId.mainLobby,
     x: 932,
     y: 222,
-    radius: 78,
+    radius: 102,
     accentColor: 0xFFF59E0B,
   ),
   // 3. Teacher's Corner (Top-Right Wing)
   InteractiveZone(
     id: 'teacher_corner',
-    label: "🎓 Teacher's Corner",
+    label: "🎓 Teacher's Corner & Water Cooler",
     subtitle: 'Faculty advisory desk • Manage Reviewer Links & Activity Links',
     kind: InteractiveZoneKind.teacherCorner,
     room: LobbyRoomId.mainLobby,
     x: 1248,
     y: 210,
-    radius: 100,
+    radius: 110,
     accentColor: 0xFFFACC15,
   ),
-  // 4. Student Lounge & Study Tables (Bottom-Left & Center Wing)
+  // 4. Main Lobby Group Study & Chat Hub (West Commons)
   InteractiveZone(
     id: 'student_lounge',
-    label: '🛋️ Student Lounge & Study Tables',
-    subtitle: 'Sit, nap, sleep on sofas or chat via Thought Bubbles',
+    label: '📚💬 Main Lobby Group Study & Chat Space',
+    subtitle: 'Sit with classmates around the Commons Table to chat & study PKLP, PPG & UCSP!',
     kind: InteractiveZoneKind.studentLounge,
     room: LobbyRoomId.mainLobby,
-    x: 416,
-    y: 672,
-    radius: 95,
+    x: 384,
+    y: 610,
+    radius: 115,
     accentColor: 0xFF10B981,
   ),
-  // 5. Reviewer Treasure Corner (Expanded Bottom-Right Sanctuary)
+  // 4b. Main Lobby Refreshment Vending Machine
+  InteractiveZone(
+    id: 'lobby_vending_corner',
+    label: '🥤 Lobby Refreshment Vending Machine',
+    subtitle: 'Grab a quick energy drink or study snack right in the Main Lobby!',
+    kind: InteractiveZoneKind.vendingMachine,
+    room: LobbyRoomId.mainLobby,
+    x: 96,
+    y: 770,
+    radius: 105,
+    accentColor: 0xFF0EA5E9,
+  ),
+  // 5. Reviewer Treasure Corner (Bottom-Right Sanctuary)
   InteractiveZone(
     id: 'reviewer_treasure_area',
-    label: '💎 Reviewer Treasure Corner',
+    label: '💎 Reviewer Treasure Vault & Bookshelves',
     subtitle: 'Walk up to your enrolled Subject Chests to open Reviewer Links (+XP)',
     kind: InteractiveZoneKind.reviewerTreasureArea,
     room: LobbyRoomId.mainLobby,
     x: 1168,
     y: 620,
-    radius: 78,
+    radius: 105,
     accentColor: 0xFFA855F7,
   ),
 
-  // ── 8 SMALL MYSTERY CHESTS (MINI QUIZ CHESTS) ACROSS THE EXPANDED MAP ──
+  // ── 8 AI SUBJECT MENTOR NPCs (PKLP, PPG & UCSP EXAM CHALLENGES) ──
   InteractiveZone(
     id: 'small_chest_1',
-    label: '✨ Mystery Quiz Chest #1',
-    subtitle: 'Answer 1 enrolled-subject pop-quiz question for +25 XP!',
+    label: '🤖📜 Guro Lakambini (PKLP AI Mentor)',
+    subtitle: 'Pag-aaral ng Kasaysayan at Lipunang Pilipino Exam Question (+25 XP)!',
     kind: InteractiveZoneKind.smallMysteryChest,
     room: LobbyRoomId.mainLobby,
-    x: 128,
-    y: 352,
-    radius: 64,
-    accentColor: 0xFFEC4899,
+    x: 280,
+    y: 340,
+    radius: 96,
+    accentColor: 0xFFF97316,
   ),
   InteractiveZone(
     id: 'small_chest_2',
-    label: '✨ Mystery Quiz Chest #2',
-    subtitle: 'Answer 1 enrolled-subject pop-quiz question for +25 XP!',
+    label: '🤖⚖️ Atty. Laurel (PPG AI Mentor)',
+    subtitle: 'Philippine Politics and Governance Exam Question (+25 XP)!',
     kind: InteractiveZoneKind.smallMysteryChest,
     room: LobbyRoomId.mainLobby,
     x: 640,
-    y: 448,
-    radius: 64,
-    accentColor: 0xFFEC4899,
+    y: 390,
+    radius: 96,
+    accentColor: 0xFFF59E0B,
   ),
   InteractiveZone(
     id: 'small_chest_3',
-    label: '✨ Mystery Quiz Chest #3',
-    subtitle: 'Answer 1 enrolled-subject pop-quiz question for +25 XP!',
+    label: '🤖🏛️ Dr. Jocano (UCSP AI Mentor)',
+    subtitle: 'Understanding Culture, Society and Politics Exam Question (+25 XP)!',
     kind: InteractiveZoneKind.smallMysteryChest,
     room: LobbyRoomId.mainLobby,
-    x: 1408,
-    y: 416,
-    radius: 64,
-    accentColor: 0xFFEC4899,
+    x: 1040,
+    y: 360,
+    radius: 96,
+    accentColor: 0xFF10B981,
   ),
   InteractiveZone(
     id: 'small_chest_4',
-    label: '✨ Mystery Quiz Chest #4',
-    subtitle: 'Answer 1 enrolled-subject pop-quiz question for +25 XP!',
+    label: '🤖📜 Prop. Bonifacio (PKLP AI Mentor)',
+    subtitle: 'Pag-aaral ng Kasaysayan at Lipunang Pilipino Exam Question (+25 XP)!',
     kind: InteractiveZoneKind.smallMysteryChest,
     room: LobbyRoomId.mainLobby,
     x: 560,
-    y: 944,
-    radius: 64,
-    accentColor: 0xFFEC4899,
+    y: 860,
+    radius: 96,
+    accentColor: 0xFFF97316,
   ),
   InteractiveZone(
     id: 'small_chest_5',
-    label: '✨ Mystery Quiz Chest #5',
-    subtitle: 'Answer 1 enrolled-subject pop-quiz question for +25 XP!',
+    label: '🤖🏛️ Prof. Randolf (UCSP AI Mentor)',
+    subtitle: 'Understanding Culture, Society and Politics Exam Question (+25 XP)!',
     kind: InteractiveZoneKind.smallMysteryChest,
     room: LobbyRoomId.mainLobby,
-    x: 144,
-    y: 944,
-    radius: 64,
-    accentColor: 0xFFEC4899,
+    x: 220,
+    y: 840,
+    radius: 96,
+    accentColor: 0xFF10B981,
   ),
   InteractiveZone(
     id: 'small_chest_6',
-    label: '✨ Mystery Quiz Chest #6',
-    subtitle: 'Answer 1 enrolled-subject pop-quiz question for +25 XP!',
+    label: '🤖⚖️ Sen. Tañada (PPG AI Mentor)',
+    subtitle: 'Philippine Politics and Governance Exam Question (+25 XP)!',
     kind: InteractiveZoneKind.smallMysteryChest,
     room: LobbyRoomId.mainLobby,
     x: 928,
     y: 368,
-    radius: 64,
-    accentColor: 0xFFEC4899,
+    radius: 96,
+    accentColor: 0xFFF59E0B,
   ),
   InteractiveZone(
     id: 'small_chest_7',
-    label: '✨ Mystery Quiz Chest #7',
-    subtitle: 'Answer 1 enrolled-subject pop-quiz question for +25 XP!',
+    label: '🤖📜 Gat Mabini (PKLP AI Mentor)',
+    subtitle: 'Pag-aaral ng Kasaysayan at Lipunang Pilipino Exam Question (+25 XP)!',
     kind: InteractiveZoneKind.smallMysteryChest,
     room: LobbyRoomId.mainLobby,
     x: 848,
-    y: 944,
-    radius: 64,
-    accentColor: 0xFFEC4899,
+    y: 860,
+    radius: 96,
+    accentColor: 0xFFF97316,
   ),
   InteractiveZone(
     id: 'small_chest_8',
-    label: '✨ Mystery Quiz Chest #8',
-    subtitle: 'Answer 1 enrolled-subject pop-quiz question for +25 XP!',
+    label: '🤖⚖️ Dr. Miriam (PPG & UCSP AI Mentor)',
+    subtitle: 'PPG & UCSP Exam Readiness Challenge (+25 XP)!',
     kind: InteractiveZoneKind.smallMysteryChest,
     room: LobbyRoomId.mainLobby,
-    x: 1424,
-    y: 944,
-    radius: 64,
-    accentColor: 0xFFEC4899,
+    x: 1320,
+    y: 420,
+    radius: 96,
+    accentColor: 0xFFA855F7,
   ),
 ];
 
-/// Return doors + interactive stations inside the 4 sub-rooms (`Park`, `Class Room`, `Canteen`, `Faculty Room`).
+/// Return doors + interactive stations + Group Study Spaces + AI Mentors inside the 4 sub-rooms.
 const List<InteractiveZone> kSubRoomDoorZones = [
-  // Park -> Main Lobby (East Gate)
+  // ── PARK ZONES ──
   InteractiveZone(
     id: 'park_door_to_lobby',
     label: '🏛️ Gate Back to Main School Lobby',
     subtitle: 'Return to the Main School Lobby crossroads',
     kind: InteractiveZoneKind.doorPortal,
     room: LobbyRoomId.park,
-    x: 1456,
+    x: 1320,
     y: 544,
-    radius: 84,
+    radius: 98,
     accentColor: 0xFF38BDF8,
     targetRoom: LobbyRoomId.mainLobby,
     targetSpawn: Offset(140, 544),
   ),
-  // Classroom -> Main Lobby (South Door)
+  InteractiveZone(
+    id: 'group_study_park',
+    label: '🌳💬 Park Outdoor Group Study & Chat Space',
+    subtitle: 'Sit on the garden benches & picnic rugs to study PKLP, PPG & UCSP with friends!',
+    kind: InteractiveZoneKind.studentLounge,
+    room: LobbyRoomId.park,
+    x: 436,
+    y: 690,
+    radius: 115,
+    accentColor: 0xFF10B981,
+  ),
+  InteractiveZone(
+    id: 'small_chest_4',
+    label: '🤖📜 Prop. Bonifacio (PKLP AI Mentor)',
+    subtitle: 'Pag-aaral ng Kasaysayan at Lipunang Pilipino Exam Question (+25 XP)!',
+    kind: InteractiveZoneKind.smallMysteryChest,
+    room: LobbyRoomId.park,
+    x: 580,
+    y: 490,
+    radius: 100,
+    accentColor: 0xFFF97316,
+  ),
+  InteractiveZone(
+    id: 'small_chest_5',
+    label: '🤖🏛️ Prof. Randolf (UCSP AI Mentor)',
+    subtitle: 'Understanding Culture, Society and Politics Exam Question (+25 XP)!',
+    kind: InteractiveZoneKind.smallMysteryChest,
+    room: LobbyRoomId.park,
+    x: 940,
+    y: 490,
+    radius: 100,
+    accentColor: 0xFF10B981,
+  ),
+
+  // ── CLASSROOM ZONES ──
   InteractiveZone(
     id: 'classroom_door_to_lobby',
     label: '🏛️ Door Back to Main School Lobby',
@@ -913,25 +1328,58 @@ const List<InteractiveZone> kSubRoomDoorZones = [
     kind: InteractiveZoneKind.doorPortal,
     room: LobbyRoomId.classroom,
     x: 768,
-    y: 1024,
-    radius: 84,
+    y: 888,
+    radius: 98,
     accentColor: 0xFF38BDF8,
     targetRoom: LobbyRoomId.mainLobby,
     targetSpawn: Offset(520, 175),
   ),
-  // Classroom Teacher Podium & Lecture Board (North Center Stage)
   InteractiveZone(
     id: 'classroom_podium_zone',
-    label: '🎙️ Teacher Podium & Lecture Stage',
-    subtitle: 'Check class study links or manage Reviewer & Activity Links',
+    label: "🎙️ Teacher Podium & Ma'am Clara (Adviser)",
+    subtitle: 'Check class study links, progress, or manage Reviewer & Activity Links',
     kind: InteractiveZoneKind.classroomPodium,
     room: LobbyRoomId.classroom,
     x: 768,
-    y: 235,
-    radius: 96,
+    y: 225,
+    radius: 110,
     accentColor: 0xFFF59E0B,
   ),
-  // Canteen -> Main Lobby (North Door)
+  InteractiveZone(
+    id: 'classroom_bookshelf_zone',
+    label: '📚 Classroom Reference Bookshelves',
+    subtitle: 'View PKLP, PPG & UCSP Honor Roll study tips & academic bulletin',
+    kind: InteractiveZoneKind.bulletinBoard,
+    room: LobbyRoomId.classroom,
+    x: 220,
+    y: 820,
+    radius: 105,
+    accentColor: 0xFF38BDF8,
+  ),
+  InteractiveZone(
+    id: 'group_study_classroom',
+    label: '🏫💬 Classroom Group Study & Chat Space',
+    subtitle: 'Sit together at the Back-Row Collaborative Study Lounge and chat with classmates!',
+    kind: InteractiveZoneKind.studentLounge,
+    room: LobbyRoomId.classroom,
+    x: 1160,
+    y: 820,
+    radius: 115,
+    accentColor: 0xFFF59E0B,
+  ),
+  InteractiveZone(
+    id: 'small_chest_6',
+    label: '🤖⚖️ Sen. Tañada (PPG AI Mentor)',
+    subtitle: 'Philippine Politics and Governance Exam Question (+25 XP)!',
+    kind: InteractiveZoneKind.smallMysteryChest,
+    room: LobbyRoomId.classroom,
+    x: 768,
+    y: 350,
+    radius: 100,
+    accentColor: 0xFFF59E0B,
+  ),
+
+  // ── CANTEEN ZONES ──
   InteractiveZone(
     id: 'canteen_door_to_lobby',
     label: '🏛️ Door Back to Main School Lobby',
@@ -939,13 +1387,12 @@ const List<InteractiveZone> kSubRoomDoorZones = [
     kind: InteractiveZoneKind.doorPortal,
     room: LobbyRoomId.canteen,
     x: 768,
-    y: 112,
-    radius: 84,
+    y: 124,
+    radius: 98,
     accentColor: 0xFF38BDF8,
     targetRoom: LobbyRoomId.mainLobby,
-    targetSpawn: Offset(768, 955),
+    targetSpawn: Offset(768, 920),
   ),
-  // Canteen Drink & Snack Vending Machine Bank (North-West)
   InteractiveZone(
     id: 'canteen_vending_west',
     label: '🥤 Drink & Snack Vending Machines',
@@ -954,58 +1401,115 @@ const List<InteractiveZone> kSubRoomDoorZones = [
     room: LobbyRoomId.canteen,
     x: 340,
     y: 210,
-    radius: 100,
+    radius: 110,
     accentColor: 0xFF0EA5E9,
   ),
-  // Canteen Merienda & Coffee Bar (North-East)
   InteractiveZone(
     id: 'canteen_vending_east',
-    label: '🍱 Canteen Coffee & Merienda Counter',
-    subtitle: 'Tap Interact to grab hot coffee, matcha, or study snacks!',
+    label: '🍱 Chef Marco • Coffee & Merienda Bar',
+    subtitle: 'Talk to Barista Chef Marco to grab hot coffee, matcha, or brain-food snacks!',
     kind: InteractiveZoneKind.vendingMachine,
     room: LobbyRoomId.canteen,
-    x: 1120,
+    x: 1080,
     y: 210,
+    radius: 110,
+    accentColor: 0xFFF97316,
+  ),
+  InteractiveZone(
+    id: 'group_study_canteen',
+    label: '🍱💬 Canteen Group Study & Chat Table',
+    subtitle: 'Sit around the Canteen Commons Table to chat & review with classmates!',
+    kind: InteractiveZoneKind.studentLounge,
+    room: LobbyRoomId.canteen,
+    x: 580,
+    y: 440,
+    radius: 115,
+    accentColor: 0xFFF97316,
+  ),
+  InteractiveZone(
+    id: 'small_chest_7',
+    label: '🤖📜 Gat Mabini (PKLP AI Mentor)',
+    subtitle: 'Pag-aaral ng Kasaysayan at Lipunang Pilipino Exam Question (+25 XP)!',
+    kind: InteractiveZoneKind.smallMysteryChest,
+    room: LobbyRoomId.canteen,
+    x: 768,
+    y: 340,
     radius: 100,
     accentColor: 0xFFF97316,
   ),
-  // Faculty Room -> Main Lobby (West Door)
+
+  // ── FACULTY ROOM ZONES ──
   InteractiveZone(
     id: 'faculty_door_to_lobby',
     label: '🏛️ Door Back to Main School Lobby',
     subtitle: 'Leave the Faculty Consultation Room back to the Main Lobby',
     kind: InteractiveZoneKind.doorPortal,
     room: LobbyRoomId.facultyRoom,
-    x: 80,
+    x: 208,
     y: 544,
-    radius: 84,
+    radius: 98,
     accentColor: 0xFF38BDF8,
     targetRoom: LobbyRoomId.mainLobby,
-    targetSpawn: Offset(1390, 340),
+    targetSpawn: Offset(1360, 340),
   ),
-  // Faculty Consultation Desk Zone
   InteractiveZone(
     id: 'faculty_consultation_desk',
-    label: '🎓 Faculty Advisory & Link Desk',
+    label: '🎓 Sir Dante • Faculty Advisory & Link Desk',
     subtitle: 'Consult active subject links or manage Reviewer & Activity Links',
     kind: InteractiveZoneKind.teacherCorner,
     room: LobbyRoomId.facultyRoom,
     x: 768,
     y: 350,
-    radius: 96,
+    radius: 110,
+    accentColor: 0xFFA855F7,
+  ),
+  InteractiveZone(
+    id: 'faculty_archive_bookshelf',
+    label: '📚 Faculty Research Archive Shelves',
+    subtitle: 'Read PKLP, PPG & UCSP research guidelines & academic notices',
+    kind: InteractiveZoneKind.bulletinBoard,
+    room: LobbyRoomId.facultyRoom,
+    x: 290,
+    y: 710,
+    radius: 105,
+    accentColor: 0xFF38BDF8,
+  ),
+  InteractiveZone(
+    id: 'group_study_faculty',
+    label: '🎓💬 Faculty Peer Study & Consultation Lounge',
+    subtitle: 'Sit at the Faculty Seminar Sofa & Table to chat and review together!',
+    kind: InteractiveZoneKind.studentLounge,
+    room: LobbyRoomId.facultyRoom,
+    x: 1180,
+    y: 730,
+    radius: 115,
+    accentColor: 0xFFA855F7,
+  ),
+  InteractiveZone(
+    id: 'small_chest_8',
+    label: '🤖⚖️ Dr. Miriam (PPG & UCSP AI Mentor)',
+    subtitle: 'PPG & UCSP Exam Readiness Challenge (+25 XP)!',
+    kind: InteractiveZoneKind.smallMysteryChest,
+    room: LobbyRoomId.facultyRoom,
+    x: 580,
+    y: 480,
+    radius: 100,
     accentColor: 0xFFA855F7,
   ),
 ];
 
-/// Interactive Rest Spots across all 5 rooms so students can Sit (`🪑`), Nap (`😪`), or Sleep (`🛌`).
+/// Interactive Rest Spots across all 5 rooms calibrated to the EXACT cushion center
+/// of each chair, bench, sofa, stool, and desk so characters sit/sleep IN the furniture!
 const List<LobbyRestSpot> kLobbyRestSpots = [
-  // Main Lobby Sofas & Study Chairs
+  // ── MAIN LOBBY SOFAS & GROUP STUDY CHAIRS ──
   LobbyRestSpot(
     id: 'rest_lobby_sofa_1',
     label: 'Lounge Nap Sofa (West)',
     room: LobbyRoomId.mainLobby,
-    x: 208,
-    y: 520,
+    x: 224,
+    y: 508,
+    standX: 224,
+    standY: 548,
     facing: AvatarFacing.down,
     canSleepFlat: true,
   ),
@@ -1013,26 +1517,32 @@ const List<LobbyRestSpot> kLobbyRestSpots = [
     id: 'rest_lobby_sofa_2',
     label: 'Lounge Study Sofa (East)',
     room: LobbyRoomId.mainLobby,
-    x: 496,
-    y: 520,
+    x: 512,
+    y: 508,
+    standX: 512,
+    standY: 548,
     facing: AvatarFacing.down,
     canSleepFlat: true,
   ),
   LobbyRestSpot(
     id: 'rest_lobby_chair_1',
-    label: 'Study Commons Chair A',
+    label: 'Group Study Commons Chair A',
     room: LobbyRoomId.mainLobby,
     x: 240,
-    y: 676,
+    y: 668,
+    standX: 240,
+    standY: 706,
     facing: AvatarFacing.up,
     canSleepFlat: false,
   ),
   LobbyRestSpot(
     id: 'rest_lobby_chair_2',
-    label: 'Study Commons Chair B',
+    label: 'Group Study Commons Chair B',
     room: LobbyRoomId.mainLobby,
     x: 528,
-    y: 676,
+    y: 668,
+    standX: 528,
+    standY: 706,
     facing: AvatarFacing.up,
     canSleepFlat: false,
   ),
@@ -1041,18 +1551,22 @@ const List<LobbyRestSpot> kLobbyRestSpots = [
     label: 'Quiet Reading Daybed Sofa',
     room: LobbyRoomId.mainLobby,
     x: 352,
-    y: 816,
+    y: 808,
+    standX: 352,
+    standY: 760,
     facing: AvatarFacing.down,
     canSleepFlat: true,
   ),
 
-  // Campus Park Benches & Picnic Nap Lawns
+  // ── CAMPUS PARK BENCHES & GROUP STUDY PICNIC LAWNS ──
   LobbyRestSpot(
     id: 'rest_park_bench_1',
     label: 'Shaded Tree Bench (North-West)',
     room: LobbyRoomId.park,
     x: 452,
-    y: 320,
+    y: 314,
+    standX: 452,
+    standY: 356,
     facing: AvatarFacing.down,
     canSleepFlat: true,
   ),
@@ -1061,7 +1575,9 @@ const List<LobbyRestSpot> kLobbyRestSpots = [
     label: 'Pondside Park Bench (North-East)',
     room: LobbyRoomId.park,
     x: 1076,
-    y: 320,
+    y: 314,
+    standX: 1076,
+    standY: 356,
     facing: AvatarFacing.down,
     canSleepFlat: true,
   ),
@@ -1070,146 +1586,245 @@ const List<LobbyRestSpot> kLobbyRestSpots = [
     label: 'Koi Pond Viewing Bench (North)',
     room: LobbyRoomId.park,
     x: 768,
-    y: 356,
+    y: 350,
+    standX: 768,
+    standY: 390,
     facing: AvatarFacing.down,
     canSleepFlat: true,
   ),
   LobbyRestSpot(
-    id: 'rest_park_picnic_1',
-    label: 'Lagoon Garden Daybed Bench (West)',
+    id: 'rest_park_bench_south',
+    label: 'Koi Pond Viewing Bench (South)',
     room: LobbyRoomId.park,
-    x: 420,
-    y: 716,
+    x: 768,
+    y: 686,
+    standX: 768,
+    standY: 644,
+    facing: AvatarFacing.up,
+    canSleepFlat: true,
+  ),
+  LobbyRestSpot(
+    id: 'rest_park_picnic_1',
+    label: 'Group Study Garden Sofa (West)',
+    room: LobbyRoomId.park,
+    x: 436,
+    y: 708,
+    standX: 436,
+    standY: 656,
     facing: AvatarFacing.down,
     canSleepFlat: true,
   ),
   LobbyRestSpot(
     id: 'rest_park_picnic_2',
-    label: 'Sunset Garden Daybed Bench (East)',
+    label: 'Sunset Garden Daybed Sofa (East)',
     room: LobbyRoomId.park,
-    x: 1100,
-    y: 716,
+    x: 1116,
+    y: 708,
+    standX: 1116,
+    standY: 656,
     facing: AvatarFacing.down,
     canSleepFlat: true,
   ),
 
-  // SHS Class Room: 8 Interactive Student Desk Chairs + Teacher Chair + Back-Row Lounge Sofa
+  // ── SHS CLASS ROOM: 8 PERSONAL STUDENT DESKS + GROUP STUDY SEATS + BACK SOFA ──
   LobbyRestSpot(
     id: 'rest_classroom_r1_c1',
-    label: 'Row 1 Student Desk #1 (West)',
+    label: 'Classroom Desk #3 (Row 1 West)',
     room: LobbyRoomId.classroom,
     x: 340,
-    y: 428,
+    y: 418,
+    standX: 340,
+    standY: 454,
     facing: AvatarFacing.up,
     canSleepFlat: false,
   ),
   LobbyRestSpot(
     id: 'rest_classroom_r1_c2',
-    label: 'Row 1 Student Desk #2 (Center-Left)',
+    label: '★ My Personal Classroom Table (Row 1 Center-Left)',
     room: LobbyRoomId.classroom,
     x: 560,
-    y: 428,
+    y: 418,
+    standX: 560,
+    standY: 454,
     facing: AvatarFacing.up,
     canSleepFlat: false,
   ),
   LobbyRestSpot(
     id: 'rest_classroom_r1_c3',
-    label: 'Row 1 Student Desk #3 (Center-Right)',
+    label: 'Classroom Desk #2 (Row 1 Center-Right)',
     room: LobbyRoomId.classroom,
     x: 960,
-    y: 428,
+    y: 418,
+    standX: 960,
+    standY: 454,
     facing: AvatarFacing.up,
     canSleepFlat: false,
   ),
   LobbyRestSpot(
     id: 'rest_classroom_r1_c4',
-    label: 'Row 1 Student Desk #4 (East)',
+    label: 'Classroom Desk #4 (Row 1 East)',
     room: LobbyRoomId.classroom,
     x: 1180,
-    y: 428,
+    y: 418,
+    standX: 1180,
+    standY: 454,
     facing: AvatarFacing.up,
     canSleepFlat: false,
   ),
   LobbyRestSpot(
     id: 'rest_classroom_r2_c1',
-    label: 'Row 2 Student Desk #5 (West)',
+    label: 'Classroom Desk #5 (Row 2 West)',
     room: LobbyRoomId.classroom,
     x: 340,
-    y: 608,
+    y: 598,
+    standX: 340,
+    standY: 634,
     facing: AvatarFacing.up,
     canSleepFlat: false,
   ),
   LobbyRestSpot(
     id: 'rest_classroom_r2_c2',
-    label: 'Row 2 Student Desk #6 (Center-Left)',
+    label: 'Classroom Desk #6 (Row 2 Center-Left)',
     room: LobbyRoomId.classroom,
     x: 560,
-    y: 608,
+    y: 598,
+    standX: 560,
+    standY: 634,
     facing: AvatarFacing.up,
     canSleepFlat: false,
   ),
   LobbyRestSpot(
     id: 'rest_classroom_r2_c3',
-    label: 'Row 2 Student Desk #7 (Center-Right)',
+    label: 'Classroom Desk #7 (Row 2 Center-Right)',
     room: LobbyRoomId.classroom,
     x: 960,
-    y: 608,
+    y: 598,
+    standX: 960,
+    standY: 634,
     facing: AvatarFacing.up,
     canSleepFlat: false,
   ),
   LobbyRestSpot(
     id: 'rest_classroom_r2_c4',
-    label: 'Row 2 Student Desk #8 (East)',
+    label: 'Classroom Desk #8 (Row 2 East)',
     room: LobbyRoomId.classroom,
     x: 1180,
-    y: 608,
+    y: 598,
+    standX: 1180,
+    standY: 634,
+    facing: AvatarFacing.up,
+    canSleepFlat: false,
+  ),
+  // Row 3 Open Group Study & Reading Chairs (Anyone can sit & chat here!)
+  LobbyRestSpot(
+    id: 'rest_classroom_group_chair_1',
+    label: 'Classroom Group Study Chair A (Row 3)',
+    room: LobbyRoomId.classroom,
+    x: 560,
+    y: 778,
+    standX: 560,
+    standY: 814,
     facing: AvatarFacing.up,
     canSleepFlat: false,
   ),
   LobbyRestSpot(
-    id: 'rest_classroom_back_nap',
-    label: 'Back-Row Student Study & Nap Sofa',
+    id: 'rest_classroom_group_chair_2',
+    label: 'Classroom Group Study Chair B (Row 3)',
     room: LobbyRoomId.classroom,
-    x: 1160,
-    y: 855,
+    x: 960,
+    y: 778,
+    standX: 960,
+    standY: 814,
     facing: AvatarFacing.up,
+    canSleepFlat: false,
+  ),
+  LobbyRestSpot(
+    id: 'rest_classroom_egg_chair',
+    label: 'Classroom Reading Pod Egg Chair',
+    room: LobbyRoomId.classroom,
+    x: 314,
+    y: 862,
+    standX: 356,
+    standY: 862,
+    facing: AvatarFacing.down,
+    canSleepFlat: false,
+  ),
+  LobbyRestSpot(
+    id: 'rest_classroom_back_nap',
+    label: 'Classroom Group Study & Nap Sofa',
+    room: LobbyRoomId.classroom,
+    x: 1176,
+    y: 858,
+    standX: 1176,
+    standY: 816,
+    facing: AvatarFacing.down,
     canSleepFlat: true,
   ),
 
-  // Canteen Dining Booths & Lounge Couches
+  // ── CANTEEN DINING BOOTHS, STOOLS & LOUNGE COUCHES ──
   LobbyRestSpot(
     id: 'rest_canteen_table_1',
-    label: 'Canteen Dining Table #1 (West)',
+    label: 'Canteen Dining Chair #1 (West)',
     room: LobbyRoomId.canteen,
-    x: 372,
-    y: 486,
+    x: 284,
+    y: 474,
+    standX: 284,
+    standY: 512,
     facing: AvatarFacing.up,
     canSleepFlat: false,
   ),
   LobbyRestSpot(
     id: 'rest_canteen_table_2',
-    label: 'Canteen Dining Table #2 (Center-West)',
+    label: 'Canteen Group Study Chair #2 (Center-West)',
     room: LobbyRoomId.canteen,
-    x: 590,
-    y: 486,
+    x: 552,
+    y: 474,
+    standX: 552,
+    standY: 512,
     facing: AvatarFacing.up,
     canSleepFlat: false,
   ),
   LobbyRestSpot(
     id: 'rest_canteen_table_3',
-    label: 'Canteen Dining Table #3 (Center-East)',
+    label: 'Canteen Group Study Chair #3 (Center-East)',
     room: LobbyRoomId.canteen,
-    x: 960,
-    y: 486,
+    x: 932,
+    y: 474,
+    standX: 932,
+    standY: 512,
     facing: AvatarFacing.up,
     canSleepFlat: false,
   ),
   LobbyRestSpot(
     id: 'rest_canteen_table_4',
-    label: 'Canteen Dining Table #4 (East)',
+    label: 'Canteen Dining Chair #4 (East)',
     room: LobbyRoomId.canteen,
-    x: 1200,
-    y: 486,
+    x: 1160,
+    y: 474,
+    standX: 1160,
+    standY: 512,
+    facing: AvatarFacing.up,
+    canSleepFlat: false,
+  ),
+  LobbyRestSpot(
+    id: 'rest_canteen_stool_1',
+    label: 'Canteen Merienda Stool (South-West)',
+    room: LobbyRoomId.canteen,
+    x: 322,
+    y: 720,
+    standX: 322,
+    standY: 758,
+    facing: AvatarFacing.up,
+    canSleepFlat: false,
+  ),
+  LobbyRestSpot(
+    id: 'rest_canteen_stool_2',
+    label: 'Canteen Merienda Stool (South-East)',
+    room: LobbyRoomId.canteen,
+    x: 982,
+    y: 720,
+    standX: 982,
+    standY: 758,
     facing: AvatarFacing.up,
     canSleepFlat: false,
   ),
@@ -1217,28 +1832,34 @@ const List<LobbyRestSpot> kLobbyRestSpots = [
     id: 'rest_canteen_booth_nap',
     label: 'Canteen Cozy Corner Sofa Booth',
     room: LobbyRoomId.canteen,
-    x: 1180,
-    y: 840,
-    facing: AvatarFacing.left,
+    x: 1196,
+    y: 838,
+    standX: 1196,
+    standY: 790,
+    facing: AvatarFacing.down,
     canSleepFlat: true,
   ),
 
-  // Faculty Room Consultation Chairs & Lounge Sofa
+  // ── FACULTY ROOM CONSULTATION CHAIRS & GROUP STUDY SOFA ──
   LobbyRestSpot(
     id: 'rest_faculty_consult_1',
-    label: 'Student Consultation Chair (Center)',
+    label: 'Faculty Advisory Chair (Center)',
     room: LobbyRoomId.facultyRoom,
     x: 768,
-    y: 440,
+    y: 432,
+    standX: 768,
+    standY: 472,
     facing: AvatarFacing.up,
     canSleepFlat: false,
   ),
   LobbyRestSpot(
     id: 'rest_faculty_lounge_sofa',
-    label: 'Faculty Guest Waiting Sofa',
+    label: 'Faculty Group Study & Waiting Sofa',
     room: LobbyRoomId.facultyRoom,
-    x: 1180,
-    y: 740,
+    x: 1196,
+    y: 738,
+    standX: 1196,
+    standY: 690,
     facing: AvatarFacing.down,
     canSleepFlat: true,
   ),
@@ -2031,12 +2652,78 @@ const List<LobbyNpc> kLobbyNpcs = [
   LobbyNpc(
     id: 'npc_receptionist',
     name: 'Aiko (Lobbyist)',
-    roleTag: 'Lobbyist',
+    roleTag: 'Quest Desk',
     isGoldTag: true,
     presetName: 'Lucy',
     room: LobbyRoomId.mainLobby,
     x: 768,
     y: 132,
+    facing: AvatarFacing.down,
+  ),
+  LobbyNpc(
+    id: 'npc_shopkeeper',
+    name: 'Mina (Shopkeeper)',
+    roleTag: 'Campus Shop 🛍️',
+    isGoldTag: true,
+    presetName: 'Jenny',
+    room: LobbyRoomId.mainLobby,
+    x: 932,
+    y: 136,
+    facing: AvatarFacing.down,
+  ),
+  LobbyNpc(
+    id: 'npc_radio_dj',
+    name: 'DJ Rico (Radio Base)',
+    roleTag: 'Radio Garden 📻',
+    isGoldTag: true,
+    presetName: 'Alex',
+    room: LobbyRoomId.mainLobby,
+    x: 604,
+    y: 136,
+    facing: AvatarFacing.down,
+  ),
+  LobbyNpc(
+    id: 'npc_park_keeper',
+    name: 'Mang Basyong (Park Guide)',
+    roleTag: 'Park Keeper 🌳',
+    isGoldTag: false,
+    presetName: 'Bob',
+    room: LobbyRoomId.park,
+    x: 768,
+    y: 288,
+    facing: AvatarFacing.down,
+  ),
+  LobbyNpc(
+    id: 'npc_classroom_adviser',
+    name: "Ma'am Clara (Adviser)",
+    roleTag: 'Homeroom 🏫',
+    isGoldTag: true,
+    presetName: 'Molly',
+    room: LobbyRoomId.classroom,
+    x: 752,
+    y: 138,
+    facing: AvatarFacing.down,
+  ),
+  LobbyNpc(
+    id: 'npc_canteen_barista',
+    name: 'Chef Marco (Barista)',
+    roleTag: 'Canteen Café ☕',
+    isGoldTag: true,
+    presetName: 'Adam',
+    room: LobbyRoomId.canteen,
+    x: 1080,
+    y: 136,
+    facing: AvatarFacing.down,
+  ),
+  LobbyNpc(
+    id: 'npc_faculty_coordinator',
+    name: 'Sir Dante (Head Adviser)',
+    roleTag: 'Faculty Head 🎓',
+    isGoldTag: true,
+    presetName: 'Ash',
+    room: LobbyRoomId.facultyRoom,
+    x: 752,
+    y: 284,
     facing: AvatarFacing.down,
   ),
 ];
@@ -2068,37 +2755,29 @@ List<LobbyRestSpot> restSpotsForRoom(LobbyRoomId room) {
   return kLobbyRestSpots.where((r) => r.room == room).toList();
 }
 
-/// Builds solid collision rectangles (`Rect`) for wall boundaries, furniture counters,
-/// trees, boulders, bookshelves, and dynamic Subject Chests in the given [room].
-/// Walk paths and interactive seat cushions are kept clear so pathfinding and sitting are seamless!
+/// Builds solid collision rectangles (`Rect`) for compact room boundaries, major tables/counters,
+/// and dynamic Subject Chests in the given [room].
+/// Small plants, lamps, bushes, rocks, and chairs are non-blocking so characters NEVER get wedged!
 List<Rect> buildLobbySolids(
   List<SubjectChest> subjectChests, {
   LobbyRoomId room = LobbyRoomId.mainLobby,
 }) {
+  final b = room.roomBounds;
   final solids = <Rect>[
-    // Outer perimeter walls (expanded 1536 x 1088)
-    const Rect.fromLTWH(0, 0, kLobbyWorldWidth, 82), // Top wall
-    const Rect.fromLTWH(
-        0, kLobbyWorldHeight - 24, kLobbyWorldWidth, 24), // Bottom wall
-    const Rect.fromLTWH(0, 0, 32, kLobbyWorldHeight), // Left wall
-    const Rect.fromLTWH(
-        kLobbyWorldWidth - 32, 0, 32, kLobbyWorldHeight), // Right wall
+    // Compact room perimeter walls (eliminates outer dead spaces!)
+    Rect.fromLTWH(0, 0, kLobbyWorldWidth, math.max(82.0, b.top + 34.0)), // Top wall
+    Rect.fromLTWH(0, b.bottom - 16.0, kLobbyWorldWidth,
+        kLobbyWorldHeight - (b.bottom - 16.0)), // Bottom wall
+    Rect.fromLTWH(0, 0, b.left + 16.0, kLobbyWorldHeight), // Left wall
+    Rect.fromLTWH(b.right - 16.0, 0,
+        kLobbyWorldWidth - (b.right - 16.0), kLobbyWorldHeight), // Right wall
   ];
 
-  // Add beveled base footprints for all collidable room props (trees, rocks, bookshelves, plants, tables)
+  // Only large tree trunks have a small center trunk footprint; small plants/bushes/lamps are passable!
   for (final piece in furnitureForRoom(room)) {
     if (!piece.collidable || piece.isFloorRug) continue;
-    if (piece.spriteKey.startsWith('tree')) {
-      // Tree trunk base collider so players can walk behind the leafy canopy but never through the trunk
-      solids.add(Rect.fromLTWH(piece.x + 22, piece.y + 68, 36, 30));
-    } else if (piece.spriteKey.startsWith('rocks') ||
-        piece.spriteKey.startsWith('bush') ||
-        piece.spriteKey.startsWith('ours-bush')) {
-      solids.add(Rect.fromLTWH(piece.x + 6, piece.y + 10, 26, 20));
-    } else if (piece.spriteKey.startsWith('plant') ||
-        piece.spriteKey.startsWith('lamp') ||
-        piece.spriteKey.startsWith('water-cooler')) {
-      solids.add(Rect.fromLTWH(piece.x + 6, piece.y + 24, 20, 20));
+    if (piece.spriteKey == 'tree') {
+      solids.add(Rect.fromLTWH(piece.x + 28, piece.y + 74, 24, 20));
     }
   }
 
@@ -2106,33 +2785,20 @@ List<Rect> buildLobbySolids(
     case LobbyRoomId.mainLobby:
       solids.addAll(const [
         // Reception Counter (`desks-front-maple-2`) collider
-        Rect.fromLTWH(576, 148, 384, 44),
+        Rect.fromLTWH(584, 152, 368, 36),
         // Teacher's Corner Desk collider
-        Rect.fromLTWH(1192, 152, 144, 44),
-        // Bookshelves along top walls
-        Rect.fromLTWH(88, 82, 64, 34),
-        Rect.fromLTWH(416, 82, 64, 36),
-        Rect.fromLTWH(1056, 82, 128, 36),
-        // Lounge sofa top-backrest bumpers (prevent walking through the back of sofas while keeping seat cushions open)
-        Rect.fromLTWH(182, 486, 84, 16),
-        Rect.fromLTWH(470, 486, 84, 16),
-        // Student Lounge study tables (chairs & sofas remain walkable for sitting/napping/sleeping!)
-        Rect.fromLTWH(168, 586, 144, 38),
-        Rect.fromLTWH(456, 586, 144, 38),
-        Rect.fromLTWH(320, 852, 60, 28),
-        // West Vending machines
-        Rect.fromLTWH(56, 724, 56, 156),
-        // Reviewer Sanctuary top bookshelves
-        Rect.fromLTWH(1024, 480, 128, 34),
-        Rect.fromLTWH(1228, 480, 128, 34),
+        Rect.fromLTWH(1196, 156, 132, 34),
+        // Student Lounge study tables (generous aisles all around; chairs & sofas 100% open!)
+        Rect.fromLTWH(176, 590, 128, 30),
+        Rect.fromLTWH(464, 590, 128, 30),
       ]);
       for (var i = 0; i < subjectChests.length; i++) {
         final pos = subjectChestPosition(i);
         solids.add(
           Rect.fromCenter(
             center: pos,
-            width: 34,
-            height: 24,
+            width: 28,
+            height: 20,
           ),
         );
       }
@@ -2140,61 +2806,54 @@ List<Rect> buildLobbySolids(
 
     case LobbyRoomId.park:
       // Central Park Pond water collider (walkway loop around it is 100% open!)
-      solids.add(const Rect.fromLTWH(640, 420, 256, 180));
+      solids.add(const Rect.fromLTWH(648, 426, 240, 168));
       break;
 
     case LobbyRoomId.classroom:
       solids.addAll(const [
         // Front Teacher Podium Desk
-        Rect.fromLTWH(696, 164, 144, 42),
-        // Row 1 Student Desk tables (chairs below them at y=428 are walkable!)
-        Rect.fromLTWH(268, 336, 144, 36),
-        Rect.fromLTWH(488, 336, 144, 36),
-        Rect.fromLTWH(888, 336, 144, 36),
-        Rect.fromLTWH(1108, 336, 144, 36),
-        // Row 2 Student Desk tables (chairs below them at y=608 are walkable!)
-        Rect.fromLTWH(268, 516, 144, 36),
-        Rect.fromLTWH(488, 516, 144, 36),
-        Rect.fromLTWH(888, 516, 144, 36),
-        Rect.fromLTWH(1108, 516, 144, 36),
-        // Row 3 Student Desk tables (chairs below them at y=764 are walkable!)
-        Rect.fromLTWH(268, 696, 144, 36),
-        Rect.fromLTWH(488, 696, 144, 36),
-        Rect.fromLTWH(888, 696, 144, 36),
-        Rect.fromLTWH(1108, 696, 144, 36),
-        // Back-row bookshelves
-        Rect.fromLTWH(96, 844, 132, 36),
+        Rect.fromLTWH(704, 168, 128, 34),
+        // Row 1 Student Desk tables (slimmed so aisles are >= 76px wide and chairs below are 100% walkable!)
+        Rect.fromLTWH(276, 338, 128, 28),
+        Rect.fromLTWH(496, 338, 128, 28),
+        Rect.fromLTWH(896, 338, 128, 28),
+        Rect.fromLTWH(1116, 338, 128, 28),
+        // Row 2 Student Desk tables
+        Rect.fromLTWH(276, 518, 128, 28),
+        Rect.fromLTWH(496, 518, 128, 28),
+        Rect.fromLTWH(896, 518, 128, 28),
+        Rect.fromLTWH(1116, 518, 128, 28),
+        // Row 3 Student Desk tables
+        Rect.fromLTWH(276, 698, 128, 28),
+        Rect.fromLTWH(496, 698, 128, 28),
+        Rect.fromLTWH(896, 698, 128, 28),
+        Rect.fromLTWH(1116, 698, 128, 28),
       ]);
       break;
 
     case LobbyRoomId.canteen:
       solids.addAll(const [
         // North-West Vending Machine Bank
-        Rect.fromLTWH(144, 96, 480, 56),
+        Rect.fromLTWH(152, 98, 440, 44),
         // North-East Merienda & Coffee Counter
-        Rect.fromLTWH(920, 148, 400, 46),
-        // Row 1 Dining tables (chairs below them at y=486 are walkable!)
-        Rect.fromLTWH(228, 382, 204, 44),
-        Rect.fromLTWH(508, 382, 144, 44),
-        Rect.fromLTWH(888, 382, 144, 44),
-        Rect.fromLTWH(1104, 382, 204, 44),
+        Rect.fromLTWH(928, 152, 340, 38),
+        // Row 1 Dining tables (slimmed with wide open aisles)
+        Rect.fromLTWH(236, 386, 180, 34),
+        Rect.fromLTWH(516, 386, 128, 34),
+        Rect.fromLTWH(896, 386, 128, 34),
+        Rect.fromLTWH(1112, 386, 180, 34),
         // Row 2 Dining tables
-        Rect.fromLTWH(268, 632, 204, 44),
-        Rect.fromLTWH(928, 632, 204, 44),
-        // Canteen South Coffee Table
-        Rect.fromLTWH(1148, 882, 60, 28),
+        Rect.fromLTWH(276, 636, 180, 34),
+        Rect.fromLTWH(936, 636, 180, 34),
       ]);
       break;
 
     case LobbyRoomId.facultyRoom:
       solids.addAll(const [
         // Faculty consultation desks
-        Rect.fromLTWH(368, 312, 144, 42),
-        Rect.fromLTWH(696, 312, 144, 42),
-        Rect.fromLTWH(1028, 312, 144, 42),
-        // Archive bookshelves & coffee table
-        Rect.fromLTWH(240, 704, 132, 36),
-        Rect.fromLTWH(1148, 782, 60, 28),
+        Rect.fromLTWH(376, 316, 128, 34),
+        Rect.fromLTWH(704, 316, 128, 34),
+        Rect.fromLTWH(1036, 316, 128, 34),
       ]);
       break;
   }
@@ -2202,39 +2861,39 @@ List<Rect> buildLobbySolids(
   return solids;
 }
 
-/// 2-hour relocation interval (`7,200,000 ms`) for the 8 Small Mystery Chests.
+/// 2-hour patrol & station rotation interval (`7,200,000 ms`) for the 8 AI Subject Mentor NPCs.
 const int kSmallChestRelocationIntervalMs = 2 * 60 * 60 * 1000;
 
-/// Verified walkable candidate coordinates across all wings of the Main School Lobby
-/// so Small Mystery Chests randomly relocate every 2 hours without ever spawning inside walls or furniture!
+/// Verified walkable patrol coordinates inside the compact Main School Lobby
+/// so AI Subject Mentor NPCs rotate stations every 2 hours without ever overlapping furniture!
 const List<Offset> _kWalkableSmallChestCandidateSpots = <Offset>[
-  Offset(128, 352),
-  Offset(640, 448),
-  Offset(1408, 416),
-  Offset(560, 944),
-  Offset(144, 944),
-  Offset(928, 368),
-  Offset(848, 944),
-  Offset(1424, 944),
-  Offset(240, 340),
+  Offset(280, 340),
+  Offset(640, 390),
+  Offset(1040, 360),
+  Offset(560, 840),
+  Offset(240, 820),
+  Offset(920, 368),
+  Offset(848, 840),
+  Offset(1280, 416),
   Offset(380, 340),
   Offset(510, 340),
   Offset(660, 320),
-  Offset(880, 300),
-  Offset(1040, 320),
-  Offset(1180, 320),
-  Offset(1340, 290),
-  Offset(136, 460),
+  Offset(880, 310),
+  Offset(1160, 340),
   Offset(340, 460),
   Offset(640, 620),
   Offset(640, 760),
   Offset(860, 620),
   Offset(860, 780),
-  Offset(440, 860),
-  Offset(220, 840),
+  Offset(440, 840),
+  Offset(768, 420),
+  Offset(768, 720),
+  Offset(480, 460),
+  Offset(1020, 440),
+  Offset(1180, 360),
 ];
 
-/// Deterministically computes the current 2-hour window position for a Small Mystery Chest (`small_chest_1`..`8`).
+/// Deterministically computes the current 2-hour window patrol position for an AI Subject Mentor (`small_chest_1`..`8`).
 /// Relocates every 2 hours (`7,200,000 ms`) across verified walkable coordinates!
 Offset smallChestPositionFor2HourWindow(
   String smallChestId, {
@@ -2243,7 +2902,6 @@ Offset smallChestPositionFor2HourWindow(
   final windowBucket =
       (nowMs ?? DateTime.now().millisecondsSinceEpoch) ~/
           kSmallChestRelocationIntervalMs;
-  // Parse chest index 0..7 from id (e.g. 'small_chest_1' -> 0)
   final digits = RegExp(r'\d+').firstMatch(smallChestId)?.group(0);
   final chestIdx = ((int.tryParse(digits ?? '1') ?? 1) - 1)
       .clamp(0, _kWalkableSmallChestCandidateSpots.length - 1);
@@ -2252,8 +2910,6 @@ Offset smallChestPositionFor2HourWindow(
     return _kWalkableSmallChestCandidateSpots[chestIdx];
   }
 
-  // Deterministic permutation of `_kWalkableSmallChestCandidateSpots` seeded by `windowBucket`
-  // so all 8 chests get unique, non-overlapping walkable spots that change every 2 hours!
   final indices =
       List<int>.generate(_kWalkableSmallChestCandidateSpots.length, (i) => i);
   final rng = math.Random(windowBucket * 9973 + 31337);
@@ -2262,9 +2918,10 @@ Offset smallChestPositionFor2HourWindow(
 }
 
 /// Builds the full list of active `InteractiveZone`s in [room], combining:
-/// - Static room zones & doors (with 2-hour dynamic relocation for Small Mystery Chests)
+/// - Static room zones, doors & Group Study Spaces
+/// - AI Subject Mentor NPCs (`PKLP`, `PPG`, `UCSP` — with 2-hour patrol rotation & 24h cooldown)
 /// - Enrolled active `SubjectChest`s (in `mainLobby`)
-/// - Rest spots (`🪑 Sit / 😪 Nap / 🛌 Sleep`) in [room]
+/// - Rest spots (`🪑 Sit / 😪 Nap / 🛌 Sleep`) in [room] with generous `100px` proximity reach!
 /// - Classmate Peer Students (`💭 Thought Bubble Chat`) in [room]
 List<InteractiveZone> buildActiveInteractiveZones(
   List<SubjectChest> subjectChests, {
@@ -2274,21 +2931,26 @@ List<InteractiveZone> buildActiveInteractiveZones(
   final zones = <InteractiveZone>[];
 
   if (room == LobbyRoomId.mainLobby) {
-    for (final z in INTERACTIVE_ZONES.where((z) => z.room == LobbyRoomId.mainLobby)) {
+    for (final z
+        in INTERACTIVE_ZONES.where((z) => z.room == LobbyRoomId.mainLobby)) {
       if (z.kind == InteractiveZoneKind.smallMysteryChest) {
         final pos = smallChestPositionFor2HourWindow(z.id, nowMs: nowMs);
+        final mentor = findAiMentorById(z.id);
         zones.add(
           InteractiveZone(
             id: z.id,
-            label: z.label,
-            subtitle:
-                'Answer 1 authentic exam question (+25 XP) • 24h refresh • Relocates every 2h!',
+            label: mentor != null
+                ? '🤖 ${mentor.name} [${mentor.subjectCode}]'
+                : z.label,
+            subtitle: mentor != null
+                ? '${mentor.subjectFullTitle} • Tap for AI Exam Question (+25 XP, 24h refresh)'
+                : z.subtitle,
             kind: z.kind,
             room: z.room,
             x: pos.dx,
             y: pos.dy,
-            radius: z.radius,
-            accentColor: z.accentColor,
+            radius: 100.0,
+            accentColor: mentor?.accentColor ?? z.accentColor,
           ),
         );
       } else {
@@ -2309,7 +2971,7 @@ List<InteractiveZone> buildActiveInteractiveZones(
           room: LobbyRoomId.mainLobby,
           x: pos.dx,
           y: pos.dy,
-          radius: 72.0,
+          radius: 96.0,
           accentColor: chest.colorValue,
           subjectChestId: chest.id,
         ),
@@ -2319,21 +2981,26 @@ List<InteractiveZone> buildActiveInteractiveZones(
     zones.addAll(kSubRoomDoorZones.where((z) => z.room == room));
   }
 
-  // Add Rest Spots for this room (Sit, Nap, or Sleep)
+  // Add Rest Spots for this room (Sit, Nap, or Sleep) with generous 98px proximity!
   for (final spot in restSpotsForRoom(room)) {
+    final isPersonalDesk = isPersonalClassroomDeskSpot(spot.id);
     zones.add(
       InteractiveZone(
         id: 'rest_zone_${spot.id}',
         label: '🪑 ${spot.label}',
-        subtitle: spot.canSleepFlat
-            ? 'Tap Interact to Sit 🪑, Nap 😪, or Sleep 🛌'
-            : 'Tap Interact to Sit 🪑 or Nap 😪 at this seat',
+        subtitle: isPersonalDesk
+            ? (spot.id == 'rest_classroom_r1_c2'
+                ? 'Your Personal Classroom Table! Tap to Sit 🪑, Nap 😪, or Decorate Table 🎨'
+                : 'Assigned Classmate Table • Only the owner student can sit here')
+            : (spot.canSleepFlat
+                ? 'Tap Interact to Sit 🪑, Nap 😪, or Sleep 🛌'
+                : 'Tap Interact to Sit 🪑 or Nap 😪 at this seat'),
         kind: InteractiveZoneKind.restSpot,
         room: room,
         x: spot.x,
         y: spot.y,
-        radius: 62.0,
-        accentColor: 0xFF10B981,
+        radius: 98.0,
+        accentColor: spot.id == 'rest_classroom_r1_c2' ? 0xFFFACC15 : 0xFF10B981,
         restSpotId: spot.id,
       ),
     );
@@ -2350,7 +3017,7 @@ List<InteractiveZone> buildActiveInteractiveZones(
         room: room,
         x: peer.x,
         y: peer.y,
-        radius: 68.0,
+        radius: 96.0,
         accentColor: 0xFF38BDF8,
         peerStudentId: peer.id,
       ),

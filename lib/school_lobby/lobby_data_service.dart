@@ -430,6 +430,7 @@ class StudentLobbyProgress {
   final int smallChestsSolvedCount;
   final Set<String> unlockedCosmetics;
   final List<String> answeredQuestionIds;
+  final LobbyTableDecorConfig tableDecor;
 
   const StudentLobbyProgress({
     this.xp = 0,
@@ -444,6 +445,7 @@ class StudentLobbyProgress {
     this.smallChestsSolvedCount = 0,
     this.unlockedCosmetics = LobbyShopService.kStarterUnlockedCosmetics,
     this.answeredQuestionIds = const [],
+    this.tableDecor = const LobbyTableDecorConfig(),
   });
 
   /// Spendable XP wallet in the Campus Cosmetics Shop (`xp - spentXp`).
@@ -498,6 +500,7 @@ class StudentLobbyProgress {
     int? smallChestsSolvedCount,
     Set<String>? unlockedCosmetics,
     List<String>? answeredQuestionIds,
+    LobbyTableDecorConfig? tableDecor,
   }) {
     return StudentLobbyProgress(
       xp: xp ?? this.xp,
@@ -514,6 +517,7 @@ class StudentLobbyProgress {
           smallChestsSolvedCount ?? this.smallChestsSolvedCount,
       unlockedCosmetics: unlockedCosmetics ?? this.unlockedCosmetics,
       answeredQuestionIds: answeredQuestionIds ?? this.answeredQuestionIds,
+      tableDecor: tableDecor ?? this.tableDecor,
     );
   }
 
@@ -557,6 +561,10 @@ class StudentLobbyProgress {
             ?.map((e) => e.toString())
             .toList() ??
         <String>[];
+    final rawDecor = json['tableDecor'];
+    final decor = rawDecor is Map
+        ? LobbyTableDecorConfig.fromJson(Map<String, dynamic>.from(rawDecor))
+        : const LobbyTableDecorConfig();
     return StudentLobbyProgress(
       xp: (json['xp'] as num?)?.toInt() ?? 0,
       spentXp: (json['spentXp'] as num?)?.toInt() ?? 0,
@@ -571,6 +579,7 @@ class StudentLobbyProgress {
           (json['smallChestsSolvedCount'] as num?)?.toInt() ?? 0,
       unlockedCosmetics: unlocked,
       answeredQuestionIds: answered,
+      tableDecor: decor,
     );
   }
 
@@ -587,6 +596,7 @@ class StudentLobbyProgress {
         'smallChestsSolvedCount': smallChestsSolvedCount,
         'unlockedCosmetics': unlockedCosmetics.toList(),
         'answeredQuestionIds': answeredQuestionIds,
+        'tableDecor': tableDecor.toJson(),
       };
 }
 
@@ -1363,13 +1373,45 @@ class LobbyDataService extends ChangeNotifier {
   }
 
   /// Feature 3 & Item #4: Picks an authentic `.docx` exam question strictly from the student's
-  /// active enrolled subjects and rotates through `answeredQuestionIds` so questions NEVER repeat
-  /// until the student has completed the entire deck for their enrolled subjects!
-  MiniQuizQuestion pickRandomQuestionForSmallChest(String smallChestId) {
-    final pool = quizQuestions;
+  /// active enrolled subjects (and matching the AI Mentor's Portal subject `PKLP`, `PPG`, or `UCSP` if specified)
+  /// and rotates through `answeredQuestionIds` so questions NEVER repeat
+  /// until the student has completed the entire deck!
+  MiniQuizQuestion pickRandomQuestionForSmallChest(
+    String smallChestId, {
+    String? preferredSubjectCode,
+  }) {
+    var pool = quizQuestions;
     if (pool.isEmpty) {
-      final fallback = _defaultQuizQuestions();
-      return fallback.first;
+      pool = _defaultQuizQuestions();
+    }
+
+    // Infer subject from preferredSubjectCode or AI Mentor ID ('pklp', 'ppg', 'ucsp')
+    final lowerId = (preferredSubjectCode ?? smallChestId).toLowerCase();
+    String? targetSubjectPrefix;
+    if (lowerId.contains('pklp')) {
+      targetSubjectPrefix = 'PKLP';
+    } else if (lowerId.contains('ppg')) {
+      targetSubjectPrefix = 'PPG';
+    } else if (lowerId.contains('ucsp')) {
+      targetSubjectPrefix = 'UCSP';
+    }
+
+    if (targetSubjectPrefix != null) {
+      final matchingPool = pool
+          .where(
+              (q) => q.subject.toUpperCase().startsWith(targetSubjectPrefix!))
+          .toList();
+      if (matchingPool.isNotEmpty) {
+        pool = matchingPool;
+      } else {
+        final bankMatching = kAuthenticExamQuestionBank
+            .where((q) =>
+                q.subject.toUpperCase().startsWith(targetSubjectPrefix!))
+            .toList();
+        if (bankMatching.isNotEmpty) {
+          pool = bankMatching;
+        }
+      }
     }
 
     final answeredSet = _progress.answeredQuestionIds.toSet();
@@ -1377,15 +1419,13 @@ class LobbyDataService extends ChangeNotifier {
         pool.where((q) => !answeredSet.contains(q.id)).toList();
 
     if (unanswered.isNotEmpty) {
-      // Deterministic + rotational selection so different chests in the same session never show the same question
       final chestHash = smallChestId.codeUnits.fold<int>(0, (a, b) => a + b);
       final idx =
-          ( _progress.answeredQuestionIds.length + chestHash) % unanswered.length;
+          (_progress.answeredQuestionIds.length + chestHash) % unanswered.length;
       return unanswered[idx];
     }
 
-    // All questions in the student's enrolled pool have been answered!
-    // Automatically reset the rotation for this subject pool and start a fresh deck cycle.
+    // All questions in this pool have been answered! Reset rotation for this pool.
     final poolIds = pool.map((q) => q.id).toSet();
     final retainedOtherSubjects = _progress.answeredQuestionIds
         .where((id) => !poolIds.contains(id))
@@ -1511,6 +1551,17 @@ class LobbyDataService extends ChangeNotifier {
     await _saveProgress();
     notifyListeners();
     return true;
+  }
+
+  /// Item #10: Updates and persists the student's equipped Classroom Table Space decorations.
+  Future<void> updateTableDecor(LobbyTableDecorConfig decor) async {
+    final safeDecor = LobbyShopService.instance.sanitizeTableDecorForUnlocked(
+      decor,
+      isFaculty: _isFaculty,
+    );
+    _progress = _progress.copyWith(tableDecor: safeDecor);
+    await _saveProgress();
+    notifyListeners();
   }
 
   /// Teacher can also add custom Pop-Quiz Questions to the Mystery Chest pool.

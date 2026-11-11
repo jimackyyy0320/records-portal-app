@@ -84,6 +84,7 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
 
   // Proximity state
   InteractiveZone? _highlightedZone;
+  InteractiveZone? _pendingZoneToTrigger;
 
   // Cached per-room collision & zone lists to avoid 60 FPS GC churn
   LobbyRoomId? _cachedRoomForSolids;
@@ -222,6 +223,7 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
       _activeRestSpot = null;
       _activePath = const [];
       _highlightedZone = null;
+      _pendingZoneToTrigger = null;
       _cameraCenter =
           _clampCameraToWorld(spawn, _lastViewportSize, _cameraZoom);
     });
@@ -244,14 +246,14 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
     );
   }
 
-  /// Finds the nearest [LobbyRestSpot] in `_currentRoom` within `82px` of `_playerPos`
+  /// Finds the nearest [LobbyRestSpot] in `_currentRoom` within `115px` of `_playerPos`
   /// (or returns `_activeRestSpot` if the player is currently sitting/napping/sleeping on one).
   LobbyRestSpot? _findNearbyRestSpot() {
     if (_playerRestState.isResting && _activeRestSpot != null) {
       return _activeRestSpot;
     }
     LobbyRestSpot? best;
-    var bestDist = 82.0;
+    var bestDist = 115.0;
     for (final spot in restSpotsForRoom(_currentRoom)) {
       final d = (_playerPos - spot.position).distance;
       if (d <= bestDist) {
@@ -295,10 +297,29 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
-            '🪑 Walk up to a chair, bench, or sofa to sit, nap, or sleep!',
+            '🪑 Walk up to or tap any chair, bench, or sofa to sit, nap, or sleep!',
           ),
           behavior: SnackBarBehavior.floating,
           duration: Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
+
+    // Enforce Personal Student Classroom Table Exclusive Lock!
+    if (!canStudentSitAtSpot(
+      spotId: spot.id,
+      isLocalPlayer: true,
+      isFaculty: widget.session.isFaculty,
+    )) {
+      LobbyAudioService.instance.playQuizWrong();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            '🔒 This Classroom Table is reserved for a classmate! Use your Personal Table (Row 1 Center — 📌 Your Table) or the Group Study Table!',
+          ),
+          behavior: SnackBarBehavior.floating,
+          duration: Duration(seconds: 3),
         ),
       );
       return;
@@ -434,21 +455,25 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
 
   Offset _clampCameraToWorld(Offset target, Size viewportSize, double zoom) {
     if (viewportSize.isEmpty) return target;
+    final bounds = _currentRoom.roomBounds;
     final halfViewW = (viewportSize.width / 2) / zoom;
     final halfViewH = (viewportSize.height / 2) / zoom;
 
     double clampedX;
-    if (halfViewW * 2 >= kLobbyWorldWidth) {
-      clampedX = kLobbyWorldWidth / 2;
+    if (halfViewW * 2 >= bounds.width) {
+      clampedX = bounds.center.dx;
     } else {
-      clampedX = target.dx.clamp(halfViewW, kLobbyWorldWidth - halfViewW);
+      clampedX = target.dx.clamp(bounds.left + halfViewW, bounds.right - halfViewW);
     }
 
     double clampedY;
-    if (halfViewH * 2 >= kLobbyWorldHeight) {
-      clampedY = kLobbyWorldHeight / 2;
+    if (halfViewH * 2 >= bounds.height + 64) {
+      clampedY = bounds.center.dy;
     } else {
-      clampedY = target.dy.clamp(halfViewH, kLobbyWorldHeight - halfViewH);
+      clampedY = target.dy.clamp(
+        math.max(halfViewH, bounds.top - 48),
+        math.min(kLobbyWorldHeight - halfViewH, bounds.bottom + 24),
+      );
     }
 
     return Offset(clampedX, clampedY);
@@ -487,38 +512,67 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
     }
   }
 
-  /// Moves the player by [delta] against [solids] with **Furniture Anti-Bump Beveled Corner-Sliding**
-  /// (`±18px` perpendicular whisker steering inspired by `WorkAdventure` / `TinyFloor`).
+  /// Moves the player by [delta] against [solids] with:
+  /// 1. Compact `roomBounds` perimeter clamping
+  /// 2. Slimmer ankle hitbox (`20x12 px`) so narrow chair/table gaps are never a trap
+  /// 3. **Anti-Stuck Depenetration Protocol**: if `current` already overlaps any solid,
+  ///    pushes the player out along the shortest escape vector or allows any movement
+  ///    that increases distance from the overlapping solid's center!
+  /// 4. **Furniture Anti-Bump Beveled Corner-Sliding** (`±18px` perpendicular whiskers).
   Offset _moveWithSlidingCollision(
       Offset current, Offset delta, List<Rect> solids) {
-    var nextX = (current.dx + delta.dx).clamp(38.0, kLobbyWorldWidth - 38.0);
-    var nextY = (current.dy + delta.dy).clamp(90.0, kLobbyWorldHeight - 30.0);
+    final bounds = _currentRoom.roomBounds;
+    final minX = bounds.left + 16.0;
+    final maxX = bounds.right - 16.0;
+    final minY = bounds.top + 8.0;
+    final maxY = bounds.bottom - 12.0;
+
+    var nextX = (current.dx + delta.dx).clamp(minX, maxX);
+    var nextY = (current.dy + delta.dy).clamp(minY, maxY);
+
+    Rect footBoxAt(double x, double y) => Rect.fromCenter(
+          center: Offset(x, y),
+          width: 20.0,
+          height: 12.0,
+        );
 
     bool collidesAt(double x, double y) {
-      final footBox = Rect.fromCenter(
-        center: Offset(x, y),
-        width: kPlayerHalfWidth * 1.85,
-        height: kPlayerHalfWidth * 1.45,
-      );
+      final fb = footBoxAt(x, y);
       for (final s in solids) {
-        if (footBox.overlaps(s)) return true;
+        if (fb.overlaps(s)) return true;
       }
       return false;
     }
 
-    const whiskers = <double>[6.0, -6.0, 12.0, -12.0, 18.0, -18.0];
+    // Anti-Stuck Depenetration: if the player is ALREADY overlapping a solid at `current`,
+    // find the nearest non-colliding radial point or allow movement away from the solid center!
+    if (collidesAt(current.dx, current.dy)) {
+      if (!collidesAt(nextX, nextY)) {
+        return Offset(nextX, nextY);
+      }
+      for (var radius = 6.0; radius <= 48.0; radius += 6.0) {
+        for (var angle = 0.0; angle < math.pi * 2; angle += math.pi / 4) {
+          final ex = (current.dx + math.cos(angle) * radius).clamp(minX, maxX);
+          final ey = (current.dy + math.sin(angle) * radius).clamp(minY, maxY);
+          if (!collidesAt(ex, ey)) {
+            return Offset(ex, ey);
+          }
+        }
+      }
+      return Offset(nextX, nextY);
+    }
+
+    const whiskers = <double>[6.0, -6.0, 12.0, -12.0, 18.0, -18.0, 24.0, -24.0];
 
     if (collidesAt(nextX, current.dy)) {
       var slidCornerY = false;
       if (delta.dx.abs() > 0.05) {
         for (final wy in whiskers) {
-          final probeY =
-              (current.dy + wy).clamp(90.0, kLobbyWorldHeight - 30.0);
+          final probeY = (current.dy + wy).clamp(minY, maxY);
           if (!collidesAt(nextX, probeY)) {
             final nudge =
                 wy.sign * math.min(delta.dx.abs() * 0.95, wy.abs());
-            final candidateY =
-                (current.dy + nudge).clamp(90.0, kLobbyWorldHeight - 30.0);
+            final candidateY = (current.dy + nudge).clamp(minY, maxY);
             if (!collidesAt(current.dx, candidateY)) {
               nextY = candidateY;
               if (collidesAt(nextX, nextY)) {
@@ -539,13 +593,11 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
       var slidCornerX = false;
       if (delta.dy.abs() > 0.05) {
         for (final wx in whiskers) {
-          final probeX =
-              (current.dx + wx).clamp(38.0, kLobbyWorldWidth - 38.0);
+          final probeX = (current.dx + wx).clamp(minX, maxX);
           if (!collidesAt(probeX, nextY)) {
             final nudge =
                 wx.sign * math.min(delta.dy.abs() * 0.95, wx.abs());
-            final candidateX =
-                (current.dx + nudge).clamp(38.0, kLobbyWorldWidth - 38.0);
+            final candidateX = (current.dx + nudge).clamp(minX, maxX);
             if (!collidesAt(candidateX, current.dy)) {
               nextX = candidateX;
               if (collidesAt(nextX, nextY)) {
@@ -741,6 +793,23 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
     final zoneChanged = _highlightedZone?.id != nearest?.id;
     _highlightedZone = nearest;
 
+    // 4b. Auto-trigger `_pendingZoneToTrigger` once the player arrives within reach!
+    if (_pendingZoneToTrigger != null) {
+      final pending = _pendingZoneToTrigger!;
+      final distToPending = (_playerPos - pending.center).distance;
+      if (distToPending <= pending.radius + 14.0 || _activePath.isEmpty) {
+        _pendingZoneToTrigger = null;
+        _activePath = const [];
+        _playerIsWalking = false;
+        _highlightedZone = pending;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            _triggerInteract();
+          }
+        });
+      }
+    }
+
     if (walking ||
         wasWalking ||
         cameraMoved ||
@@ -760,10 +829,35 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
         (local.dy - viewportSize.height / 2) / _cameraZoom + _cameraCenter.dy;
     final worldTap = Offset(worldX, worldY);
 
-    // If user tapped directly on the currently highlighted zone within range, trigger it immediately!
+    // 1. Check if the user tapped on ANY interactive zone (furniture, desk, NPC, door, shop, radio, group study)
+    InteractiveZone? tappedZone;
+    var bestTapDist = 999999.0;
+    for (final z in _cachedZones) {
+      if (!_showOfflineBots && z.kind == InteractiveZoneKind.peerStudent) {
+        continue;
+      }
+      final hitRadius = math.max(54.0, z.radius * 0.65);
+      final d = (worldTap - z.center).distance;
+      if (d <= hitRadius && d < bestTapDist) {
+        bestTapDist = d;
+        tappedZone = z;
+      }
+    }
+
+    // If user tapped a zone and is already within reach, trigger it immediately!
+    if (tappedZone != null &&
+        (_playerPos - tappedZone.center).distance <= tappedZone.radius + 16.0) {
+      _pendingZoneToTrigger = null;
+      _highlightedZone = tappedZone;
+      _triggerInteract();
+      return;
+    }
+
+    // Also if user tapped the currently highlighted zone within range, trigger it immediately!
     if (_highlightedZone != null &&
         (worldTap - _highlightedZone!.center).distance <=
             _highlightedZone!.radius * 0.85) {
+      _pendingZoneToTrigger = null;
       _triggerInteract();
       return;
     }
@@ -779,10 +873,29 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
       solids: solids,
     );
 
-    final path = nav.findPath(startPos, worldTap);
+    // If user tapped a distant interactive zone (chair, desk, NPC, door, shop), walk right up to it and auto-trigger!
+    Offset goalPoint = worldTap;
+    if (tappedZone != null) {
+      if (tappedZone.kind == InteractiveZoneKind.restSpot &&
+          tappedZone.restSpotId != null) {
+        final spots = restSpotsForRoom(_currentRoom)
+            .where((r) => r.id == tappedZone!.restSpotId)
+            .toList();
+        if (spots.isNotEmpty) {
+          goalPoint = spots.first.standPosition;
+        } else {
+          goalPoint = tappedZone.center;
+        }
+      } else {
+        goalPoint = tappedZone.center;
+      }
+    }
+
+    final path = nav.findPath(startPos, goalPoint);
     setState(() {
       _tapPulseTarget = worldTap;
       _tapPulseProgress = 0.0;
+      _pendingZoneToTrigger = tappedZone;
       if (path.isNotEmpty) {
         if (_activeRestSpot != null) {
           _playerPos = _activeRestSpot!.standPosition;
@@ -790,6 +903,13 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
         }
         _playerRestState = PlayerRestState.none;
         _activePath = path;
+      } else if (tappedZone != null) {
+        // Direct fallback if start & goal share the same walkable tile
+        _highlightedZone = tappedZone;
+        _pendingZoneToTrigger = null;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _triggerInteract();
+        });
       }
     });
   }
@@ -835,11 +955,12 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
     }
   }
 
-  Future<void> _openCampusShop() async {
+  Future<void> _openCampusShop({String? initialCategory}) async {
     final updatedLook = await showCampusShopModal(
       context: context,
       currentLook: _playerLook,
       isFaculty: widget.session.isFaculty,
+      initialCategory: initialCategory,
     );
     if (updatedLook != null && mounted) {
       final safeLook = LobbyShopService.instance.sanitizeLookForUnlocked(
@@ -916,11 +1037,37 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
             y: zone.y,
           ),
         );
+        if (!canStudentSitAtSpot(
+          spotId: spot.id,
+          isLocalPlayer: true,
+          isFaculty: widget.session.isFaculty,
+        )) {
+          LobbyAudioService.instance.playQuizWrong();
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                '🔒 This Classroom Table belongs to a classmate! Walk to your Personal Table (Row 1 Center — 📌 Your Table) or the Group Study Table!',
+              ),
+              behavior: SnackBarBehavior.floating,
+              duration: Duration(seconds: 3),
+            ),
+          );
+          break;
+        }
+        final isPersonalTable = spot.id == kLocalPlayerClassroomDeskSpotId;
+        final isGroupStudySeat = spot.id.contains('group_study');
         final chosenRest = await showRestSpotActionModal(
           context: context,
           spotLabel: spot.label,
           currentState: _playerRestState,
           canSleepFlat: spot.canSleepFlat,
+          isPersonalClassroomTable: isPersonalTable,
+          isGroupStudySpace: isGroupStudySeat,
+          onDecorateTable: isPersonalTable
+              ? () => _openCampusShop(initialCategory: 'table_chair')
+              : null,
+          onOpenGroupChat:
+              isGroupStudySeat ? () => _openThoughtBubbleModal() : null,
         );
         if (chosenRest != null && mounted) {
           _setPlayerRestState(chosenRest, snapToSpot: spot);
@@ -996,16 +1143,25 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
         await showBulletinBoardModal(context: context);
         break;
       case InteractiveZoneKind.studentLounge:
-        final loungeSpot = _findNearbyRestSpot() ??
-            restSpotsForRoom(_currentRoom).firstWhere(
-              (r) => r.id.contains('lounge'),
-              orElse: () => restSpotsForRoom(_currentRoom).first,
-            );
+        final roomSpots = restSpotsForRoom(_currentRoom);
+        final groupSpots = roomSpots
+            .where((r) => r.id.contains('group_study') || r.id.contains('lounge'))
+            .toList();
+        LobbyRestSpot loungeSpot = _findNearbyRestSpot() ??
+            (groupSpots.isNotEmpty ? groupSpots.first : roomSpots.first);
+        if (groupSpots.isNotEmpty) {
+          groupSpots.sort((a, b) => (_playerPos - a.position)
+              .distance
+              .compareTo((_playerPos - b.position).distance));
+          loungeSpot = groupSpots.first;
+        }
         final chosenRest = await showRestSpotActionModal(
           context: context,
-          spotLabel: loungeSpot.label,
+          spotLabel: zone.label,
           currentState: _playerRestState,
           canSleepFlat: loungeSpot.canSleepFlat,
+          isGroupStudySpace: true,
+          onOpenGroupChat: () => _openThoughtBubbleModal(),
         );
         if (chosenRest != null && mounted) {
           _setPlayerRestState(chosenRest, snapToSpot: loungeSpot);
@@ -1236,8 +1392,12 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
     final occupancy = LobbyPresenceService.instance.roomOccupancyCounts;
     showModalBottomSheet<void>(
       context: context,
+      isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (ctx) => Container(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(ctx).size.height * 0.84,
+        ),
         margin: const EdgeInsets.all(14),
         padding: const EdgeInsets.all(18),
         decoration: BoxDecoration(
@@ -1273,70 +1433,77 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
               ],
             ),
             const SizedBox(height: 8),
-            ...LobbyRoomId.values.map((room) {
-              final isCurrent = room == _currentRoom;
-              final accent = Color(room.accentColor);
-              final roomCount =
-                  (occupancy[room] ?? 0) + (isCurrent ? 1 : 0);
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: ListTile(
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
-                    side: BorderSide(
-                      color: isCurrent ? accent : Colors.white12,
-                      width: isCurrent ? 1.8 : 1.0,
-                    ),
-                  ),
-                  tileColor: isCurrent
-                      ? accent.withOpacity(0.20)
-                      : const Color(0xFF1E293B),
-                  leading:
-                      Text(room.iconEmoji, style: const TextStyle(fontSize: 22)),
-                  title: Text(
-                    room.title,
-                    style: GoogleFonts.outfit(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w700,
-                      fontSize: 14.5,
-                    ),
-                  ),
-                  subtitle: Text(
-                    '🟢 $roomCount Inside',
-                    style: GoogleFonts.inter(
-                      color: const Color(0xFF34D399),
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  trailing: isCurrent
-                      ? Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 10, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: accent,
-                            borderRadius: BorderRadius.circular(99),
+            Flexible(
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: LobbyRoomId.values.map((room) {
+                    final isCurrent = room == _currentRoom;
+                    final accent = Color(room.accentColor);
+                    final roomCount =
+                        (occupancy[room] ?? 0) + (isCurrent ? 1 : 0);
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: ListTile(
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                          side: BorderSide(
+                            color: isCurrent ? accent : Colors.white12,
+                            width: isCurrent ? 1.8 : 1.0,
                           ),
-                          child: const Text(
-                            'Current Room',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 10.5,
-                              fontWeight: FontWeight.w800,
-                            ),
+                        ),
+                        tileColor: isCurrent
+                            ? accent.withOpacity(0.20)
+                            : const Color(0xFF1E293B),
+                        leading: Text(room.iconEmoji,
+                            style: const TextStyle(fontSize: 22)),
+                        title: Text(
+                          room.title,
+                          style: GoogleFonts.outfit(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 14.5,
                           ),
-                        )
-                      : const Icon(Icons.arrow_forward_ios_rounded,
-                          color: Colors.white54, size: 15),
-                  onTap: () {
-                    Navigator.of(ctx).pop();
-                    if (!isCurrent) {
-                      _enterRoom(room);
-                    }
-                  },
+                        ),
+                        subtitle: Text(
+                          '🟢 $roomCount Inside',
+                          style: GoogleFonts.inter(
+                            color: const Color(0xFF34D399),
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        trailing: isCurrent
+                            ? Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 10, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: accent,
+                                  borderRadius: BorderRadius.circular(99),
+                                ),
+                                child: const Text(
+                                  'Current Room',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 10.5,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                              )
+                            : const Icon(Icons.arrow_forward_ios_rounded,
+                                color: Colors.white54, size: 15),
+                        onTap: () {
+                          Navigator.of(ctx).pop();
+                          if (!isCurrent) {
+                            _enterRoom(room);
+                          }
+                        },
+                      ),
+                    );
+                  }).toList(),
                 ),
-              );
-            }),
+              ),
+            ),
           ],
         ),
       ),

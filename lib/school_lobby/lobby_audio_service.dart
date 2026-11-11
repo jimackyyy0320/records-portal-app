@@ -18,6 +18,8 @@ class LobbyAudioService extends ChangeNotifier {
   static final LobbyAudioService instance = LobbyAudioService._();
 
   static const String _kPrefsMuteKey = 'lobby_sfx_muted_v1';
+  static const MethodChannel _deviceBridge =
+      MethodChannel('com.recordsportal.app/device_bridge');
 
   bool _isMuted = false;
   bool _initialized = false;
@@ -158,14 +160,21 @@ class LobbyAudioService extends ChangeNotifier {
     _playedSfxCount++;
 
     if (!_isRunningInTest) {
+      final wavBytes = synthesizeToneSequenceWav(
+        notesHz,
+        noteDurationMs: noteDurationMs,
+        volume: playClick ? 0.45 : 0.22,
+      );
+      _deviceBridge
+          .invokeMethod<bool>('playWavBytes', <String, dynamic>{
+            'bytes': wavBytes,
+          })
+          .catchError((_) => false);
+
       if (playClick) {
         SystemSound.play(SystemSoundType.click);
       }
       if (_webViewReady && _audioWebViewController != null) {
-        final wavBytes = synthesizeToneSequenceWav(
-          notesHz,
-          noteDurationMs: noteDurationMs,
-        );
         final b64 = base64Encode(wavBytes);
         _audioWebViewController!
             .runJavaScript('window.playWavBase64 && window.playWavBase64("$b64");')

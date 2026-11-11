@@ -4,6 +4,10 @@ import android.Manifest
 import android.content.ContentValues
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.media.AudioAttributes
+import android.media.AudioFormat
+import android.media.AudioTrack
+import android.media.MediaPlayer
 import android.net.Uri
 import android.nfc.NdefMessage
 import android.nfc.NdefRecord
@@ -20,6 +24,7 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
 import java.nio.charset.Charset
+import java.util.concurrent.Executors
 
 class MainActivity : FlutterActivity() {
 
@@ -71,6 +76,9 @@ class MainActivity : FlutterActivity() {
     private var pendingCameraResult: MethodChannel.Result? = null
     private var nfcReaderWanted: Boolean = false
     private var nfcReaderAttached: Boolean = false
+    private val sfxExecutor = Executors.newCachedThreadPool()
+    private var radioMediaPlayer: MediaPlayer? = null
+    private var radioStreamToken: Int = 0
 
     private val nfcReaderCallback = NfcAdapter.ReaderCallback { tag ->
         if (tag != null && nfcReaderWanted) {
@@ -142,7 +150,180 @@ class MainActivity : FlutterActivity() {
                         }
                     }
                 }
+                "playWavBytes" -> {
+                    val bytes = call.argument<ByteArray>("bytes")
+                    if (bytes != null && bytes.size > 44) {
+                        playNativePcmWav(bytes)
+                        result.success(true)
+                    } else {
+                        result.success(false)
+                    }
+                }
+                "setRadioStream" -> {
+                    val url = call.argument<String>("url") ?: ""
+                    val fallbacks = call.argument<List<String>>("fallbackUrls") ?: emptyList()
+                    val playing = call.argument<Boolean>("playing") ?: false
+                    setNativeRadioStream(url, fallbacks, playing)
+                    result.success(true)
+                }
+                "stopRadioStream" -> {
+                    stopNativeRadioStream()
+                    result.success(true)
+                }
                 else -> result.notImplemented()
+            }
+        }
+    }
+
+    override fun onDestroy() {
+        stopNativeRadioStream()
+        super.onDestroy()
+    }
+
+    private fun playNativePcmWav(wavBytes: ByteArray) {
+        sfxExecutor.execute {
+            var track: AudioTrack? = null
+            try {
+                val pcmOffset = 44
+                val pcmLen = wavBytes.size - pcmOffset
+                if (pcmLen <= 0) return@execute
+
+                val sampleRate = 22050
+                val minBuf = AudioTrack.getMinBufferSize(
+                    sampleRate,
+                    AudioFormat.CHANNEL_OUT_MONO,
+                    AudioFormat.ENCODING_PCM_16BIT
+                )
+                val bufSize = maxOf(pcmLen, minBuf.coerceAtLeast(1024))
+
+                val attrs = AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_GAME)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .build()
+
+                val format = AudioFormat.Builder()
+                    .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                    .setSampleRate(sampleRate)
+                    .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                    .build()
+
+                track = AudioTrack(
+                    attrs,
+                    format,
+                    bufSize,
+                    AudioTrack.MODE_STATIC,
+                    android.media.AudioManager.AUDIO_SESSION_ID_GENERATE
+                )
+                val written = track.write(wavBytes, pcmOffset, pcmLen)
+                if (written > 0 && track.state == AudioTrack.STATE_INITIALIZED) {
+                    track.play()
+                    val durationMs = ((pcmLen / 2L) * 1000L / sampleRate) + 75L
+                    Thread.sleep(durationMs.coerceIn(45L, 2200L))
+                    try {
+                        track.stop()
+                    } catch (_: Throwable) {
+                    }
+                }
+            } catch (_: Throwable) {
+            } finally {
+                try {
+                    track?.release()
+                } catch (_: Throwable) {
+                }
+            }
+        }
+    }
+
+    private fun stopNativeRadioStream() {
+        radioStreamToken++
+        val old = radioMediaPlayer
+        radioMediaPlayer = null
+        if (old != null) {
+            sfxExecutor.execute {
+                try {
+                    if (old.isPlaying) {
+                        old.stop()
+                    }
+                } catch (_: Throwable) {
+                } finally {
+                    try {
+                        old.release()
+                    } catch (_: Throwable) {
+                    }
+                }
+            }
+        }
+    }
+
+    private fun setNativeRadioStream(
+        primaryUrl: String,
+        fallbackUrls: List<String>,
+        playing: Boolean
+    ) {
+        stopNativeRadioStream()
+        if (!playing || primaryUrl.isBlank()) return
+
+        val candidates = (listOf(primaryUrl) + fallbackUrls)
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .distinct()
+        if (candidates.isEmpty()) return
+
+        val token = ++radioStreamToken
+        tryRadioCandidate(candidates, 0, token)
+    }
+
+    private fun tryRadioCandidate(candidates: List<String>, index: Int, token: Int) {
+        if (token != radioStreamToken || index >= candidates.size) return
+        val streamUrl = candidates[index]
+
+        sfxExecutor.execute {
+            if (token != radioStreamToken) return@execute
+            try {
+                val mp = MediaPlayer()
+                mp.setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                        .build()
+                )
+                mp.setOnPreparedListener { player ->
+                    if (token == radioStreamToken) {
+                        try {
+                            player.setVolume(0.85f, 0.85f)
+                            player.start()
+                            runOnUiThread {
+                                methodChannel?.invokeMethod(
+                                    "onRadioStateChanged",
+                                    mapOf("playing" to true, "url" to streamUrl)
+                                )
+                            }
+                        } catch (_: Throwable) {
+                        }
+                    } else {
+                        try {
+                            player.release()
+                        } catch (_: Throwable) {
+                        }
+                    }
+                }
+                mp.setOnErrorListener { player, _, _ ->
+                    try {
+                        player.release()
+                    } catch (_: Throwable) {
+                    }
+                    if (token == radioStreamToken && index + 1 < candidates.size) {
+                        tryRadioCandidate(candidates, index + 1, token)
+                    }
+                    true
+                }
+                mp.setDataSource(streamUrl)
+                radioMediaPlayer = mp
+                mp.prepareAsync()
+            } catch (_: Throwable) {
+                if (token == radioStreamToken && index + 1 < candidates.size) {
+                    tryRadioCandidate(candidates, index + 1, token)
+                }
             }
         }
     }

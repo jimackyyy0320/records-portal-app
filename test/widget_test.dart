@@ -453,10 +453,13 @@ void main() {
         'Studying PGP under the Campus Park trees!',
       );
 
-      // 8. Phase 4: Only Lobbyist NPC remains; Class Room Podium & Chairs; Park Trees;
+      // 8. Phase 4 & 6: Room & Shop NPCs across all 5 rooms; Class Room Podium & Chairs; Park Trees;
       //    Canteen Vending Machines; Guided Walk Paths; 100% Atlas Sprite Key Verification
-      expect(kLobbyNpcs.length, 1);
+      expect(kLobbyNpcs.length, greaterThanOrEqualTo(7));
       expect(kLobbyNpcs.first.id, 'npc_receptionist');
+      for (final room in LobbyRoomId.values) {
+        expect(npcsForRoom(room), isNotEmpty);
+      }
       expect(kLobbyPeerStudents, isNotEmpty);
 
       final atlasFile = File('assets/school_lobby/catalog/atlas.json');
@@ -693,10 +696,10 @@ void main() {
         for (final s in spots) {
           // Every rest spot has a distinct walkable standPosition dismount offset
           expect(s.standPosition != s.position, isTrue);
-          // Resting characters sort at pos.dy + 38.0 so they render ON TOP OF furniture cushions
+          // Resting characters sort at pos.dy + 54.0 so they render ON TOP OF furniture cushions
           expect(
             s.effectiveSortY,
-            equals(s.position.dy + 38.0),
+            equals(s.position.dy + 54.0),
           );
         }
       }
@@ -784,6 +787,135 @@ void main() {
       expect(wavBytes.length, greaterThan(44));
       expect(String.fromCharCodes(wavBytes.sublist(0, 4)), 'RIFF');
       expect(String.fromCharCodes(wavBytes.sublist(8, 12)), 'WAVE');
+    },
+  );
+
+  test(
+    'Phase 6: Parcha-ai AI Subject Mentors (Strictly PKLP, PPG, UCSP), Group Study Spaces in all 5 rooms, Personal Classroom Table Lock, Campus Shop Table Space Decor & Compact Room Bounds',
+    () async {
+      final service = LobbyDataService.instance;
+      await service.init('2024-00777');
+
+      // 1. Strict Portal Subject Constraint for AI Subject Mentor NPCs: ONLY PKLP, PPG, and UCSP
+      expect(kAiSubjectMentors.length, 8);
+      const allowedPortalSubjects = {'PKLP', 'PPG', 'UCSP'};
+      for (final mentor in kAiSubjectMentors) {
+        expect(
+          allowedPortalSubjects.contains(mentor.subjectCode),
+          isTrue,
+          reason:
+              'AI Mentor ${mentor.name} has subjectCode ${mentor.subjectCode}, which is outside {PKLP, PPG, UCSP}',
+        );
+        expect(aiMentorForId(mentor.id), isNotNull);
+        expect(mentor.thoughtPrompts, isNotEmpty);
+
+        // Verify AI Mentor strictly draws questions matching its Portal subject
+        final q = service.pickRandomQuestionForSmallChest(
+          mentor.id,
+          preferredSubjectCode: mentor.subjectCode,
+        );
+        expect(
+          q.subject.toUpperCase().startsWith(mentor.subjectCode),
+          isTrue,
+          reason:
+              'AI Mentor ${mentor.name} (${mentor.subjectCode}) drew question with subject ${q.subject}',
+        );
+      }
+
+      // 2. Group Study & Chat Spaces exist in all 5 rooms (`LobbyRoomId.values`)
+      expect(kGroupStudySpaces.length, greaterThanOrEqualTo(5));
+      for (final room in LobbyRoomId.values) {
+        final roomStudySpaces = groupStudySpacesForRoom(room);
+        expect(
+          roomStudySpaces,
+          isNotEmpty,
+          reason: 'Room $room is missing a Group Study Space',
+        );
+        final roomRestSpots = restSpotsForRoom(room);
+        expect(
+          roomRestSpots.any((s) => s.isGroupStudySpace),
+          isTrue,
+          reason: 'Room $room has no Group Study rest spots',
+        );
+      }
+
+      // 3. Compact Room Bounds (`roomBounds`) eliminate dead space in every room
+      for (final room in LobbyRoomId.values) {
+        final bounds = room.roomBounds;
+        expect(bounds.width, lessThan(kLobbyWorldWidth));
+        expect(bounds.height, lessThan(kLobbyWorldHeight));
+        expect(bounds.width, greaterThanOrEqualTo(750.0));
+        expect(bounds.height, greaterThanOrEqualTo(600.0));
+      }
+
+      // 4. Personal Student Classroom Table Assignment & Exclusive Ownership Lock
+      expect(
+        kPersonalStudentClassroomSpotId,
+        equals('rest_classroom_r1_c2'),
+      );
+      expect(
+        canStudentSitAtSpot('rest_classroom_r1_c2', isFaculty: false),
+        isTrue,
+      );
+      // Other students' personal Classroom tables are locked for non-faculty students
+      expect(
+        canStudentSitAtSpot('rest_classroom_r1_c1', isFaculty: false),
+        isFalse,
+      );
+      expect(
+        canStudentSitAtSpot('rest_classroom_r2_c3', isFaculty: false),
+        isFalse,
+      );
+      // Group Study tables in the Classroom are open to all students!
+      expect(
+        canStudentSitAtSpot('rest_classroom_group_study_1', isFaculty: false),
+        isTrue,
+      );
+      // Faculty advisers can inspect any seat
+      expect(
+        canStudentSitAtSpot('rest_classroom_r1_c1', isFaculty: true),
+        isTrue,
+      );
+
+      // 5. Campus Shop Table Space Decor (`kTableDecorCatalog` & `LobbyTableDecorConfig`)
+      final shop = LobbyShopService.instance;
+      expect(shop.itemsForCategory('table_chair').length, greaterThanOrEqualTo(4));
+      expect(shop.itemsForCategory('table_light').length, greaterThanOrEqualTo(4));
+      expect(shop.itemsForCategory('table_frame').length, greaterThanOrEqualTo(4));
+      expect(shop.itemsForCategory('table_mat').length, greaterThanOrEqualTo(4));
+      expect(shop.itemsForCategory('table_prop').length, greaterThanOrEqualTo(4));
+
+      // Starter table chair ('classic_wood') is unlocked by default; 'ergo_emerald' costs XP
+      expect(
+        shop.isCosmeticUnlocked('table_chair', 'classic_wood', isFaculty: false),
+        isTrue,
+      );
+      expect(
+        shop.isCosmeticUnlocked('table_chair', 'ergo_emerald', isFaculty: false),
+        isFalse,
+      );
+
+      // Update and persist the student's Classroom Table Space Decor
+      await service.updateTableDecor(
+        const LobbyTableDecorConfig(
+          chairStyle: 'ergo_emerald',
+          miniLight: 'warm_lamp',
+          deskFrame: 'gold_honor',
+          deskMat: 'mint_grid',
+          tableProp: 'succulent',
+        ),
+      );
+      expect(service.progress.tableDecor.chairStyle, 'ergo_emerald');
+      expect(service.progress.tableDecor.miniLight, 'warm_lamp');
+      expect(service.progress.tableDecor.deskFrame, 'gold_honor');
+      expect(service.progress.tableDecor.deskMat, 'mint_grid');
+      expect(service.progress.tableDecor.tableProp, 'succulent');
+
+      // 6. Radio Fallback Streams configured for reliable Android MediaPlayer streaming
+      for (final station in kCampusRadioStations) {
+        expect(station.streamUrl, isNotEmpty);
+        expect(station.fallbackStreamUrls, isNotEmpty);
+      }
     },
   );
 }

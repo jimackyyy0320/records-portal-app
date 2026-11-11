@@ -19,6 +19,7 @@ class LobbyRadioStation {
   final String emoji;
   final String radioGardenUrl;
   final String streamUrl;
+  final List<String> fallbackStreamUrls;
 
   const LobbyRadioStation({
     required this.id,
@@ -28,6 +29,7 @@ class LobbyRadioStation {
     required this.emoji,
     required this.radioGardenUrl,
     required this.streamUrl,
+    this.fallbackStreamUrls = const <String>[],
   });
 }
 
@@ -36,6 +38,9 @@ class LobbyRadioStation {
 class LobbyRadioService extends ChangeNotifier {
   LobbyRadioService._();
   static final LobbyRadioService instance = LobbyRadioService._();
+
+  static const MethodChannel _deviceBridge =
+      MethodChannel('com.recordsportal.app/device_bridge');
 
   /// Channel can only be changed once per hour (3,600,000 ms).
   static const int kChannelChangeCooldownMs = 60 * 60 * 1000;
@@ -52,7 +57,12 @@ class LobbyRadioService extends ChangeNotifier {
       genre: '24/7 Lofi Hip-Hop & Exam Focus',
       emoji: '🎧',
       radioGardenUrl: 'https://radio.garden/visit/tokyo/pTJbQ1aM',
-      streamUrl: 'https://ice1.somafm.com/groovesalad-128-mp3',
+      streamUrl: 'https://ice2.somafm.com/groovesalad-128-mp3',
+      fallbackStreamUrls: <String>[
+        'https://ice4.somafm.com/groovesalad-128-mp3',
+        'https://ice1.somafm.com/groovesalad-128-mp3',
+        'https://stream.nightride.fm/chillsynth.mp3',
+      ],
     ),
     LobbyRadioStation(
       id: 'rg_manila_opm',
@@ -61,7 +71,12 @@ class LobbyRadioService extends ChangeNotifier {
       genre: 'Pinoy Pop, Indie & Acoustic Ballads',
       emoji: '🇵🇭',
       radioGardenUrl: 'https://radio.garden/visit/manila/segments',
-      streamUrl: 'https://ice1.somafm.com/lush-128-mp3',
+      streamUrl: 'https://ice2.somafm.com/lush-128-mp3',
+      fallbackStreamUrls: <String>[
+        'https://ice4.somafm.com/lush-128-mp3',
+        'https://ice1.somafm.com/lush-128-mp3',
+        'https://stream.radioparadise.com/mp3-128',
+      ],
     ),
     LobbyRadioStation(
       id: 'rg_cebu_fm',
@@ -70,7 +85,12 @@ class LobbyRadioService extends ChangeNotifier {
       genre: 'Vispop, Bisrock & Student Requests',
       emoji: '🌴',
       radioGardenUrl: 'https://radio.garden/visit/cebu-city/segments',
-      streamUrl: 'https://ice1.somafm.com/indiepop-128-mp3',
+      streamUrl: 'https://ice2.somafm.com/indiepop-128-mp3',
+      fallbackStreamUrls: <String>[
+        'https://ice4.somafm.com/indiepop-128-mp3',
+        'https://ice1.somafm.com/indiepop-128-mp3',
+        'https://stream.radioparadise.com/rock-128',
+      ],
     ),
     LobbyRadioStation(
       id: 'rg_classical_reading',
@@ -79,7 +99,12 @@ class LobbyRadioService extends ChangeNotifier {
       genre: 'Instrumental Piano & Strings for Reading',
       emoji: '🎻',
       radioGardenUrl: 'https://radio.garden/visit/vienna/segments',
-      streamUrl: 'https://ice1.somafm.com/dronezone-128-mp3',
+      streamUrl: 'https://ice2.somafm.com/dronezone-128-mp3',
+      fallbackStreamUrls: <String>[
+        'https://ice4.somafm.com/dronezone-128-mp3',
+        'https://ice1.somafm.com/dronezone-128-mp3',
+        'https://stream.radioparadise.com/mellow-128',
+      ],
     ),
     LobbyRadioStation(
       id: 'rg_canteen_jazz',
@@ -88,7 +113,12 @@ class LobbyRadioService extends ChangeNotifier {
       genre: 'Smooth Coffeehouse Jazz & Bossa Nova',
       emoji: '☕',
       radioGardenUrl: 'https://radio.garden/visit/paris/segments',
-      streamUrl: 'https://ice1.somafm.com/secretagent-128-mp3',
+      streamUrl: 'https://ice2.somafm.com/secretagent-128-mp3',
+      fallbackStreamUrls: <String>[
+        'https://ice4.somafm.com/secretagent-128-mp3',
+        'https://ice1.somafm.com/secretagent-128-mp3',
+        'https://ice2.somafm.com/illstreet-128-mp3',
+      ],
     ),
     LobbyRadioStation(
       id: 'rg_anime_synth',
@@ -97,7 +127,12 @@ class LobbyRadioService extends ChangeNotifier {
       genre: 'Anime OSTs, Synthwave & J-Pop',
       emoji: '🌸',
       radioGardenUrl: 'https://radio.garden/visit/tokyo/segments',
-      streamUrl: 'https://ice1.somafm.com/defcon-128-mp3',
+      streamUrl: 'https://radio.plaza.one/mp3',
+      fallbackStreamUrls: <String>[
+        'https://ice2.somafm.com/defcon-128-mp3',
+        'https://ice4.somafm.com/defcon-128-mp3',
+        'https://stream.nightride.fm/nightride.mp3',
+      ],
     ),
   ];
 
@@ -248,13 +283,27 @@ class LobbyRadioService extends ChangeNotifier {
 
   void _syncAudioStreamWebView() {
     try {
+      final station = activeStation;
       if (!_isListeningLocally) {
+        _deviceBridge
+            .invokeMethod<bool>('stopRadioStream')
+            .catchError((_) => false);
         _streamWebViewController?.loadHtmlString('<html><body></body></html>');
         return;
       }
+
+      // 1. Primary native Android MediaPlayer stream (works in background across all rooms!)
+      _deviceBridge
+          .invokeMethod<bool>('setRadioStream', <String, dynamic>{
+            'url': station.streamUrl,
+            'fallbackUrls': station.fallbackStreamUrls,
+            'playing': true,
+          })
+          .catchError((_) => false);
+
+      // 2. Keep WebView fallback ready if running on non-Android webview host
       _streamWebViewController ??= WebViewController()
         ..setJavaScriptMode(JavaScriptMode.unrestricted);
-      final station = activeStation;
       final html = '''
 <!DOCTYPE html>
 <html>
@@ -464,230 +513,270 @@ class _CampusRadioModalSheetState extends State<_CampusRadioModalSheet> {
                 ),
               ),
 
-              // Active Station & 1-Hour Lock Status Banner
-              Padding(
-                padding: const EdgeInsets.fromLTRB(14, 10, 14, 8),
-                child: Container(
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF1E293B),
-                    borderRadius: BorderRadius.circular(18),
-                    border: Border.all(
-                      color: radio.isListeningLocally
-                          ? const Color(0xFF10B981)
-                          : Colors.white12,
-                    ),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
+              // Body: Scrollable in both Portrait and Landscape!
+              Expanded(
+                child: _showRadioGardenGlobe && _globeController != null
+                    ? Column(
                         children: [
-                          Text(current.emoji,
-                              style: const TextStyle(fontSize: 28)),
-                          const SizedBox(width: 12),
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(14, 8, 14, 6),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    '🌍 Interactive Radio Garden Globe • ${current.title}',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: GoogleFonts.outfit(
+                                      color: const Color(0xFF6EE7B7),
+                                      fontSize: 12.5,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ),
+                                TextButton.icon(
+                                  onPressed: () => setState(
+                                      () => _showRadioGardenGlobe = false),
+                                  icon: const Icon(Icons.list_rounded,
+                                      size: 16, color: Color(0xFF38BDF8)),
+                                  label: const Text(
+                                    'Back to Stations',
+                                    style: TextStyle(
+                                      color: Color(0xFF38BDF8),
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
                           Expanded(
+                            child: ClipRRect(
+                              borderRadius: const BorderRadius.vertical(
+                                  bottom: Radius.circular(24)),
+                              child: WebViewWidget(
+                                  controller: _globeController!),
+                            ),
+                          ),
+                        ],
+                      )
+                    : ListView(
+                        physics: const BouncingScrollPhysics(),
+                        padding: const EdgeInsets.fromLTRB(14, 10, 14, 18),
+                        children: [
+                          // Active Station & 1-Hour Lock Status Banner inside scrollable list
+                          Container(
+                            padding: const EdgeInsets.all(14),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF1E293B),
+                              borderRadius: BorderRadius.circular(18),
+                              border: Border.all(
+                                color: radio.isListeningLocally
+                                    ? const Color(0xFF10B981)
+                                    : Colors.white12,
+                              ),
+                            ),
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(
-                                  'NOW ON AIR: ${current.title}',
-                                  style: GoogleFonts.outfit(
-                                    color: const Color(0xFF6EE7B7),
-                                    fontSize: 14.5,
-                                    fontWeight: FontWeight.w800,
-                                  ),
+                                Row(
+                                  children: [
+                                    Text(current.emoji,
+                                        style: const TextStyle(fontSize: 28)),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            'NOW ON AIR: ${current.title}',
+                                            style: GoogleFonts.outfit(
+                                              color: const Color(0xFF6EE7B7),
+                                              fontSize: 14.5,
+                                              fontWeight: FontWeight.w800,
+                                            ),
+                                          ),
+                                          Text(
+                                            '${current.location} • ${current.genre}',
+                                            style: GoogleFonts.inter(
+                                              color: Colors.white70,
+                                              fontSize: 11.5,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 3),
+                                          Text(
+                                            canChange
+                                                ? '🟢 Channel Unlocked — You can tune a new station for the campus!'
+                                                : '🔒 1-Hour Channel Lock: ${radio.formattedRemainingCooldown()} remaining (Tuned by ${radio.lastChangedBy})',
+                                            style: GoogleFonts.inter(
+                                              color: canChange
+                                                  ? const Color(0xFFFDE047)
+                                                  : const Color(0xFFFCA5A5),
+                                              fontSize: 11,
+                                              fontWeight: FontWeight.w700,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
                                 ),
-                                Text(
-                                  '${current.location} • ${current.genre}',
-                                  style: GoogleFonts.inter(
-                                    color: Colors.white70,
-                                    fontSize: 11.5,
-                                  ),
-                                ),
-                                const SizedBox(height: 3),
-                                Text(
-                                  canChange
-                                      ? '🟢 Channel Unlocked — You can tune a new station for the campus!'
-                                      : '🔒 1-Hour Channel Lock: ${radio.formattedRemainingCooldown()} remaining (Tuned by ${radio.lastChangedBy})',
-                                  style: GoogleFonts.inter(
-                                    color: canChange
-                                        ? const Color(0xFFFDE047)
-                                        : const Color(0xFFFCA5A5),
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w700,
-                                  ),
+                                const SizedBox(height: 10),
+                                Wrap(
+                                  spacing: 8,
+                                  runSpacing: 8,
+                                  children: [
+                                    ElevatedButton.icon(
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor:
+                                            radio.isListeningLocally
+                                                ? const Color(0xFFEF4444)
+                                                : const Color(0xFF10B981),
+                                        foregroundColor: Colors.white,
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius:
+                                              BorderRadius.circular(12),
+                                        ),
+                                      ),
+                                      onPressed: () {
+                                        HapticFeedback.selectionClick();
+                                        LobbyAudioService.instance
+                                            .playRadioTune();
+                                        radio.toggleLocalListening();
+                                      },
+                                      icon: Icon(
+                                        radio.isListeningLocally
+                                            ? Icons.stop_circle_outlined
+                                            : Icons.headphones_rounded,
+                                        size: 18,
+                                      ),
+                                      label: Text(
+                                        radio.isListeningLocally
+                                            ? 'Mute Local Speaker'
+                                            : 'Listen Live Now',
+                                        style: GoogleFonts.outfit(
+                                          fontWeight: FontWeight.w800,
+                                          fontSize: 12.5,
+                                        ),
+                                      ),
+                                    ),
+                                    OutlinedButton.icon(
+                                      style: OutlinedButton.styleFrom(
+                                        foregroundColor:
+                                            const Color(0xFF38BDF8),
+                                        side: const BorderSide(
+                                            color: Color(0xFF38BDF8)),
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius:
+                                              BorderRadius.circular(12),
+                                        ),
+                                      ),
+                                      onPressed: () {
+                                        _openRadioGardenGlobeView(
+                                            current.radioGardenUrl);
+                                      },
+                                      icon: const Icon(
+                                        Icons.public_rounded,
+                                        size: 17,
+                                      ),
+                                      label: const Text(
+                                        'Radio Garden Globe',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ],
                             ),
                           ),
-                        ],
-                      ),
-                      const SizedBox(height: 10),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: ElevatedButton.icon(
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: radio.isListeningLocally
-                                    ? const Color(0xFFEF4444)
-                                    : const Color(0xFF10B981),
-                                foregroundColor: Colors.white,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12),
+                          const SizedBox(height: 12),
+                          ...LobbyRadioService.kStations.map((st) {
+                            final isCurrent = st.id == current.id;
+                            return Padding(
+                              padding: const EdgeInsets.only(bottom: 8),
+                              child: Container(
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: isCurrent
+                                      ? const Color(0xFF065F46)
+                                          .withValues(alpha: 0.38)
+                                      : const Color(0xFF1E293B),
+                                  borderRadius: BorderRadius.circular(16),
+                                  border: Border.all(
+                                    color: isCurrent
+                                        ? const Color(0xFF10B981)
+                                        : Colors.white12,
+                                    width: isCurrent ? 1.8 : 1.0,
+                                  ),
                                 ),
-                              ),
-                              onPressed: () {
-                                HapticFeedback.selectionClick();
-                                radio.toggleLocalListening();
-                              },
-                              icon: Icon(
-                                radio.isListeningLocally
-                                    ? Icons.stop_circle_outlined
-                                    : Icons.headphones_rounded,
-                                size: 18,
-                              ),
-                              label: Text(
-                                radio.isListeningLocally
-                                    ? 'Mute Local Speaker'
-                                    : 'Listen Live Now',
-                                style: GoogleFonts.outfit(
-                                  fontWeight: FontWeight.w800,
-                                  fontSize: 12.5,
-                                ),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          OutlinedButton.icon(
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: const Color(0xFF38BDF8),
-                              side: const BorderSide(color: Color(0xFF38BDF8)),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                            ),
-                            onPressed: () {
-                              if (_showRadioGardenGlobe) {
-                                setState(() => _showRadioGardenGlobe = false);
-                              } else {
-                                _openRadioGardenGlobeView(
-                                    current.radioGardenUrl);
-                              }
-                            },
-                            icon: Icon(
-                              _showRadioGardenGlobe
-                                  ? Icons.list_rounded
-                                  : Icons.public_rounded,
-                              size: 17,
-                            ),
-                            label: Text(
-                              _showRadioGardenGlobe
-                                  ? 'Station List'
-                                  : 'Radio Garden Globe',
-                              style: const TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-
-              // Body: Either Interactive Radio Garden Globe WebView or Curated Campus Station List
-              Expanded(
-                child: _showRadioGardenGlobe && _globeController != null
-                    ? ClipRRect(
-                        borderRadius: const BorderRadius.vertical(
-                            bottom: Radius.circular(24)),
-                        child: WebViewWidget(controller: _globeController!),
-                      )
-                    : ListView.separated(
-                        padding: const EdgeInsets.fromLTRB(14, 4, 14, 16),
-                        itemCount: LobbyRadioService.kStations.length,
-                        separatorBuilder: (_, __) => const SizedBox(height: 8),
-                        itemBuilder: (context, idx) {
-                          final st = LobbyRadioService.kStations[idx];
-                          final isCurrent = st.id == current.id;
-                          return Container(
-                            padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              color: isCurrent
-                                  ? const Color(0xFF065F46)
-                                      .withValues(alpha: 0.38)
-                                  : const Color(0xFF1E293B),
-                              borderRadius: BorderRadius.circular(16),
-                              border: Border.all(
-                                color: isCurrent
-                                    ? const Color(0xFF10B981)
-                                    : Colors.white12,
-                                width: isCurrent ? 1.8 : 1.0,
-                              ),
-                            ),
-                            child: Row(
-                              children: [
-                                Text(st.emoji,
-                                    style: const TextStyle(fontSize: 24)),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        st.title,
+                                child: Row(
+                                  children: [
+                                    Text(st.emoji,
+                                        style: const TextStyle(fontSize: 24)),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            st.title,
+                                            style: GoogleFonts.outfit(
+                                              color: Colors.white,
+                                              fontSize: 14,
+                                              fontWeight: FontWeight.w800,
+                                            ),
+                                          ),
+                                          Text(
+                                            '${st.location} • ${st.genre}',
+                                            style: GoogleFonts.inter(
+                                              color: Colors.white70,
+                                              fontSize: 11.5,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    ElevatedButton(
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: isCurrent
+                                            ? const Color(0xFF10B981)
+                                            : (canChange
+                                                ? const Color(0xFF0284C7)
+                                                : Colors.white12),
+                                        foregroundColor: Colors.white,
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 12, vertical: 8),
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius:
+                                              BorderRadius.circular(10),
+                                        ),
+                                      ),
+                                      onPressed: () => _selectStation(st),
+                                      child: Text(
+                                        isCurrent
+                                            ? '📡 On Air'
+                                            : (canChange
+                                                ? 'Tune (1h Lock)'
+                                                : '🔒 ${remSec ~/ 60}m'),
                                         style: GoogleFonts.outfit(
-                                          color: Colors.white,
-                                          fontSize: 14,
+                                          fontSize: 11.5,
                                           fontWeight: FontWeight.w800,
                                         ),
                                       ),
-                                      Text(
-                                        '${st.location} • ${st.genre}',
-                                        style: GoogleFonts.inter(
-                                          color: Colors.white70,
-                                          fontSize: 11.5,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                ElevatedButton(
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: isCurrent
-                                        ? const Color(0xFF10B981)
-                                        : (canChange
-                                            ? const Color(0xFF0284C7)
-                                            : Colors.white12),
-                                    foregroundColor: Colors.white,
-                                    padding: const EdgeInsets.symmetric(
-                                        horizontal: 12, vertical: 8),
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(10),
                                     ),
-                                  ),
-                                  onPressed: () => _selectStation(st),
-                                  child: Text(
-                                    isCurrent
-                                        ? '📡 On Air'
-                                        : (canChange
-                                            ? 'Tune (1h Lock)'
-                                            : '🔒 ${remSec ~/ 60}m'),
-                                    style: GoogleFonts.outfit(
-                                      fontSize: 11.5,
-                                      fontWeight: FontWeight.w800,
-                                    ),
-                                  ),
+                                  ],
                                 ),
-                              ],
-                            ),
-                          );
-                        },
+                              ),
+                            );
+                          }),
+                        ],
                       ),
               ),
             ],
