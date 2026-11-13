@@ -7,6 +7,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../models/portal_models.dart';
 import '../theme/portal_theme.dart';
+import 'lobby_agency_agents.dart';
 import 'lobby_audio_service.dart';
 import 'lobby_data_service.dart';
 import 'lobby_moderation_service.dart';
@@ -740,6 +741,16 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
       _currentRoom,
       roomSolids: solids,
     );
+    // 3c. Advance 60 FPS autonomous walking & talking AI Subject Teachers + Staff NPCs (`msitarzewski/agency-agents`)
+    final agentsMoved = LobbyAgencyAgentsService.instance.tick(
+      dt,
+      room: _currentRoom,
+      playerPos: _playerPos,
+    );
+    if (agentsMoved) {
+      _cachedZones = buildActiveInteractiveZones(chests, room: _currentRoom);
+    }
+
     LobbyPresenceService.instance.updateLocalPlayerState(
       nickname: _playerNickname,
       look: _playerLook,
@@ -795,7 +806,14 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
 
     // 4b. Auto-trigger `_pendingZoneToTrigger` once the player arrives within reach!
     if (_pendingZoneToTrigger != null) {
-      final pending = _pendingZoneToTrigger!;
+      var pending = _pendingZoneToTrigger!;
+      for (final z in allZones) {
+        if (z.id == pending.id) {
+          pending = z;
+          _pendingZoneToTrigger = z;
+          break;
+        }
+      }
       final distToPending = (_playerPos - pending.center).distance;
       if (distToPending <= pending.radius + 14.0 || _activePath.isEmpty) {
         _pendingZoneToTrigger = null;
@@ -815,7 +833,8 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
         cameraMoved ||
         animChanged ||
         zoneChanged ||
-        remoteMoved) {
+        remoteMoved ||
+        agentsMoved) {
       setState(() {});
     }
   }
@@ -1130,6 +1149,7 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
           context: context,
           smallChestId: zone.id,
           smallChestLabel: zone.label,
+          playerName: _playerNickname,
         );
         break;
       case InteractiveZoneKind.teacherCorner:

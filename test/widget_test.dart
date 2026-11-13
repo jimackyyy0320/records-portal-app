@@ -12,6 +12,7 @@ import 'package:student_portal_app/screens/teacher_scanner_screen.dart';
 import 'package:student_portal_app/services/session_service.dart';
 import 'package:student_portal_app/utils/reviewer_outline_extractor.dart';
 import 'package:student_portal_app/widgets/student_qr_generator.dart';
+import 'package:student_portal_app/school_lobby/lobby_agency_agents.dart';
 import 'package:student_portal_app/school_lobby/lobby_audio_service.dart';
 import 'package:student_portal_app/school_lobby/lobby_data_service.dart';
 import 'package:student_portal_app/school_lobby/lobby_exam_bank.dart';
@@ -991,6 +992,106 @@ void main() {
         expect(station.streamUrl, isNotEmpty);
         expect(station.fallbackStreamUrls, isNotEmpty);
       }
+    },
+  );
+
+  test(
+    'School Lobby Phase 7: Agency-Agents Walking & Talking AI Teachers (PKLP, PPG, UCSP) across all 5 rooms',
+    () async {
+      final service = LobbyDataService.instance;
+      await service.init('2024-00777');
+
+      final agency = LobbyAgencyAgentsService.instance;
+      agency.resetForTesting();
+
+      // 1. Verify all 8 AI Subject Teachers strictly match PKLP, PPG, or UCSP and span all 5 rooms
+      expect(kAgencyTeacherPersonas.length, 8);
+      const allowedPortalSubjects = {'PKLP', 'PPG', 'UCSP'};
+      final coveredRooms = <LobbyRoomId>{};
+      for (final persona in kAgencyTeacherPersonas) {
+        expect(
+          allowedPortalSubjects.contains(persona.subjectCode),
+          isTrue,
+          reason:
+              'Agency AI Teacher ${persona.name} has subject ${persona.subjectCode} outside {PKLP, PPG, UCSP}',
+        );
+        expect(persona.identity, isNotEmpty);
+        expect(persona.personalityVibe, isNotEmpty);
+        expect(persona.coreMission, isNotEmpty);
+        expect(persona.patrolWaypoints.length, greaterThanOrEqualTo(3));
+        coveredRooms.add(persona.room);
+      }
+      expect(coveredRooms.length, LobbyRoomId.values.length);
+
+      // 2. Verify autonomous walking locomotion along waypoints when player is far away
+      final lakambiniBefore = agency.runtimeStateForId('small_chest_1')!;
+      final startPos = lakambiniBefore.currentPos;
+      for (var i = 0; i < 10; i++) {
+        agency.tick(
+          0.1,
+          room: LobbyRoomId.mainLobby,
+          playerPos: const Offset(1350, 950),
+        );
+      }
+      final lakambiniAfterWalk = agency.runtimeStateForId('small_chest_1')!;
+      expect(lakambiniAfterWalk.currentPos, isNot(equals(startPos)));
+      expect(lakambiniAfterWalk.isWalking, isTrue);
+
+      // Verify Staff NPC in Main Lobby also patrols autonomously
+      final aikoBefore = agency.runtimeStateForId('npc_receptionist')!.currentPos;
+      expect(aikoBefore, isNotNull);
+
+      // 3. Verify proximity eye-contact, stopping, waving, and greeting within 115 px
+      final nearPlayerPos =
+          lakambiniAfterWalk.currentPos + const Offset(60, 0);
+      agency.tick(
+        0.05,
+        room: LobbyRoomId.mainLobby,
+        playerPos: nearPlayerPos,
+      );
+      final conversing = agency.runtimeStateForId('small_chest_1')!;
+      expect(
+        conversing.activityState,
+        AgencyAgentActivityState.conversingWithPlayer,
+      );
+      expect(conversing.isWaving, isTrue);
+      expect(conversing.facing, AvatarFacing.right);
+
+      // 4. Verify live in-character conversational coaching for PKLP, PPG, and UCSP
+      final pklpReply = agency.sendStudentMessage(
+        agentId: 'small_chest_1',
+        studentMessage: 'Ipaliwanag ang Polo y Servicio at Suffrage',
+        studentName: 'Juan',
+      );
+      expect(pklpReply.toLowerCase(), contains('polo'));
+      expect(
+        agency.chatHistoryForAgent('small_chest_1').length,
+        greaterThanOrEqualTo(3),
+      );
+
+      final ppgReply = agency.sendStudentMessage(
+        agentId: 'small_chest_2',
+        studentMessage: 'Explain the 4 Elements of a State vs. Nation',
+        studentName: 'Juan',
+      );
+      expect(ppgReply.toLowerCase(), contains('sovereignty'));
+
+      final ucspReply = agency.sendStudentMessage(
+        agentId: 'small_chest_3',
+        studentMessage: 'Cultural Relativism vs. Ethnocentrism',
+        studentName: 'Juan',
+      );
+      expect(ucspReply.toLowerCase(), contains('cultural relativism'));
+
+      // 5. Verify interactive zones expose walking AI Teachers in sub-rooms too (e.g. Classroom & Park)
+      final parkZones =
+          buildActiveInteractiveZones(service.subjectChests, room: LobbyRoomId.park);
+      expect(parkZones.any((z) => z.id == 'small_chest_4'), isTrue);
+      final classroomZones = buildActiveInteractiveZones(
+        service.subjectChests,
+        room: LobbyRoomId.classroom,
+      );
+      expect(classroomZones.any((z) => z.id == 'small_chest_6'), isTrue);
     },
   );
 }

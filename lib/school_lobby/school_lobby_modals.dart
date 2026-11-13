@@ -9,6 +9,7 @@ import 'package:webview_flutter/webview_flutter.dart';
 
 import '../services/api_service.dart';
 import '../utils/reviewer_outline_extractor.dart';
+import 'lobby_agency_agents.dart';
 import 'lobby_audio_service.dart';
 import 'lobby_data_service.dart';
 import 'lobby_moderation_service.dart';
@@ -74,11 +75,12 @@ Future<void> showSubjectChestModal({
   );
 }
 
-/// Opens a Small Mystery Chest Pop-Quiz Modal (Feature 3).
+/// Opens an AI Subject Teacher Dialogue & Daily Exam Modal (`msitarzewski/agency-agents` + Feature 3).
 Future<void> showSmallMysteryChestModal({
   required BuildContext context,
   required String smallChestId,
   required String smallChestLabel,
+  String playerName = 'Scholar',
 }) async {
   await showModalBottomSheet<void>(
     context: context,
@@ -87,6 +89,7 @@ Future<void> showSmallMysteryChestModal({
     builder: (ctx) => _SmallMysteryChestQuizSheet(
       smallChestId: smallChestId,
       smallChestLabel: smallChestLabel,
+      playerName: playerName,
     ),
   );
 }
@@ -3081,16 +3084,19 @@ class _AddOrRenameSubjectChestSheetState
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-//  FEATURE 3: AI SUBJECT MENTOR NPCs (`PKLP`, `PPG`, `UCSP` — 24H EXAM ROTATION)
+//  FEATURE 3: WALKING & TALKING AI SUBJECT TEACHERS (`msitarzewski/agency-agents`)
+//  (`PKLP`, `PPG`, `UCSP` — LIVE STUDY CHAT + 24H EXAM ROTATION)
 // ═══════════════════════════════════════════════════════════════════════════
 
 class _SmallMysteryChestQuizSheet extends StatefulWidget {
   final String smallChestId;
   final String smallChestLabel;
+  final String playerName;
 
   const _SmallMysteryChestQuizSheet({
     required this.smallChestId,
     required this.smallChestLabel,
+    this.playerName = 'Scholar',
   });
 
   @override
@@ -3104,12 +3110,51 @@ class _SmallMysteryChestQuizSheetState
   int? _selectedOption;
   bool _answeredWrong = false;
   bool _answeredCorrect = false;
+  int _activeTabIndex = 0; // 0 = 💬 Talk & Study Chat, 1 = 📝 Daily Exam (+25 XP)
+  final TextEditingController _chatCtrl = TextEditingController();
+  final ScrollController _chatScrollCtrl = ScrollController();
 
   @override
   void initState() {
     super.initState();
     _question = LobbyDataService.instance
         .pickRandomQuestionForSmallChest(widget.smallChestId);
+    // Seed initial greeting in chat history
+    LobbyAgencyAgentsService.instance.chatHistoryForAgent(
+      widget.smallChestId,
+      studentName:
+          widget.playerName.trim().isEmpty ? 'Scholar' : widget.playerName,
+    );
+  }
+
+  @override
+  void dispose() {
+    _chatCtrl.dispose();
+    _chatScrollCtrl.dispose();
+    super.dispose();
+  }
+
+  void _sendChatMessage(String rawText) {
+    final clean = rawText.trim();
+    if (clean.isEmpty) return;
+    HapticFeedback.selectionClick();
+    LobbyAgencyAgentsService.instance.sendStudentMessage(
+      agentId: widget.smallChestId,
+      studentMessage: clean,
+      studentName:
+          widget.playerName.trim().isEmpty ? 'Scholar' : widget.playerName,
+    );
+    _chatCtrl.clear();
+    setState(() {});
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_chatScrollCtrl.hasClients) {
+        _chatScrollCtrl.animateTo(
+          _chatScrollCtrl.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOut,
+        );
+      }
+    });
   }
 
   Future<void> _selectOption(int index) async {
@@ -3143,68 +3188,331 @@ class _SmallMysteryChestQuizSheetState
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final service = LobbyDataService.instance;
-    final remainingSec =
-        service.smallChestRemainingSeconds(widget.smallChestId);
-    final mentor = findAiSubjectMentor(widget.smallChestId);
-    final accentCol = Color(mentor?.accentColor ?? 0xFFA855F7);
+  Widget _buildTabPill({
+    required int index,
+    required String label,
+    required Color accentCol,
+  }) {
+    final selected = _activeTabIndex == index;
+    return Expanded(
+      child: InkWell(
+        onTap: () {
+          HapticFeedback.selectionClick();
+          setState(() => _activeTabIndex = index);
+        },
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 10),
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: selected
+                ? accentCol.withValues(alpha: 0.26)
+                : const Color(0xFF1E293B),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: selected ? accentCol : Colors.white12,
+              width: selected ? 1.6 : 1.0,
+            ),
+          ),
+          child: Text(
+            label,
+            style: GoogleFonts.outfit(
+              color: selected ? Colors.white : Colors.white70,
+              fontSize: 12.5,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 
+  Widget _buildTalkAndStudyTab(
+    BuildContext context, {
+    required AiSubjectMentorNpc? mentor,
+    required AgencyPersonaSpec? agencySpec,
+    required Color accentCol,
+  }) {
+    final studentDisplayName =
+        widget.playerName.trim().isEmpty ? 'Scholar' : widget.playerName;
+    final history = LobbyAgencyAgentsService.instance.chatHistoryForAgent(
+      widget.smallChestId,
+      studentName: studentDisplayName,
+    );
+    final quickPrompts = LobbyAgencyAgentsService.instance
+        .quickPromptsForAgent(widget.smallChestId);
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Agency-Agents Identity, Personality Vibe & Core Mission Banner
+        if (agencySpec != null)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: const Color(0xFF1E293B),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: accentCol.withValues(alpha: 0.45)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Text('🧠 ', style: TextStyle(fontSize: 14)),
+                    Expanded(
+                      child: Text(
+                        'AGENCY PERSONA • ${agencySpec.subjectCode} SPECIALIST',
+                        style: GoogleFonts.outfit(
+                          color: const Color(0xFFFDE047),
+                          fontSize: 11,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 0.6,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  agencySpec.personalityVibe,
+                  style: GoogleFonts.inter(
+                    color: Colors.white.withValues(alpha: 0.9),
+                    fontSize: 11.5,
+                    height: 1.35,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '🎯 Mission: ${agencySpec.coreMission}',
+                  style: GoogleFonts.inter(
+                    color: const Color(0xFF38BDF8),
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        const SizedBox(height: 10),
+
+        // Quick Study Prompt Chips
+        Text(
+          'QUICK STUDY TOPICS (TAP TO ASK):',
+          style: GoogleFonts.outfit(
+            color: Colors.white60,
+            fontSize: 10.5,
+            fontWeight: FontWeight.w800,
+            letterSpacing: 0.6,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Wrap(
+          spacing: 6,
+          runSpacing: 6,
+          children: quickPrompts.map((prompt) {
+            return ActionChip(
+              backgroundColor: const Color(0xFF1E293B),
+              side: BorderSide(color: accentCol.withValues(alpha: 0.5)),
+              label: Text(
+                prompt,
+                style: GoogleFonts.inter(
+                  color: Colors.white,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              onPressed: () => _sendChatMessage(prompt),
+            );
+          }).toList(),
+        ),
+        const SizedBox(height: 10),
+
+        // Live Conversation Feed
+        Container(
+          constraints: const BoxConstraints(minHeight: 150, maxHeight: 230),
+          width: double.infinity,
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: const Color(0xFF090E1A),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: Colors.white12),
+          ),
+          child: ListView.separated(
+            controller: _chatScrollCtrl,
+            shrinkWrap: true,
+            itemCount: history.length,
+            separatorBuilder: (_, __) => const SizedBox(height: 8),
+            itemBuilder: (ctx, idx) {
+              final msg = history[idx];
+              final isAgent = msg.isTeacher;
+              final senderLabel = isAgent
+                  ? '🤖 ${mentor?.name ?? agencySpec?.name ?? 'AI Teacher'}'
+                  : '🧑 $studentDisplayName';
+              return Align(
+                alignment:
+                    isAgent ? Alignment.centerLeft : Alignment.centerRight,
+                child: Container(
+                  constraints: const BoxConstraints(maxWidth: 320),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+                  decoration: BoxDecoration(
+                    color: isAgent
+                        ? const Color(0xFF1E293B)
+                        : accentCol.withValues(alpha: 0.28),
+                    borderRadius: BorderRadius.circular(13),
+                    border: Border.all(
+                      color: isAgent
+                          ? accentCol.withValues(alpha: 0.45)
+                          : accentCol,
+                    ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        senderLabel,
+                        style: GoogleFonts.outfit(
+                          color: isAgent
+                              ? const Color(0xFFFDE047)
+                              : const Color(0xFF38BDF8),
+                          fontSize: 10.5,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        msg.text,
+                        style: GoogleFonts.inter(
+                          color: Colors.white,
+                          fontSize: 12,
+                          height: 1.38,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+        const SizedBox(height: 10),
+
+        // Student Question / Chat Input Box
+        Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: _chatCtrl,
+                style: GoogleFonts.inter(color: Colors.white, fontSize: 12.5),
+                textInputAction: TextInputAction.send,
+                onSubmitted: _sendChatMessage,
+                decoration: InputDecoration(
+                  hintText:
+                      'Ask ${mentor?.name ?? 'your AI Teacher'} about ${mentor?.subjectCode ?? 'PKLP, PPG, or UCSP'}...',
+                  hintStyle:
+                      GoogleFonts.inter(color: Colors.white38, fontSize: 12),
+                  filled: true,
+                  fillColor: const Color(0xFF1E293B),
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(color: Colors.white24),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(color: Colors.white24),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: accentCol, width: 1.5),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: accentCol,
+                foregroundColor: Colors.white,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              onPressed: () => _sendChatMessage(_chatCtrl.text),
+              icon: const Icon(Icons.send_rounded, size: 16),
+              label: Text(
+                'Ask',
+                style: GoogleFonts.outfit(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 12.5,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDailyExamTab(
+    BuildContext context, {
+    required LobbyDataService service,
+    required int remainingSec,
+    required AiSubjectMentorNpc? mentor,
+    required Color accentCol,
+  }) {
     if (remainingSec > 0 && _selectedOption == null) {
       final formattedWait =
           service.smallChestFormattedCooldown(widget.smallChestId);
       return Container(
-        constraints: BoxConstraints(
-          maxHeight: MediaQuery.of(context).size.height * 0.84,
-        ),
-        margin: const EdgeInsets.all(16),
-        padding: const EdgeInsets.all(22),
+        width: double.infinity,
+        padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: const Color(0xFF0F172A),
-          borderRadius: BorderRadius.circular(24),
-          border: Border.all(color: accentCol.withValues(alpha: 0.55)),
+          color: const Color(0xFF1E293B),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: accentCol.withValues(alpha: 0.45)),
         ),
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text('🤖⏳', style: TextStyle(fontSize: 38)),
-              const SizedBox(height: 10),
-              Text(
-                '${mentor?.name ?? widget.smallChestLabel} • 24h Cooldown ($formattedWait)',
-                textAlign: TextAlign.center,
-                style: GoogleFonts.outfit(
-                  color: Colors.white,
-                  fontSize: 17.5,
-                  fontWeight: FontWeight.w800,
-                ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('⏳', style: TextStyle(fontSize: 32)),
+            const SizedBox(height: 8),
+            Text(
+              'Daily Exam Cooldown ($formattedWait)',
+              textAlign: TextAlign.center,
+              style: GoogleFonts.outfit(
+                color: Colors.white,
+                fontSize: 16,
+                fontWeight: FontWeight.w800,
               ),
-              if (mentor != null) ...[
-                const SizedBox(height: 4),
-                Text(
-                  '${mentor.roleTitle} • ${mentor.fullSubjectTitle}',
-                  textAlign: TextAlign.center,
-                  style: GoogleFonts.inter(
-                    color: const Color(0xFFFDE047),
-                    fontSize: 11.5,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ],
-              const SizedBox(height: 8),
-              Text(
-                'Each AI Subject Mentor (PKLP, PPG, UCSP) prepares a new exam question for you once every 24 hours and patrols to a new campus station every 2 hours. Talk to the other AI Mentors around the lobby!',
-                textAlign: TextAlign.center,
-                style: GoogleFonts.inter(color: Colors.white70, fontSize: 12.5),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'You already completed this AI Teacher\'s 24-hour exam question! Switch to the "💬 Talk & Study Chat" tab above to keep asking study questions anytime, or talk to the other AI Teachers walking around the campus.',
+              textAlign: TextAlign.center,
+              style: GoogleFonts.inter(
+                color: Colors.white70,
+                fontSize: 12,
+                height: 1.4,
               ),
-              const SizedBox(height: 14),
-              OutlinedButton(
-                onPressed: () => Navigator.of(context).pop(),
-                child: const Text('Got it'),
+            ),
+            const SizedBox(height: 12),
+            ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: accentCol,
+                foregroundColor: Colors.white,
               ),
-            ],
-          ),
+              onPressed: () => setState(() => _activeTabIndex = 0),
+              icon: const Icon(Icons.chat_bubble_outline_rounded, size: 16),
+              label: const Text('Back to Talk & Study Chat'),
+            ),
+          ],
         ),
       );
     }
@@ -3212,12 +3520,196 @@ class _SmallMysteryChestQuizSheetState
     const letters = ['A', 'B', 'C', 'D'];
     final isLocked = _selectedOption != null;
 
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          _question.question,
+          style: GoogleFonts.outfit(
+            color: Colors.white,
+            fontSize: 15.5,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          isLocked
+              ? '🔒 Answer locked! Options cannot be changed after clicking.'
+              : '⚠️ First click locks your answer for 24 hours — choose carefully!',
+          style: GoogleFonts.inter(
+            color: isLocked ? Colors.white54 : const Color(0xFFFDE047),
+            fontSize: 11,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 12),
+        ...List.generate(_question.options.length, (idx) {
+          final isSelected = _selectedOption == idx;
+          final isCorrectOption = idx == _question.correctIndex;
+
+          Color borderColor = Colors.white24;
+          Color bgColor = const Color(0xFF1E293B);
+          if (isLocked && isCorrectOption) {
+            borderColor = const Color(0xFF10B981);
+            bgColor = const Color(0xFF065F46).withValues(alpha: 0.6);
+          } else if (_answeredWrong && isSelected && !isCorrectOption) {
+            borderColor = const Color(0xFFEF4444);
+            bgColor = const Color(0xFF7F1D1D).withValues(alpha: 0.5);
+          }
+
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: InkWell(
+              onTap: isLocked ? null : () => _selectOption(idx),
+              borderRadius: BorderRadius.circular(14),
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                decoration: BoxDecoration(
+                  color: bgColor,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: borderColor, width: 1.4),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 26,
+                      height: 26,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: Colors.white12,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        letters[idx],
+                        style: GoogleFonts.outfit(
+                          color: const Color(0xFFFACC15),
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        _question.options[idx],
+                        style: GoogleFonts.inter(
+                          color: Colors.white,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    if (isLocked && isSelected)
+                      Icon(
+                        isCorrectOption
+                            ? Icons.check_circle_rounded
+                            : Icons.cancel_rounded,
+                        color: isCorrectOption
+                            ? const Color(0xFF10B981)
+                            : const Color(0xFFEF4444),
+                        size: 18,
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        }),
+        if (_answeredWrong && !_answeredCorrect) ...[
+          const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: const Color(0xFF7F1D1D).withValues(alpha: 0.45),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: const Color(0xFFEF4444)),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.lock_clock_rounded,
+                    color: Color(0xFFFCA5A5), size: 22),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Answer locked! The correct answer was ${letters[_question.correctIndex]} (${_question.options[_question.correctIndex]}). This AI Teacher\'s exam refreshes in 24 hours.',
+                    style: GoogleFonts.inter(
+                      color: Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                OutlinedButton(
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.white,
+                    side: const BorderSide(color: Colors.white38),
+                  ),
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('Close'),
+                ),
+              ],
+            ),
+          ),
+        ],
+        if (_answeredCorrect) ...[
+          const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: const Color(0xFF065F46).withValues(alpha: 0.45),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: const Color(0xFF10B981)),
+            ),
+            child: Row(
+              children: [
+                const Text('🎉', style: TextStyle(fontSize: 22)),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Correct! +${_question.xpReward} XP added to your profile & Shop Wallet! This AI Teacher\'s exam refreshes in 24 hours.',
+                    style: GoogleFonts.inter(
+                      color: Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF10B981),
+                    foregroundColor: Colors.white,
+                  ),
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('Claim'),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final service = LobbyDataService.instance;
+    final remainingSec =
+        service.smallChestRemainingSeconds(widget.smallChestId);
+    final mentor = findAiSubjectMentor(widget.smallChestId);
+    final agencySpec = LobbyAgencyAgentsService.instance
+        .runtimeStateForId(widget.smallChestId)
+        ?.spec;
+    final accentCol = Color(mentor?.accentColor ?? 0xFFA855F7);
+    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+
     return Container(
       constraints: BoxConstraints(
-        maxHeight: MediaQuery.of(context).size.height * 0.88,
+        maxHeight: MediaQuery.of(context).size.height * 0.90,
       ),
-      margin: const EdgeInsets.fromLTRB(12, 24, 12, 16),
-      padding: const EdgeInsets.all(20),
+      margin: EdgeInsets.fromLTRB(12, 24, 12, 16 + bottomInset),
+      padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
         color: const Color(0xFF0F172A),
         borderRadius: BorderRadius.circular(24),
@@ -3280,192 +3772,43 @@ class _SmallMysteryChestQuizSheetState
                 ),
               ],
             ),
-            if (mentor != null) ...[
-              const SizedBox(height: 8),
-              Container(
-                width: double.infinity,
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF1E293B),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: accentCol.withValues(alpha: 0.4)),
-                ),
-                child: Text(
-                  '"${mentor.greeting}"',
-                  style: GoogleFonts.inter(
-                    color: Colors.white.withValues(alpha: 0.88),
-                    fontSize: 11.5,
-                    fontStyle: FontStyle.italic,
-                  ),
-                ),
-              ),
-            ],
             const SizedBox(height: 10),
-            Text(
-              _question.question,
-              style: GoogleFonts.outfit(
-                color: Colors.white,
-                fontSize: 16,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              isLocked
-                  ? '🔒 Answer locked! Options cannot be changed after clicking.'
-                  : '⚠️ First click locks your answer for 24 hours — choose carefully!',
-              style: GoogleFonts.inter(
-                color: isLocked ? Colors.white54 : const Color(0xFFFDE047),
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-              ),
+
+            // 2-Tab Selector: `💬 Talk & Study Chat` vs. `📝 Daily Exam (+25 XP)`
+            Row(
+              children: [
+                _buildTabPill(
+                  index: 0,
+                  label: '💬 Talk & Study Chat',
+                  accentCol: accentCol,
+                ),
+                const SizedBox(width: 8),
+                _buildTabPill(
+                  index: 1,
+                  label: remainingSec > 0 && _selectedOption == null
+                      ? '⏳ Daily Exam (Cooldown)'
+                      : '📝 Daily Exam (+${_question.xpReward} XP)',
+                  accentCol: accentCol,
+                ),
+              ],
             ),
             const SizedBox(height: 12),
-            ...List.generate(_question.options.length, (idx) {
-              final isSelected = _selectedOption == idx;
-              final isCorrectOption = idx == _question.correctIndex;
 
-              Color borderColor = Colors.white24;
-              Color bgColor = const Color(0xFF1E293B);
-              if (isLocked && isCorrectOption) {
-                borderColor = const Color(0xFF10B981);
-                bgColor = const Color(0xFF065F46).withValues(alpha: 0.6);
-              } else if (_answeredWrong && isSelected && !isCorrectOption) {
-                borderColor = const Color(0xFFEF4444);
-                bgColor = const Color(0xFF7F1D1D).withValues(alpha: 0.5);
-              }
-
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: InkWell(
-                  onTap: isLocked ? null : () => _selectOption(idx),
-                  borderRadius: BorderRadius.circular(14),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 14, vertical: 12),
-                    decoration: BoxDecoration(
-                      color: bgColor,
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(color: borderColor, width: 1.4),
-                    ),
-                    child: Row(
-                      children: [
-                        Container(
-                          width: 26,
-                          height: 26,
-                          alignment: Alignment.center,
-                          decoration: BoxDecoration(
-                            color: Colors.white12,
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Text(
-                            letters[idx],
-                            style: GoogleFonts.outfit(
-                              color: const Color(0xFFFACC15),
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Text(
-                            _question.options[idx],
-                            style: GoogleFonts.inter(
-                              color: Colors.white,
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                        if (isLocked && isSelected)
-                          Icon(
-                            isCorrectOption
-                                ? Icons.check_circle_rounded
-                                : Icons.cancel_rounded,
-                            color: isCorrectOption
-                                ? const Color(0xFF10B981)
-                                : const Color(0xFFEF4444),
-                            size: 18,
-                          ),
-                      ],
-                    ),
-                  ),
-                ),
-              );
-            }),
-            if (_answeredWrong && !_answeredCorrect) ...[
-              const SizedBox(height: 8),
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF7F1D1D).withValues(alpha: 0.45),
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: const Color(0xFFEF4444)),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.lock_clock_rounded,
-                        color: Color(0xFFFCA5A5), size: 22),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        'Answer locked! The correct answer was ${letters[_question.correctIndex]} (${_question.options[_question.correctIndex]}). This AI Mentor refreshes in 24 hours.',
-                        style: GoogleFonts.inter(
-                          color: Colors.white,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    OutlinedButton(
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: Colors.white,
-                        side: const BorderSide(color: Colors.white38),
-                      ),
-                      onPressed: () => Navigator.of(context).pop(),
-                      child: const Text('Close'),
-                    ),
-                  ],
-                ),
+            if (_activeTabIndex == 0)
+              _buildTalkAndStudyTab(
+                context,
+                mentor: mentor,
+                agencySpec: agencySpec,
+                accentCol: accentCol,
+              )
+            else
+              _buildDailyExamTab(
+                context,
+                service: service,
+                remainingSec: remainingSec,
+                mentor: mentor,
+                accentCol: accentCol,
               ),
-            ],
-            if (_answeredCorrect) ...[
-              const SizedBox(height: 8),
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF065F46).withValues(alpha: 0.45),
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: const Color(0xFF10B981)),
-                ),
-                child: Row(
-                  children: [
-                    const Text('🎉', style: TextStyle(fontSize: 22)),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        'Correct! +${_question.xpReward} XP added to your profile & Shop Wallet! This AI Mentor refreshes in 24 hours.',
-                        style: GoogleFonts.inter(
-                          color: Colors.white,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ),
-                    ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF10B981),
-                        foregroundColor: Colors.white,
-                      ),
-                      onPressed: () => Navigator.of(context).pop(),
-                      child: const Text('Claim'),
-                    ),
-                  ],
-                ),
-              ),
-            ],
           ],
         ),
       ),

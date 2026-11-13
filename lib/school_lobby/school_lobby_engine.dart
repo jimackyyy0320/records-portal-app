@@ -4,6 +4,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'lobby_agency_agents.dart';
 import 'lobby_data_service.dart';
 import 'lobby_presence_service.dart';
 import 'lobby_shop_service.dart';
@@ -404,11 +405,14 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
       );
     }
 
-    // 6b. NPCs in this room
+    // 6b. NPCs in this room (walking & interactive via LobbyAgencyAgentsService)
     for (final npc in npcsForRoom(currentRoom)) {
+      final agentState =
+          LobbyAgencyAgentsService.instance.runtimeStateForId(npc.id);
+      final npcSortY = agentState?.currentPos.dy ?? npc.y;
       drawables.add(
         _YSortedDrawable(
-          sortY: npc.y,
+          sortY: npcSortY,
           draw: (c) => _drawNpc(c, npc, pixelPaint),
         ),
       );
@@ -439,7 +443,7 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
       }
     }
 
-    // 6d. Subject-Labeled Large Treasure Chests & 2-Hour Relocating Small Mystery Chests (in Main Lobby)
+    // 6d. Subject-Labeled Large Treasure Chests (in Main Lobby)
     if (currentRoom == LobbyRoomId.mainLobby) {
       for (var i = 0; i < subjectChests.length; i++) {
         final chest = subjectChests[i];
@@ -458,25 +462,30 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
           ),
         );
       }
+    }
 
-      final activeZones =
-          buildActiveInteractiveZones(subjectChests, room: currentRoom);
-      for (final zone in activeZones) {
-        if (zone.kind != InteractiveZoneKind.smallMysteryChest) continue;
-        final remainingSec = smallChestRemainingSec[zone.id] ?? 0;
-        final isHighlighted = highlightedZone?.id == zone.id;
-        drawables.add(
-          _YSortedDrawable(
-            sortY: zone.y,
-            draw: (c) => _drawSmallMysteryChest(
-              c,
-              zone: zone,
-              remainingCooldownSec: remainingSec,
-              isHighlighted: isHighlighted,
-            ),
+    // 6d-2. Walking & Talking AI Subject Teachers (`PKLP`, `PPG`, `UCSP`) across ALL 5 rooms!
+    final activeZones =
+        buildActiveInteractiveZones(subjectChests, room: currentRoom);
+    for (final zone in activeZones) {
+      if (zone.kind != InteractiveZoneKind.smallMysteryChest) continue;
+      final remainingSec = smallChestRemainingSec[zone.id] ?? 0;
+      final isHighlighted = highlightedZone?.id == zone.id;
+      final agentState =
+          LobbyAgencyAgentsService.instance.runtimeStateForId(zone.id);
+      final isSitting =
+          agentState?.activityState == AgencyAgentActivityState.sitting;
+      drawables.add(
+        _YSortedDrawable(
+          sortY: isSitting ? zone.y + 38.0 : zone.y,
+          draw: (c) => _drawSmallMysteryChest(
+            c,
+            zone: zone,
+            remainingCooldownSec: remainingSec,
+            isHighlighted: isHighlighted,
           ),
-        );
-      }
+        ),
+      );
     }
 
     // 6e. Player Avatar + Rest Pose (Sit/Nap/Sleep on furniture cushion) + Floating Nameplate + Thought Bubble
@@ -1469,41 +1478,61 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
 
   void _drawNpc(Canvas canvas, LobbyNpc npc, Paint pixelPaint) {
     final sheet = assets.npcSheets[npc.id];
-    if (sheet != null) {
-      final frameIdx = computeCharacterFrameIndex(
-        facing: npc.facing,
-        isWalking: false,
-        stepFrame: (animTick ~/ 2) % kCharFramesPerDirection,
-      );
-      final src = Rect.fromLTWH(
-        frameIdx * kCharFrameWidth,
-        0,
-        kCharFrameWidth,
-        kCharFrameHeight,
-      );
-      final dst = Rect.fromLTWH(
-        npc.x - kCharFrameWidth / 2,
-        npc.y - kCharFrameHeight + 8,
-        kCharFrameWidth,
-        kCharFrameHeight,
-      );
-      canvas.drawOval(
-        Rect.fromCenter(center: Offset(npc.x, npc.y + 4), width: 22, height: 8),
-        Paint()..color = Colors.black.withOpacity(0.28),
-      );
-      canvas.drawImageRect(sheet, src, dst, pixelPaint);
-    }
+    final agentState =
+        LobbyAgencyAgentsService.instance.runtimeStateForId(npc.id);
+    final pos = agentState?.currentPos ?? Offset(npc.x, npc.y);
+    final facing = agentState?.facing ?? npc.facing;
+    final isWalking = agentState?.isWalking ?? false;
+
+    _drawCharacterWithRestState(
+      canvas,
+      sheet: sheet,
+      pos: pos,
+      facing: facing,
+      isWalking: isWalking,
+      restState: PlayerRestState.none,
+      pixelPaint: pixelPaint,
+    );
+
+    final statusSuffix = agentState != null &&
+            agentState.activityState ==
+                AgencyAgentActivityState.conversingWithPlayer
+        ? '${npc.roleTag} 💬'
+        : npc.roleTag;
 
     _drawFloatingNameplate(
       canvas,
-      anchor: Offset(npc.x, npc.y - 54),
+      anchor: Offset(pos.dx, pos.dy - 54),
       name: npc.name,
-      roleTag: npc.roleTag,
+      roleTag: statusSuffix,
       isGoldTag: npc.isGoldTag,
       badgeIcon: npc.id == 'npc_receptionist'
           ? '✨'
           : (npc.isGoldTag ? '🎓' : '📚'),
     );
+
+    if (agentState != null && agentState.isWaving) {
+      final waveTp = TextPainter(
+        text: const TextSpan(
+          text: '👋',
+          style: TextStyle(fontSize: 15),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      waveTp.paint(canvas, Offset(pos.dx + 16, pos.dy - 48));
+    }
+
+    if (agentState != null &&
+        agentState.activeBubbleText.isNotEmpty &&
+        (playerPos - pos).distance <= 230.0) {
+      _drawCloudThoughtBubble(
+        canvas,
+        anchor: Offset(pos.dx, pos.dy - 76),
+        text: agentState.activeBubbleText,
+        isHighlighted: agentState.activityState ==
+            AgencyAgentActivityState.conversingWithPlayer,
+      );
+    }
   }
 
   /// Renders a Classmate Peer Student with their Sit/Nap/Sleep pose and Cloud Thought Bubble (`💭`)!
@@ -1628,13 +1657,17 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
     }
   }
 
-  /// Shared character sprite + rest pose renderer (recycled & expanded from `SeatManager.ts`).
-  /// Phase 6 Fix:
-  /// - Sitting & Napping crop the standing lower legs (`srcHeight = 34.0`), lower the torso onto the
-  ///   seat cushion, render bent seated knees/shoes in front of the cushion, and draw a chair backrest
-  ///   bar when facing `up` at a desk so characters sit INSIDE the chair instead of standing on top of it!
-  /// - Sleeping crops the standing legs (`srcHeight = 32.0`), rests the head on a sofa pillow, and tucks
-  ///   the torso under a quilted pixel blanket with a folded sheet collar.
+  /// Shared character sprite + rest pose renderer calibrated to the exact `32x64` pixel anatomy
+  /// (`y = 0..17` transparent headroom, `y = 18..45` head/face, `y = 46..55` torso/arms,
+  /// `y = 56..59` hips/upper legs, `y = 60..63` shoes/feet):
+  /// - **Sitting (`PlayerRestState.sitting`)**: Draws intact head + torso + hips (`src(fx, 0, 32, 56)`)
+  ///   with foreshortened pixel-art shoes (`src(fx, 60, 32, 4)`) directly below on the seat cushion,
+  ///   or overlays the `chair-tan-back` backrest from `floor-items.png` when facing `up` at a desk!
+  /// - **Napping (`PlayerRestState.napping`)**: Same 2-slice seated posture + gentle `2px` breathing nod
+  ///   + skin-tone adaptive pixel-art closed eyelids (`src(fx + 14, 38, 2, 2)` + `4x2` eyelashes).
+  /// - **Sleeping (`PlayerRestState.sleeping`)**: Draws a `2x2`-grid pixel pillow on the left sofa/bench
+  ///   cushion, rotates ONLY the head (`src(fx, 18, 32, 28)`) `-90°` onto the pillow with closed eyes,
+  ///   and tucks the body under a `2x2`-grid pixel quilted blanket starting right at the chin!
   void _drawCharacterWithRestState(
     Canvas canvas, {
     required ui.Image? sheet,
@@ -1650,107 +1683,135 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
         center: Offset(
           pos.dx,
           restState == PlayerRestState.sleeping
-              ? pos.dy - 14
-              : (restState.isResting ? pos.dy - 2 : pos.dy + 4),
+              ? pos.dy - 10
+              : (restState.isResting ? pos.dy + 2 : pos.dy + 4),
         ),
         width: restState == PlayerRestState.sleeping ? 44 : 24,
-        height: restState == PlayerRestState.sleeping ? 13 : 9,
+        height: restState == PlayerRestState.sleeping ? 12 : 9,
       ),
       Paint()
         ..color = Colors.black
-            .withValues(alpha: restState.isResting ? 0.22 : 0.35),
+            .withValues(alpha: restState.isResting ? 0.20 : 0.35),
     );
 
     if (sheet == null) return;
 
     final stepFrame = restState.isResting
-        ? (animTick ~/ 3) % kCharFramesPerDirection
-        : animTick % kCharFramesPerDirection;
+        ? 0
+        : (animTick ~/ 2) % kCharFramesPerDirection;
     final frameIdx = computeCharacterFrameIndex(
       facing: restState == PlayerRestState.sleeping ? AvatarFacing.down : facing,
       isWalking: isWalking && !restState.isResting,
       stepFrame: stepFrame,
     );
+    final fx = frameIdx * kCharFrameWidth;
 
     if (restState == PlayerRestState.sleeping) {
-      final cushionY = pos.dy - 18.0;
-
-      // Cozy pixel pillow positioned on the sofa/bench armrest cushion under their head
-      final pillowRect = RRect.fromRectAndRadius(
-        Rect.fromCenter(
-          center: Offset(pos.dx - 16, cushionY - 1),
-          width: 20,
-          height: 14,
-        ),
-        const Radius.circular(4),
+      // 1. Crisp 2x2-pixel-grid pillow on the left cushion (`pos.dx - 28, pos.dy - 20`)
+      final px = pos.dx - 28.0;
+      final py = pos.dy - 20.0;
+      const pw = 20.0;
+      const ph = 18.0;
+      canvas.drawRect(
+        Rect.fromLTWH(px, py, pw, ph),
+        Paint()..color = const Color(0xFF334155),
       );
-      canvas.drawRRect(pillowRect, Paint()..color = const Color(0xFFF8FAFC));
-      canvas.drawRRect(
-        pillowRect,
-        Paint()
-          ..color = const Color(0xFF94A3B8)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 1.3,
+      canvas.drawRect(
+        Rect.fromLTWH(px + 2, py + 2, pw - 4, ph - 4),
+        Paint()..color = const Color(0xFFF8FAFC),
+      );
+      canvas.drawRect(
+        Rect.fromLTWH(px + 4, py + ph - 4, pw - 6, 2),
+        Paint()..color = const Color(0xFFCBD5E1),
       );
 
-      // Crop standing legs: draw only head + upper torso (`srcHeight = 32.0`) rotated horizontally onto the pillow
-      const croppedHeight = 32.0;
-      final sleepSrc = Rect.fromLTWH(
-        frameIdx * kCharFrameWidth,
-        0,
-        kCharFrameWidth,
-        croppedHeight,
-      );
+      // 2. Rotate ONLY the character's head (`y = 18..45`, height `28`) `-90°` onto the pillow
+      // so no arms or shoulders stick out above/below the sofa!
+      final headSrc = Rect.fromLTWH(fx, 18, kCharFrameWidth, 28);
+      final skinSampleSrc = Rect.fromLTWH(fx + 14, 38, 2, 2);
       canvas.save();
-      canvas.translate(pos.dx - 4, cushionY);
+      canvas.translate(pos.dx - 8.0, pos.dy - 10.0);
       canvas.rotate(-math.pi / 2);
-      final dst = Rect.fromCenter(
+      final headDst = Rect.fromCenter(
         center: Offset.zero,
         width: kCharFrameWidth,
-        height: croppedHeight,
+        height: 28,
       );
-      canvas.drawImageRect(sheet, sleepSrc, dst, pixelPaint);
+      canvas.drawImageRect(sheet, headSrc, headDst, pixelPaint);
+
+      // Skin-tone adaptive closed eyelids inside the rotated head frame (`top = -14` corresponds to `y = 18`)
+      canvas.drawImageRect(
+        sheet,
+        skinSampleSrc,
+        const Rect.fromLTWH(-16 + 10, -14 + 22, 2, 4),
+        pixelPaint,
+      );
+      canvas.drawImageRect(
+        sheet,
+        skinSampleSrc,
+        const Rect.fromLTWH(-16 + 20, -14 + 22, 2, 4),
+        pixelPaint,
+      );
+      final eyelashPaint = Paint()..color = const Color(0xFF3B2F2F);
+      canvas.drawRect(
+        const Rect.fromLTWH(-16 + 9, -14 + 24, 4, 2),
+        eyelashPaint,
+      );
+      canvas.drawRect(
+        const Rect.fromLTWH(-16 + 19, -14 + 24, 4, 2),
+        eyelashPaint,
+      );
       canvas.restore();
 
-      // Fitted quilted pixel blanket tucked over the sleeping student's body on the sofa cushion
-      final blanketRect = RRect.fromRectAndRadius(
-        Rect.fromCenter(
-          center: Offset(pos.dx + 8, cushionY + 1),
-          width: 28,
-          height: 16,
-        ),
-        const Radius.circular(5),
+      // 3. Crisp 2x2-pixel-grid quilted blanket starting right at the chin (`pos.dx + 4`)
+      final bx = pos.dx + 4.0;
+      final by = pos.dy - 20.0;
+      const bw = 24.0;
+      const bh = 20.0;
+      // Outer pixel border
+      canvas.drawRect(
+        Rect.fromLTWH(bx, by, bw, bh),
+        Paint()..color = const Color(0xFF1E293B),
       );
-      canvas.drawRRect(
-        blanketRect,
-        Paint()..color = const Color(0xFF38BDF8).withValues(alpha: 0.94),
+      // Main quilt fill
+      canvas.drawRect(
+        Rect.fromLTWH(bx + 2, by + 2, bw - 4, bh - 4),
+        Paint()..color = const Color(0xFF3B82F6),
       );
-      // Folded white sheet collar on the left edge of the blanket (near the neck)
-      canvas.drawRRect(
-        RRect.fromRectAndRadius(
-          Rect.fromLTWH(
-              blanketRect.left, blanketRect.top, 6, blanketRect.height),
-          const Radius.circular(3),
-        ),
+      // Folded white sheet collar on the left edge (under the chin)
+      canvas.drawRect(
+        Rect.fromLTWH(bx + 2, by + 2, 4, bh - 4),
         Paint()..color = const Color(0xFFF1F5F9),
       );
-      // Blanket quilt stitch lines
-      final stitchPaint = Paint()
-        ..color = const Color(0xFF0284C7)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.2;
-      canvas.drawRRect(blanketRect, stitchPaint);
-      canvas.drawLine(
-        Offset(blanketRect.left + 14, blanketRect.top + 2),
-        Offset(blanketRect.left + 14, blanketRect.bottom - 2),
+      canvas.drawRect(
+        Rect.fromLTWH(bx + 6, by + 2, 2, bh - 4),
+        Paint()..color = const Color(0xFFCBD5E1),
+      );
+      // Top highlight & bottom shadow bands
+      canvas.drawRect(
+        Rect.fromLTWH(bx + 8, by + 2, bw - 10, 4),
+        Paint()..color = const Color(0xFF60A5FA),
+      );
+      canvas.drawRect(
+        Rect.fromLTWH(bx + 8, by + bh - 6, bw - 10, 4),
+        Paint()..color = const Color(0xFF2563EB),
+      );
+      // Vertical pixel quilt stitch lines
+      final stitchPaint = Paint()..color = const Color(0xFF1D4ED8);
+      canvas.drawRect(
+        Rect.fromLTWH(bx + 12, by + 2, 2, bh - 4),
+        stitchPaint,
+      );
+      canvas.drawRect(
+        Rect.fromLTWH(bx + 18, by + 2, 2, bh - 4),
         stitchPaint,
       );
 
-      // Animated rising `💤 Zzz...` sleep particles
-      final floatOffset = (animTick % 12) * 1.4;
+      // 4. Animated rising `💤 Zzz...` sleep particles
+      final floatOffset = (animTick % 12) * 1.3;
       final zzzTp = TextPainter(
         text: const TextSpan(
-          text: '🛌 💤 Zzz...',
+          text: '💤 Zzz...',
           style: TextStyle(
             color: Color(0xFFC4B5FD),
             fontSize: 9.5,
@@ -1761,90 +1822,75 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
       )..layout();
       zzzTp.paint(
         canvas,
-        Offset(pos.dx + 4, cushionY - 26 - floatOffset),
+        Offset(pos.dx + 4, pos.dy - 40 - floatOffset),
       );
     } else if (restState == PlayerRestState.sitting ||
         restState == PlayerRestState.napping) {
-      // Crop the standing lower legs (`srcHeight = 35.0` instead of `48.0`) so the student's hips
-      // rest directly on the chair/bench/sofa seat cushion (`pos.dy - 2`)!
+      // Gentle 2px pixel breathing nod when napping
       final nodY = restState == PlayerRestState.napping
-          ? math.sin(animTick * 0.25) * 1.4
+          ? ((animTick ~/ 8) % 2) * 2.0
           : 0.0;
-      const seatedCropHeight = 35.0;
-      final seatedSrc = Rect.fromLTWH(
-        frameIdx * kCharFrameWidth,
-        0,
-        kCharFrameWidth,
-        seatedCropHeight,
-      );
-      final seatedDst = Rect.fromLTWH(
-        pos.dx - kCharFrameWidth / 2,
-        pos.dy - seatedCropHeight - 1.0 + nodY,
-        kCharFrameWidth,
-        seatedCropHeight,
-      );
+      final ox = pos.dx - kCharFrameWidth / 2;
+      final oy = pos.dy - 56.0 + nodY;
 
-      // Draw bent seated knees & shoes in front of the cushion when facing down/left/right
+      // 1. Intact Upper Body, Arms & Hips (`y = 0..55`, height `56`) seated on the cushion
+      final upperSrc = Rect.fromLTWH(fx, 0, kCharFrameWidth, 56);
+      final upperDst = Rect.fromLTWH(ox, oy, kCharFrameWidth, 56);
+      canvas.drawImageRect(sheet, upperSrc, upperDst, pixelPaint);
+
+      // 2. Foreshortened seated pixel-art Feet/Shoes (`y = 60..63`, height `4`) tucked directly below
       if (facing != AvatarFacing.up) {
-        final pantPaint = Paint()..color = const Color(0xFF1E293B);
-        final shoePaint = Paint()..color = const Color(0xFF0F172A);
-        final kneeShiftX = facing == AvatarFacing.left
-            ? -3.0
-            : (facing == AvatarFacing.right ? 3.0 : 0.0);
-        // Left bent knee & shoe
-        canvas.drawRRect(
-          RRect.fromRectAndRadius(
-            Rect.fromLTWH(pos.dx - 7 + kneeShiftX, pos.dy - 4, 5, 6),
-            const Radius.circular(1.5),
-          ),
-          pantPaint,
+        final feetSrc = Rect.fromLTWH(fx, 60, kCharFrameWidth, 4);
+        final feetDst = Rect.fromLTWH(ox, pos.dy, kCharFrameWidth, 4);
+        canvas.drawImageRect(sheet, feetSrc, feetDst, pixelPaint);
+      }
+
+      // 3. When Napping (and not facing away), draw skin-tone adaptive closed eyelids
+      if (restState == PlayerRestState.napping && facing != AvatarFacing.up) {
+        final skinSampleSrc = Rect.fromLTWH(fx + 14, 38, 2, 2);
+        canvas.drawImageRect(
+          sheet,
+          skinSampleSrc,
+          Rect.fromLTWH(ox + 10, oy + 40, 2, 4),
+          pixelPaint,
         );
-        canvas.drawRRect(
-          RRect.fromRectAndRadius(
-            Rect.fromLTWH(pos.dx - 7.5 + kneeShiftX, pos.dy + 1, 6, 3.5),
-            const Radius.circular(1.5),
-          ),
-          shoePaint,
+        canvas.drawImageRect(
+          sheet,
+          skinSampleSrc,
+          Rect.fromLTWH(ox + 20, oy + 40, 2, 4),
+          pixelPaint,
         );
-        // Right bent knee & shoe
-        canvas.drawRRect(
-          RRect.fromRectAndRadius(
-            Rect.fromLTWH(pos.dx + 2 + kneeShiftX, pos.dy - 4, 5, 6),
-            const Radius.circular(1.5),
-          ),
-          pantPaint,
+        final eyelashPaint = Paint()..color = const Color(0xFF3B2F2F);
+        canvas.drawRect(
+          Rect.fromLTWH(ox + 9, oy + 42, 4, 2),
+          eyelashPaint,
         );
-        canvas.drawRRect(
-          RRect.fromRectAndRadius(
-            Rect.fromLTWH(pos.dx + 1.5 + kneeShiftX, pos.dy + 1, 6, 3.5),
-            const Radius.circular(1.5),
-          ),
-          shoePaint,
+        canvas.drawRect(
+          Rect.fromLTWH(ox + 19, oy + 42, 4, 2),
+          eyelashPaint,
         );
       }
 
-      // Draw upper body (head, torso, arms, hips) seated on the cushion
-      canvas.drawImageRect(sheet, seatedSrc, seatedDst, pixelPaint);
-
-      // When facing UP (at a Classroom desk chair or Canteen chair), draw the wooden chair backrest
-      // in front of the student's lower back so they appear tucked INSIDE the chair!
+      // 4. When facing UP (at a Classroom desk or Canteen table), overlay the lower backrest slice
+      // of `chair-tan-back` from `floor-items.png` so the wooden backrest wraps cleanly behind their back!
       if (facing == AvatarFacing.up) {
-        final backRect = RRect.fromRectAndRadius(
-          Rect.fromCenter(
-            center: Offset(pos.dx, pos.dy - 5),
-            width: 22,
-            height: 8,
-          ),
-          const Radius.circular(2.5),
-        );
-        canvas.drawRRect(backRect, Paint()..color = const Color(0xFF92400E));
-        canvas.drawRRect(
-          backRect,
-          Paint()
-            ..color = const Color(0xFF451A03)
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = 1.2,
-        );
+        final chairFrame = assets.itemFrames['chair-tan-back'];
+        if (chairFrame != null) {
+          const offY = 10.0;
+          final backSrc = Rect.fromLTWH(
+            chairFrame.left,
+            chairFrame.top + offY,
+            chairFrame.width,
+            chairFrame.height - offY,
+          );
+          final backDst = Rect.fromLTWH(
+            pos.dx - 16.0,
+            pos.dy - 24.0 + offY,
+            chairFrame.width,
+            chairFrame.height - offY,
+          );
+          canvas.drawImageRect(assets.floorItems, backSrc, backDst, pixelPaint);
+        }
       }
 
       if (restState == PlayerRestState.napping) {
@@ -1858,13 +1904,13 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
         )..layout();
         napTp.paint(
           canvas,
-          Offset(pos.dx + 12, pos.dy - 46 - floatOffset),
+          Offset(pos.dx + 12, pos.dy - 48 - floatOffset),
         );
       }
     } else {
       // Standing / Walking full sprite
       final src = Rect.fromLTWH(
-        frameIdx * kCharFrameWidth,
+        fx,
         0,
         kCharFrameWidth,
         kCharFrameHeight,
@@ -2006,7 +2052,7 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
     );
   }
 
-  /// Renders a `Parcha-ai/ai-office` AI Subject Mentor NPC (`small_chest_1..8`)
+  /// Renders an autonomous walking & talking AI Subject Teacher (`msitarzewski/agency-agents` + `Parcha-ai/ai-office`)
   /// exclusively for the 3 official Portal subjects (`PKLP`, `PPG`, and `UCSP`)!
   void _drawSmallMysteryChest(
     Canvas canvas, {
@@ -2014,56 +2060,75 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
     required int remainingCooldownSec,
     required bool isHighlighted,
   }) {
-    final pos = zone.center;
+    final agentState =
+        LobbyAgencyAgentsService.instance.runtimeStateForId(zone.id);
+    final pos = agentState?.currentPos ?? zone.center;
     final isOnCooldown = remainingCooldownSec > 0;
-    final bob = math.sin((animTick + pos.dy) * 0.35) * 1.8;
+    final bob = math.sin((animTick + pos.dy) * 0.35) * 1.6;
     final mentor = findAiSubjectMentor(zone.id);
     final accentCol = Color(mentor?.accentColor ?? zone.accentColor);
     final pixelPaint = Paint()..filterQuality = FilterQuality.none;
 
-    // 1. Glowing AI Mentor floor aura ring
+    // 1. Glowing AI Teacher floor aura ring
     canvas.drawOval(
       Rect.fromCenter(center: Offset(pos.dx, pos.dy + 4), width: 32, height: 12),
       Paint()
         ..color = isOnCooldown
             ? const Color(0xFF475569).withValues(alpha: 0.45)
-            : accentCol.withValues(alpha: isHighlighted ? 0.55 : 0.32),
-    );
-    canvas.drawOval(
-      Rect.fromCenter(center: Offset(pos.dx, pos.dy + 4), width: 22, height: 8),
-      Paint()..color = Colors.black.withValues(alpha: 0.32),
+            : accentCol.withValues(alpha: isHighlighted ? 0.58 : 0.32),
     );
 
-    // 2. Render AI Mentor Character Sprite Sheet (`assets.npcSheets[zone.id]`)
-    final sheet = assets.npcSheets[zone.id] ?? assets.npcSheets['npc_receptionist'];
-    if (sheet != null) {
-      final facing = ((animTick ~/ 18) % 2 == 0)
-          ? AvatarFacing.down
-          : ((pos.dx < playerPos.dx) ? AvatarFacing.right : AvatarFacing.left);
-      final frameIdx = computeCharacterFrameIndex(
-        facing: facing,
-        isWalking: !isOnCooldown && ((animTick ~/ 6) % 2 == 0),
-        stepFrame: (animTick ~/ 3) % kCharFramesPerDirection,
-      );
-      final src = Rect.fromLTWH(
-        frameIdx * kCharFrameWidth,
-        0,
-        kCharFrameWidth,
-        kCharFrameHeight,
-      );
-      final dst = Rect.fromLTWH(
-        pos.dx - kCharFrameWidth / 2,
-        pos.dy - kCharFrameHeight + 8,
-        kCharFrameWidth,
-        kCharFrameHeight,
-      );
-      canvas.drawImageRect(sheet, src, dst, pixelPaint);
+    // 2. Render AI Teacher Character Sprite Sheet using `_drawCharacterWithRestState`
+    // so they physically walk, turn to face the student, or sit at their favorite seat!
+    final sheet =
+        assets.npcSheets[zone.id] ?? assets.npcSheets['npc_receptionist'];
+    final facing = agentState?.facing ??
+        (((animTick ~/ 18) % 2 == 0)
+            ? AvatarFacing.down
+            : ((pos.dx < playerPos.dx)
+                ? AvatarFacing.right
+                : AvatarFacing.left));
+    final isWalking = agentState?.isWalking ?? false;
+    final restState =
+        agentState?.activityState == AgencyAgentActivityState.sitting
+            ? PlayerRestState.sitting
+            : PlayerRestState.none;
+
+    _drawCharacterWithRestState(
+      canvas,
+      sheet: sheet,
+      pos: pos,
+      facing: facing,
+      isWalking: isWalking,
+      restState: restState,
+      pixelPaint: pixelPaint,
+    );
+
+    // Wave emote (`👋`) when the AI Teacher spots the student approaching!
+    if (agentState != null && agentState.isWaving) {
+      final waveTp = TextPainter(
+        text: const TextSpan(
+          text: '👋',
+          style: TextStyle(fontSize: 15),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      waveTp.paint(canvas, Offset(pos.dx + 16, pos.dy - 48));
     }
 
-    // 3. Floating Nameplate (`🤖 Guro Lakambini [PKLP AI Mentor]`)
+    // 3. Floating Nameplate (`🤖 Guro Lakambini [PKLP • Walking / Talking]`)
     final mentorName = mentor?.name ?? zone.label;
-    final mentorTag =
-        mentor != null ? '${mentor.subjectCode} AI Mentor' : 'AI Mentor';
+    final activityBadge = agentState != null
+        ? (agentState.activityState ==
+                AgencyAgentActivityState.conversingWithPlayer
+            ? '💬 Talking'
+            : (agentState.activityState == AgencyAgentActivityState.sitting
+                ? '🪑 Seated'
+                : (agentState.isWalking ? '🚶 Patrol' : '📋 Ready')))
+        : 'AI Mentor';
+    final mentorTag = mentor != null
+        ? '${mentor.subjectCode} • $activityBadge'
+        : activityBadge;
     _drawFloatingNameplate(
       canvas,
       anchor: Offset(pos.dx, pos.dy - 54),
@@ -2073,8 +2138,18 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
       badgeIcon: '🤖',
     );
 
-    // 4. Rotating `Parcha-ai/ai-office` Study Thought Bubble when player is nearby
-    if (mentor != null &&
+    // 4. Live `msitarzewski/agency-agents` Conversational Speech / Study Bubble when player is nearby
+    final liveBubble = agentState?.activeBubbleText ?? '';
+    if (liveBubble.isNotEmpty && (playerPos - pos).distance <= 250.0) {
+      _drawCloudThoughtBubble(
+        canvas,
+        anchor: Offset(pos.dx, pos.dy - 88),
+        text: liveBubble,
+        isHighlighted: isHighlighted ||
+            agentState?.activityState ==
+                AgencyAgentActivityState.conversingWithPlayer,
+      );
+    } else if (mentor != null &&
         mentor.studyThoughts.isNotEmpty &&
         (playerPos - pos).distance <= 240.0) {
       final thoughtIdx = (animTick ~/ 28) % mentor.studyThoughts.length;
@@ -2086,14 +2161,16 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
       );
     }
 
-    // 5. Quest Status Pill (`❓ PKLP/PPG/UCSP Exam (+25 XP)` or `⏳ Cooldown`)
+    // 5. Quest & Chat Status Pill (`💬 Talk • 📝 PKLP Exam (+25 XP)` or `💬 Talk • ⏳ Cooldown`)
     final badgeY = pos.dy - 70 + bob;
+    final subjShort = mentor?.subjectCode ?? 'EXAM';
     if (isOnCooldown) {
       final hours = remainingCooldownSec ~/ 3600;
       final mins = (remainingCooldownSec % 3600) ~/ 60;
       final secs = (remainingCooldownSec % 60).toString().padLeft(2, '0');
-      final cooldownLabel =
-          hours > 0 ? '⏳ Next Q: ${hours}h ${mins}m' : '⏳ $mins:$secs';
+      final cooldownLabel = hours > 0
+          ? '💬 Talk • ⏳ Exam ${hours}h ${mins}m'
+          : '💬 Talk • ⏳ $mins:$secs';
       final tp = TextPainter(
         text: TextSpan(
           text: cooldownLabel,
@@ -2122,10 +2199,9 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
         Offset(pos.dx - tp.width / 2, badgeY - tp.height / 2),
       );
     } else {
-      final subjShort = mentor?.subjectCode ?? 'EXAM';
       final tp = TextPainter(
         text: TextSpan(
-          text: '❓ $subjShort EXAM (+25 XP)',
+          text: '💬 TALK • 📝 $subjShort EXAM (+25 XP)',
           style: const TextStyle(
             color: Color(0xFFFDE047),
             fontSize: 8.2,
