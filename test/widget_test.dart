@@ -1026,16 +1026,24 @@ void main() {
       // 2. Verify autonomous walking locomotion along waypoints when player is far away
       final lakambiniBefore = agency.runtimeStateForId('small_chest_1')!;
       final startPos = lakambiniBefore.currentPos;
+      var moved = false;
       for (var i = 0; i < 10; i++) {
-        agency.tick(
+        if (agency.tick(
           0.1,
           room: LobbyRoomId.mainLobby,
           playerPos: const Offset(1350, 950),
-        );
+        )) {
+          moved = true;
+        }
       }
+      expect(moved, isTrue);
       final lakambiniAfterWalk = agency.runtimeStateForId('small_chest_1')!;
       expect(lakambiniAfterWalk.currentPos, isNot(equals(startPos)));
       expect(lakambiniAfterWalk.isWalking, isTrue);
+
+      // Verify Dr. Jocano's favorite sofa aligns with calibrated rest_lobby_sofa_south center
+      final jocano = agency.runtimeStateForId('small_chest_3')!;
+      expect(jocano.spec.favoriteSeatPos, const Offset(352, 828));
 
       // Verify Staff NPC in Main Lobby also patrols autonomously
       final aikoBefore = agency.runtimeStateForId('npc_receptionist')!.currentPos;
@@ -1044,11 +1052,12 @@ void main() {
       // 3. Verify proximity eye-contact, stopping, waving, and greeting within 115 px
       final nearPlayerPos =
           lakambiniAfterWalk.currentPos + const Offset(60, 0);
-      agency.tick(
+      final approached = agency.tick(
         0.05,
         room: LobbyRoomId.mainLobby,
         playerPos: nearPlayerPos,
       );
+      expect(approached, isTrue);
       final conversing = agency.runtimeStateForId('small_chest_1')!;
       expect(
         conversing.activityState,

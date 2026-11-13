@@ -1,5 +1,4 @@
 import 'dart:math' as math;
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import 'lobby_data_service.dart';
@@ -10,6 +9,7 @@ import 'school_lobby_config.dart';
 /// `msitarzewski/agency-agents` & `Parcha-ai/ai-office`.
 enum AgencyAgentActivityState {
   walking,
+  walkingToSeat,
   inspecting,
   sitting,
   conversingWithPlayer;
@@ -18,6 +18,8 @@ enum AgencyAgentActivityState {
     switch (this) {
       case AgencyAgentActivityState.walking:
         return '🚶 Walking Patrol';
+      case AgencyAgentActivityState.walkingToSeat:
+        return '🚶 Walking to Seat';
       case AgencyAgentActivityState.inspecting:
         return '🔍 Inspecting Station';
       case AgencyAgentActivityState.sitting:
@@ -126,7 +128,8 @@ class AgencyAgentRuntimeState {
   });
 
   bool get isWalking =>
-      activityState == AgencyAgentActivityState.walking &&
+      (activityState == AgencyAgentActivityState.walking ||
+          activityState == AgencyAgentActivityState.walkingToSeat) &&
       !restState.isResting;
 
   bool get isWaving => waveTimerSec > 0.0;
@@ -295,6 +298,7 @@ const List<AgencyPersonaSpec> kAgencyTeacherPersonas = <AgencyPersonaSpec>[
       Offset(1020, 540),
       Offset(980, 740),
       Offset(768, 740),
+      Offset(352, 768),
     ],
     stationLabels: <String>[
       'East Academic Gallery',
@@ -302,8 +306,9 @@ const List<AgencyPersonaSpec> kAgencyTeacherPersonas = <AgencyPersonaSpec>[
       'Reviewer Vault Entrance',
       'South Study Promenade',
       'South Lobby Atrium',
+      'Quiet Reading Approach',
     ],
-    favoriteSeatPos: Offset(336, 828),
+    favoriteSeatPos: Offset(352, 828),
     favoriteSeatFacing: AvatarFacing.down,
     walkingThoughts: <String>[
       '💭 [UCSP] Cultural Relativism means understanding a culture from its own context, not judging it! 🌍',
@@ -700,8 +705,10 @@ const List<AgencyPersonaSpec> kAgencyStaffNpcPersonas = <AgencyPersonaSpec>[
     communicationStyle: 'Warm shopkeeper.',
     patrolWaypoints: <Offset>[
       Offset(932, 136),
-      Offset(988, 224),
+      Offset(972, 136),
+      Offset(972, 224),
       Offset(900, 224),
+      Offset(972, 224),
     ],
     stationLabels: <String>['Shop Counter', 'Table Decor Display', 'Cosmetics Rack'],
     walkingThoughts: <String>[
@@ -730,8 +737,10 @@ const List<AgencyPersonaSpec> kAgencyStaffNpcPersonas = <AgencyPersonaSpec>[
     communicationStyle: 'Smooth radio host.',
     patrolWaypoints: <Offset>[
       Offset(604, 136),
-      Offset(548, 224),
+      Offset(564, 136),
+      Offset(564, 224),
       Offset(632, 224),
+      Offset(564, 224),
     ],
     stationLabels: <String>['Radio Turntable', 'Speaker Stack West', 'Radio Request Board'],
     walkingThoughts: <String>[
@@ -940,21 +949,32 @@ class LobbyAgencyAgentsService extends ChangeNotifier {
   }
 
   /// Advances the 60 FPS autonomous behavior state machine for all AI Teachers and NPCs in [room]:
-  /// - `walking`: Walks smoothly (`72 px/s` for AI Teachers, `52 px/s` for Staff NPCs) toward the next waypoint.
-  /// - `inspecting`: Pauses naturally at a station (`3.5–5.0s`) and rotates through contextual study thoughts.
-  /// - `sitting`: Occasionally sits down at `favoriteSeatPos` (`PlayerRestState.sitting`) using the new 2-slice seated pixel posture!
-  /// - `conversingWithPlayer`: When the student approaches within `115 px`, the AI Teacher automatically stops walking,
-  ///   stands up if seated, turns to face the student (`AvatarFacing`), waves (`👋`), and greets them!
-  void tick(
+  /// - `walking`: Walks smoothly (`74 px/s` for AI Teachers, `52 px/s` for Staff NPCs) toward the next waypoint.
+  /// - `walkingToSeat`: Walks naturally to `favoriteSeatPos` before sitting (no teleportation).
+  /// - `inspecting`: Pauses naturally at a station (`3.2s`) and rotates through contextual study thoughts.
+  /// - `sitting`: Occasionally sits down at `favoriteSeatPos` (`PlayerRestState.sitting`) using the 2-slice seated pixel posture.
+  /// - `conversingWithPlayer`: When the student approaches within engage radius, the AI Teacher stops walking,
+  ///   stands up if seated, turns to face the student (`AvatarFacing`), waves (`👋`), and greets them.
+  ///
+  /// Returns `true` if any visible agent state (position, facing, activity, rest pose, bubble, or wave) changed.
+  bool tick(
     double dt, {
     required LobbyRoomId room,
     required Offset playerPos,
   }) {
     final safeDt = dt.clamp(0.0, 0.25);
-    if (safeDt <= 0.0) return;
+    if (safeDt <= 0.0) return false;
+    var anyChanged = false;
 
     for (final state in _states.values) {
       if (state.spec.room != room) continue;
+
+      final prevPos = state.currentPos;
+      final prevFacing = state.facing;
+      final prevActivity = state.activityState;
+      final prevRest = state.restState;
+      final prevBubble = state.activeBubbleText;
+      final prevWaving = state.isWaving;
 
       if (state.waveTimerSec > 0.0) {
         state.waveTimerSec = math.max(0.0, state.waveTimerSec - safeDt);
@@ -977,86 +997,129 @@ class LobbyAgencyAgentsService extends ChangeNotifier {
             state.interactionCount++;
           }
         }
-        state.facing = _facingFromDelta(playerPos - state.currentPos, state.facing);
-        continue;
-      }
-
-      // If player walked away after conversing, resume walking patrol!
-      if (state.activityState ==
-          AgencyAgentActivityState.conversingWithPlayer) {
-        state.activityState = AgencyAgentActivityState.walking;
-        state.restState = PlayerRestState.none;
-        if (state.spec.walkingThoughts.isNotEmpty) {
-          state.activeBubbleText = state.spec.walkingThoughts[
-              state.currentWaypointIndex % state.spec.walkingThoughts.length];
-        }
-      }
-
-      // 2. Handle Sitting / Inspecting timers
-      if (state.activityState == AgencyAgentActivityState.inspecting ||
-          state.activityState == AgencyAgentActivityState.sitting) {
-        state.stateTimerSec -= safeDt;
-        if (state.stateTimerSec <= 0.0) {
+        state.facing =
+            _facingFromDelta(playerPos - state.currentPos, state.facing);
+      } else {
+        // If player walked away after conversing, resume walking patrol!
+        if (state.activityState ==
+            AgencyAgentActivityState.conversingWithPlayer) {
           state.activityState = AgencyAgentActivityState.walking;
           state.restState = PlayerRestState.none;
-          if (state.spec.patrolWaypoints.isNotEmpty) {
-            state.currentWaypointIndex =
-                (state.currentWaypointIndex + 1) %
-                    state.spec.patrolWaypoints.length;
-          }
           if (state.spec.walkingThoughts.isNotEmpty) {
             state.activeBubbleText = state.spec.walkingThoughts[
-                state.currentWaypointIndex % state.spec.walkingThoughts.length];
+                state.currentWaypointIndex %
+                    state.spec.walkingThoughts.length];
           }
         }
-        continue;
+
+        // 2. Handle Sitting / Inspecting timers
+        if (state.activityState == AgencyAgentActivityState.inspecting ||
+            state.activityState == AgencyAgentActivityState.sitting) {
+          state.stateTimerSec -= safeDt;
+          if (state.stateTimerSec <= 0.0) {
+            state.activityState = AgencyAgentActivityState.walking;
+            state.restState = PlayerRestState.none;
+            if (state.spec.patrolWaypoints.isNotEmpty) {
+              state.currentWaypointIndex =
+                  (state.currentWaypointIndex + 1) %
+                      state.spec.patrolWaypoints.length;
+            }
+            if (state.spec.walkingThoughts.isNotEmpty) {
+              state.activeBubbleText = state.spec.walkingThoughts[
+                  state.currentWaypointIndex %
+                      state.spec.walkingThoughts.length];
+            }
+          }
+        } else if (state.activityState ==
+            AgencyAgentActivityState.walkingToSeat) {
+          // 3. Smooth walk to favoriteSeatPos before sitting
+          final seat = state.spec.favoriteSeatPos;
+          if (seat == null || (playerPos - seat).distance <= 48.0) {
+            state.activityState = AgencyAgentActivityState.walking;
+            state.restState = PlayerRestState.none;
+            if (state.spec.patrolWaypoints.isNotEmpty) {
+              state.currentWaypointIndex =
+                  (state.currentWaypointIndex + 1) %
+                      state.spec.patrolWaypoints.length;
+            }
+          } else {
+            final toSeat = seat - state.currentPos;
+            final seatDist = toSeat.distance;
+            final moveSpeed = state.spec.isSubjectMentor ? 74.0 : 52.0;
+            final step = moveSpeed * safeDt;
+            if (seatDist <= step + 2.0) {
+              state.currentPos = seat;
+              state.facing = state.spec.favoriteSeatFacing;
+              state.activityState = AgencyAgentActivityState.sitting;
+              state.restState = PlayerRestState.sitting;
+              state.stateTimerSec = 5.5;
+              state.activeBubbleText =
+                  '💭 [${state.spec.subjectCode}] Taking a quick reading break — come sit or chat with me! 📚';
+            } else {
+              final dir = toSeat / seatDist;
+              state.currentPos = state.currentPos + dir * step;
+              state.facing = _facingFromDelta(dir, state.facing);
+              state.restState = PlayerRestState.none;
+            }
+          }
+        } else {
+          // 4. Autonomous Walking Patrol along `patrolWaypoints`
+          final waypoints = state.spec.patrolWaypoints;
+          if (waypoints.isNotEmpty) {
+            final target =
+                waypoints[state.currentWaypointIndex % waypoints.length];
+            final toTarget = target - state.currentPos;
+            final dist = toTarget.distance;
+            final moveSpeed = state.spec.isSubjectMentor ? 74.0 : 52.0;
+            final step = moveSpeed * safeDt;
+
+            if (dist <= step + 2.0) {
+              state.currentPos = target;
+              final canSitNow = state.spec.favoriteSeatPos != null &&
+                  (state.currentWaypointIndex == 0) &&
+                  ((state.interactionCount % 2) == 1);
+              if (canSitNow &&
+                  (playerPos - state.spec.favoriteSeatPos!).distance > 48.0) {
+                state.activityState = AgencyAgentActivityState.walkingToSeat;
+                state.restState = PlayerRestState.none;
+                state.activeBubbleText =
+                    '💭 [${state.spec.subjectCode}] Heading to my reading spot — come sit or chat with me! 📖';
+                state.interactionCount++;
+              } else {
+                state.activityState = AgencyAgentActivityState.inspecting;
+                state.restState = PlayerRestState.none;
+                state.stateTimerSec = 3.2;
+                state.facing = AvatarFacing.down;
+                if (state.spec.walkingThoughts.isNotEmpty) {
+                  final tIdx =
+                      (state.currentWaypointIndex + state.interactionCount) %
+                          state.spec.walkingThoughts.length;
+                  state.activeBubbleText = state.spec.walkingThoughts[tIdx];
+                }
+              }
+            } else {
+              final dir = toTarget / dist;
+              state.currentPos = state.currentPos + dir * step;
+              state.facing = _facingFromDelta(dir, state.facing);
+              state.activityState = AgencyAgentActivityState.walking;
+              state.restState = PlayerRestState.none;
+            }
+          }
+        }
       }
 
-      // 3. Autonomous Walking Patrol along `patrolWaypoints`
-      final waypoints = state.spec.patrolWaypoints;
-      if (waypoints.isEmpty) continue;
-
-      final target = waypoints[state.currentWaypointIndex % waypoints.length];
-      final toTarget = target - state.currentPos;
-      final dist = toTarget.distance;
-      final moveSpeed = state.spec.isSubjectMentor ? 74.0 : 52.0;
-      final step = moveSpeed * safeDt;
-
-      if (dist <= step + 2.0) {
-        state.currentPos = target;
-        // Decide whether to briefly sit at favoriteSeatPos (every 3rd cycle for AI Teachers) or inspect station
-        final canSitNow = state.spec.favoriteSeatPos != null &&
-            (state.currentWaypointIndex == 0) &&
-            ((state.interactionCount % 2) == 1);
-        if (canSitNow &&
-            (playerPos - state.spec.favoriteSeatPos!).distance > 48.0) {
-          state.currentPos = state.spec.favoriteSeatPos!;
-          state.facing = state.spec.favoriteSeatFacing;
-          state.activityState = AgencyAgentActivityState.sitting;
-          state.restState = PlayerRestState.sitting;
-          state.stateTimerSec = 5.5;
-          state.activeBubbleText =
-              '💭 [${state.spec.subjectCode}] Taking a quick reading break — come sit or chat with me! 📚';
-          state.interactionCount++;
-        } else {
-          state.activityState = AgencyAgentActivityState.inspecting;
-          state.restState = PlayerRestState.none;
-          state.stateTimerSec = 3.2;
-          state.facing = AvatarFacing.down;
-          if (state.spec.walkingThoughts.isNotEmpty) {
-            final tIdx = (state.currentWaypointIndex + state.interactionCount) %
-                state.spec.walkingThoughts.length;
-            state.activeBubbleText = state.spec.walkingThoughts[tIdx];
-          }
-        }
-      } else {
-        final dir = toTarget / dist;
-        state.currentPos = state.currentPos + dir * step;
-        state.facing = _facingFromDelta(dir, state.facing);
-        state.activityState = AgencyAgentActivityState.walking;
-        state.restState = PlayerRestState.none;
+      if (!anyChanged &&
+          (state.currentPos != prevPos ||
+              state.facing != prevFacing ||
+              state.activityState != prevActivity ||
+              state.restState != prevRest ||
+              state.activeBubbleText != prevBubble ||
+              state.isWaving != prevWaving)) {
+        anyChanged = true;
       }
     }
+
+    return anyChanged;
   }
 
   AvatarFacing _facingFromDelta(Offset delta, AvatarFacing fallback) {

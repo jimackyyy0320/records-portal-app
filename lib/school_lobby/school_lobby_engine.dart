@@ -7,7 +7,6 @@ import 'package:flutter/services.dart';
 import 'lobby_agency_agents.dart';
 import 'lobby_data_service.dart';
 import 'lobby_presence_service.dart';
-import 'lobby_shop_service.dart';
 import 'school_lobby_avatar.dart';
 import 'school_lobby_config.dart';
 
