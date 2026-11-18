@@ -638,8 +638,15 @@ void main() {
       final seenIds = <String>{};
       final totalPool = service.quizQuestions.length;
       expect(totalPool, greaterThanOrEqualTo(40));
+      // AI Mentor chests are subject-scoped (small_chest_1 -> PKLP only) and
+      // never repeat a question within their subject until it is exhausted.
+      final pklpFirst = service.pickRandomQuestionForSmallChest('small_chest_1');
+      expect(pklpFirst.subject.toUpperCase(), startsWith('PKLP'));
+
+      // Subject-neutral draws rotate through the ENTIRE deck with no repeats.
       for (var i = 0; i < totalPool; i++) {
-        final q = service.pickRandomQuestionForSmallChest('small_chest_1');
+        final q =
+            service.pickRandomQuestionForSmallChest('generic_mystery_draw');
         expect(seenIds.contains(q.id), isFalse,
             reason: 'Question ${q.id} repeated before pool exhaustion at draw $i');
         seenIds.add(q.id);
@@ -652,7 +659,7 @@ void main() {
       expect(seenIds.length, totalPool);
       // Next draw after exhausting all 40+ questions cleanly resets and continues rotating
       final afterResetQuestion =
-          service.pickRandomQuestionForSmallChest('small_chest_1');
+          service.pickRandomQuestionForSmallChest('generic_mystery_draw');
       expect(afterResetQuestion.id, isNotEmpty);
 
       // 2. 24-Hour (86,400s) Small Mystery Chest Cooldown + Lock on First Click (even on wrong answer)
