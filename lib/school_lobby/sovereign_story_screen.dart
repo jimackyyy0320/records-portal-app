@@ -2771,7 +2771,7 @@ class _SovereignOverworldPainter extends CustomPainter {
               Paint()
                 ..color = Colors.black.withValues(alpha: 0.08)
                 ..style = PaintingStyle.stroke
-                ..strokeWidth: 1.0,
+                ..strokeWidth = 1.0,
             );
             break;
           case 'U':
