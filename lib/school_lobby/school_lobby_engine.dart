@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'lobby_agency_agents.dart';
 import 'lobby_data_service.dart';
 import 'lobby_presence_service.dart';
+import 'pixelfx_engine.dart';
 import 'school_lobby_avatar.dart';
 import 'school_lobby_config.dart';
 
@@ -1014,6 +1015,12 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
           zone: z,
           isHighlighted: highlightedZone?.id == z.id,
         );
+      } else if (z.kind == InteractiveZoneKind.storyBookshelfPortal) {
+        _drawStoryBookshelfPortal(
+          canvas,
+          zone: z,
+          isHighlighted: highlightedZone?.id == z.id,
+        );
       } else if (z.kind == InteractiveZoneKind.vendingMachine ||
           z.kind == InteractiveZoneKind.classroomPodium ||
           z.kind == InteractiveZoneKind.campusShop ||
@@ -1197,6 +1204,90 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
         badgeRect.center.dx - tp.width / 2,
         badgeRect.center.dy - tp.height / 2,
       ),
+    );
+  }
+
+  static final PixelFxFrame _bookshelfFxFrame = createFrame(48, 48);
+  static final PixelFxController _bookshelfFxCtrl = createFx(
+    PixelFxPreset.bookshelfPortalAura,
+    const PixelFxOptions(x: 24, y: 24, seed: 1899),
+  );
+
+  /// Renders the Glowing Bookshelf Portal (`✨📚 Chronicles of the Sovereign`) at the back
+  /// of the Virtual School Lobby using the `patch-gg/pixelfx` procedural pixel engine!
+  void _drawStoryBookshelfPortal(
+    Canvas canvas, {
+    required InteractiveZone zone,
+    required bool isHighlighted,
+  }) {
+    final pos = zone.center;
+    final pulse = 0.5 + 0.5 * math.sin(animTick * 0.35);
+
+    // 1. Advance & composite `patch-gg/pixelfx` `bookshelfPortalAura` onto the bookshelf
+    _bookshelfFxCtrl.update(0.035);
+    clearFrame(_bookshelfFxFrame);
+    _bookshelfFxCtrl.draw(_bookshelfFxFrame);
+    renderPixelFxFrameToCanvas(
+      canvas,
+      _bookshelfFxFrame,
+      Rect.fromCenter(
+        center: Offset(pos.dx, pos.dy - 14),
+        width: 96,
+        height: 96,
+      ),
+      opacity: isHighlighted ? 0.98 : 0.85,
+    );
+
+    // 2. Golden Astrolabe floor seal in front of the bookshelf
+    canvas.drawOval(
+      Rect.fromCenter(center: pos, width: 76, height: 34),
+      Paint()
+        ..color = const Color(0xFFFACC15)
+            .withValues(alpha: isHighlighted ? 0.36 : 0.20 + 0.10 * pulse),
+    );
+    canvas.drawOval(
+      Rect.fromCenter(center: pos, width: 76, height: 34),
+      Paint()
+        ..color = const Color(0xFFFDE047)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = isHighlighted ? 2.4 : 1.6,
+    );
+
+    // 3. Floating Story Mode Banner
+    final tp = TextPainter(
+      text: const TextSpan(
+        text: '✨📚 CHRONICLES OF THE SOVEREIGN (STORY RPG)',
+        style: TextStyle(
+          color: Color(0xFFFEF08A),
+          fontSize: 8.8,
+          fontWeight: FontWeight.w900,
+          letterSpacing: 0.4,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    final pill = RRect.fromRectAndRadius(
+      Rect.fromCenter(
+        center: Offset(pos.dx, pos.dy - 52),
+        width: tp.width + 16,
+        height: tp.height + 7,
+      ),
+      const Radius.circular(9),
+    );
+    canvas.drawRRect(
+      pill,
+      Paint()..color = const Color(0xFF0F172A).withValues(alpha: 0.95),
+    );
+    canvas.drawRRect(
+      pill,
+      Paint()
+        ..color = const Color(0xFFFACC15)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = isHighlighted ? 2.2 : 1.5,
+    );
+    tp.paint(
+      canvas,
+      Offset(pos.dx - tp.width / 2, pos.dy - 52 - tp.height / 2),
     );
   }
 
@@ -2061,7 +2152,9 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
   }) {
     final agentState =
         LobbyAgencyAgentsService.instance.runtimeStateForId(zone.id);
-    final pos = agentState?.currentPos ?? zone.center;
+    final pos = (agentState != null && agentState.spec.room == currentRoom)
+        ? agentState.currentPos
+        : zone.center;
     final isOnCooldown = remainingCooldownSec > 0;
     final bob = math.sin((animTick + pos.dy) * 0.35) * 1.6;
     final mentor = findAiSubjectMentor(zone.id);

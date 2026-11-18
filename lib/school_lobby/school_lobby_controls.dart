@@ -232,6 +232,8 @@ class SchoolLobbyInteractCluster extends StatelessWidget {
         return Icons.shopping_bag_rounded;
       case InteractiveZoneKind.radioBase:
         return Icons.radio_rounded;
+      case InteractiveZoneKind.storyBookshelfPortal:
+        return Icons.auto_stories_rounded;
       default:
         return Icons.auto_awesome_rounded;
     }
@@ -255,6 +257,8 @@ class SchoolLobbyInteractCluster extends StatelessWidget {
         return 'OPEN XP SHOP 🛍️';
       case InteractiveZoneKind.radioBase:
         return 'CAMPUS RADIO 📻';
+      case InteractiveZoneKind.storyBookshelfPortal:
+        return 'ENTER CHRONICLE 📖';
       default:
         return 'INTERACT [E]';
     }

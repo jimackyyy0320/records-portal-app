@@ -19,6 +19,7 @@ import 'school_lobby_config.dart';
 import 'school_lobby_controls.dart';
 import 'school_lobby_engine.dart';
 import 'school_lobby_modals.dart';
+import 'sovereign_story_screen.dart';
 
 /// Self-Contained 2D Pixel "Mini School Lobby" Screen for the MIS-SHS Learner App.
 /// Includes:
@@ -180,6 +181,7 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
   @override
   void dispose() {
     LobbyPresenceService.instance.stopPresence();
+    LobbyRadioService.instance.setLocalListening(false);
     _gameLoopTimer?.cancel();
     _keyboardFocusNode.dispose();
     SystemChrome.setPreferredOrientations(const []);
@@ -1023,6 +1025,26 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
     );
   }
 
+  Future<void> _openSovereignStoryMode() async {
+    HapticFeedback.heavyImpact();
+    LobbyAudioService.instance.playGbaEncounterSwirl();
+    await Navigator.of(context).push(
+      PageRouteBuilder<void>(
+        transitionDuration: const Duration(milliseconds: 420),
+        pageBuilder: (ctx, anim, secAnim) => FadeTransition(
+          opacity: anim,
+          child: SovereignStoryScreen(
+            session: widget.session,
+            playerNickname: _playerNickname,
+          ),
+        ),
+      ),
+    );
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
   void _triggerWave() {
     HapticFeedback.lightImpact();
     LobbyAudioService.instance.playWaveEmote();
@@ -1074,7 +1096,9 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
           break;
         }
         final isPersonalTable = spot.id == kLocalPlayerClassroomDeskSpotId;
-        final isGroupStudySeat = spot.id.contains('group_study');
+        final isGroupStudySeat = groupStudySpaceForRoom(_currentRoom)
+            .seatSpotIds
+            .contains(spot.id);
         final chosenRest = await showRestSpotActionModal(
           context: context,
           spotLabel: spot.label,
@@ -1164,8 +1188,13 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
         break;
       case InteractiveZoneKind.studentLounge:
         final roomSpots = restSpotsForRoom(_currentRoom);
+        final groupSeatIds =
+            groupStudySpaceForRoom(_currentRoom).seatSpotIds.toSet();
         final groupSpots = roomSpots
-            .where((r) => r.id.contains('group_study') || r.id.contains('lounge'))
+            .where((r) =>
+                groupSeatIds.contains(r.id) ||
+                r.id.contains('group') ||
+                r.id.contains('lounge'))
             .toList();
         LobbyRestSpot loungeSpot = _findNearbyRestSpot() ??
             (groupSpots.isNotEmpty ? groupSpots.first : roomSpots.first);
@@ -1242,6 +1271,9 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
         break;
       case InteractiveZoneKind.radioBase:
         await _openCampusRadio();
+        break;
+      case InteractiveZoneKind.storyBookshelfPortal:
+        await _openSovereignStoryMode();
         break;
     }
   }
@@ -1460,8 +1492,10 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
                   children: LobbyRoomId.values.map((room) {
                     final isCurrent = room == _currentRoom;
                     final accent = Color(room.accentColor);
-                    final roomCount =
-                        (occupancy[room] ?? 0) + (isCurrent ? 1 : 0);
+                    final roomCount = math.max(
+                      isCurrent ? 1 : 0,
+                      occupancy[room] ?? 0,
+                    );
                     return Padding(
                       padding: const EdgeInsets.only(bottom: 8),
                       child: ListTile(
@@ -1691,10 +1725,133 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
                                         // "Back to App" Button
                                         _HudPillButton(
                                           icon: Icons.arrow_back_rounded,
-                                          label: 'Back to App',
+                                          label: 'Back',
                                           borderColor: Colors.white24,
                                           onTap: () =>
                                               Navigator.of(context).pop(),
+                                        ),
+                                        const SizedBox(width: 6),
+
+                                        // Upgraded RPG Identity & Animated XP Progress Card (`craft-game-floors` Game Feel Floor)
+                                        GestureDetector(
+                                          onTap: () =>
+                                              showCharacterProgressModal(
+                                            context: context,
+                                            playerName: _playerNickname,
+                                            isFaculty: widget.session.isFaculty,
+                                          ),
+                                          child: Container(
+                                            padding: const EdgeInsets.symmetric(
+                                                horizontal: 11, vertical: 5),
+                                            decoration: BoxDecoration(
+                                              color: const Color(0xEB0F172A),
+                                              borderRadius:
+                                                  BorderRadius.circular(14),
+                                              border: Border.all(
+                                                color: const Color(0xFFFACC15)
+                                                    .withValues(alpha: 0.72),
+                                                width: 1.4,
+                                              ),
+                                            ),
+                                            child: Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                Text(
+                                                  equippedBadgeIcon ??
+                                                      progress.rankEmoji,
+                                                  style: const TextStyle(
+                                                      fontSize: 15),
+                                                ),
+                                                const SizedBox(width: 6),
+                                                Column(
+                                                  crossAxisAlignment:
+                                                      CrossAxisAlignment.start,
+                                                  mainAxisSize:
+                                                      MainAxisSize.min,
+                                                  children: [
+                                                    Text(
+                                                      '$_playerNickname • LVL ${progress.level}',
+                                                      style: GoogleFonts.outfit(
+                                                        color: Colors.white,
+                                                        fontSize: 11,
+                                                        fontWeight:
+                                                            FontWeight.w900,
+                                                      ),
+                                                    ),
+                                                    const SizedBox(height: 2),
+                                                    Row(
+                                                      mainAxisSize:
+                                                          MainAxisSize.min,
+                                                      children: [
+                                                        SizedBox(
+                                                          width: 54,
+                                                          height: 5.5,
+                                                          child: ClipRRect(
+                                                            borderRadius:
+                                                                BorderRadius
+                                                                    .circular(
+                                                                        99),
+                                                            child:
+                                                                TweenAnimationBuilder<
+                                                                    double>(
+                                                              tween: Tween<
+                                                                  double>(
+                                                                begin: 0,
+                                                                end: (progress
+                                                                            .currentLevelXp /
+                                                                        100.0)
+                                                                    .clamp(0.0,
+                                                                        1.0),
+                                                              ),
+                                                              duration:
+                                                                  const Duration(
+                                                                      milliseconds:
+                                                                          320),
+                                                              curve: Curves
+                                                                  .easeOutCubic,
+                                                              builder: (ctx,
+                                                                      val, _) =>
+                                                                  LinearProgressIndicator(
+                                                                value: val,
+                                                                backgroundColor:
+                                                                    Colors
+                                                                        .white12,
+                                                                color: const Color(
+                                                                    0xFFFACC15),
+                                                              ),
+                                                            ),
+                                                          ),
+                                                        ),
+                                                        const SizedBox(
+                                                            width: 5),
+                                                        Text(
+                                                          '${progress.xp} XP',
+                                                          style: GoogleFonts
+                                                              .outfit(
+                                                            color: const Color(
+                                                                0xFFFEF08A),
+                                                            fontSize: 9.5,
+                                                            fontWeight:
+                                                                FontWeight.w800,
+                                                          ),
+                                                        ),
+                                                      ],
+                                                    ),
+                                                  ],
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 6),
+
+                                        // 1-Tap Story Mode RPG ("Chronicles of the Sovereign" • patch-gg/pixelfx)
+                                        _HudPillButton(
+                                          icon: Icons.auto_stories_rounded,
+                                          iconColor: const Color(0xFFFACC15),
+                                          label: '✨📖 Story RPG',
+                                          borderColor: const Color(0xFFFACC15),
+                                          onTap: _openSovereignStoryMode,
                                         ),
                                         const SizedBox(width: 6),
 

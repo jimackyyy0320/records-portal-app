@@ -1,4 +1,4 @@
-param(
+﻿param(
     [Parameter(Mandatory = $false)]
     [string]$RepoUrl
 )
@@ -55,7 +55,7 @@ if ([string]::IsNullOrWhiteSpace($curEmail)) {
 git add -A
 $status = git status --porcelain
 if (-not [string]::IsNullOrWhiteSpace($status)) {
-    git commit -m "Build Records Portal Android app with offline QR/NFC sync"
+    git commit -m "Add Chronicles of the Sovereign Story Mode RPG (patch-gg/pixelfx) and upgrade Virtual School UI"
 }
 
 $existingRemote = git remote

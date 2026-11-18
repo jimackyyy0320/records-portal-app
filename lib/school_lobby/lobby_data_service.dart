@@ -1385,14 +1385,23 @@ class LobbyDataService extends ChangeNotifier {
       pool = _defaultQuizQuestions();
     }
 
-    // Infer subject from preferredSubjectCode or AI Mentor ID ('pklp', 'ppg', 'ucsp')
+    // Infer subject from preferredSubjectCode or AI Mentor ID ('small_chest_1'..'8', 'pklp', 'ppg', 'ucsp')
     final lowerId = (preferredSubjectCode ?? smallChestId).toLowerCase();
     String? targetSubjectPrefix;
-    if (lowerId.contains('pklp')) {
+    if (lowerId.contains('pklp') ||
+        smallChestId == 'small_chest_1' ||
+        smallChestId == 'small_chest_4' ||
+        smallChestId == 'small_chest_7') {
       targetSubjectPrefix = 'PKLP';
-    } else if (lowerId.contains('ppg')) {
+    } else if (lowerId.contains('ppg') ||
+        lowerId.contains('pgp') ||
+        smallChestId == 'small_chest_2' ||
+        smallChestId == 'small_chest_6' ||
+        smallChestId == 'small_chest_8') {
       targetSubjectPrefix = 'PPG';
-    } else if (lowerId.contains('ucsp')) {
+    } else if (lowerId.contains('ucsp') ||
+        smallChestId == 'small_chest_3' ||
+        smallChestId == 'small_chest_5') {
       targetSubjectPrefix = 'UCSP';
     }
 
@@ -1564,6 +1573,68 @@ class LobbyDataService extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Story Mode ("Chronicles of the Sovereign"): Awards XP and unlocks RPG Badges
+  /// when a student earns a Charter Seal or completes all 7 Seals on the Altar of the Sovereign!
+  Future<EarnedStudentBadge?> awardSovereignCharterSealReward({
+    required String sealId,
+    required String sealName,
+    required String sealIcon,
+    required int sealColor,
+    required int totalSealsEarned,
+    bool completedAllSevenAltar = false,
+  }) async {
+    final activityKey = 'sovereign_$sealId';
+    if (!completedAllSevenAltar &&
+        _progress.completedActivityIds.contains(activityKey)) {
+      return null;
+    }
+
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final nextCompleted = Set<String>.from(_progress.completedActivityIds)
+      ..add(activityKey);
+    var xpGain = 75;
+    EarnedStudentBadge? unlockedBadge;
+    var nextBadges = List<EarnedStudentBadge>.from(_progress.earnedBadges);
+
+    if (completedAllSevenAltar &&
+        !nextBadges.any((b) => b.id == 'badge_master_historian')) {
+      xpGain = 200;
+      nextCompleted.add('sovereign_altar_master');
+      unlockedBadge = EarnedStudentBadge(
+        id: 'badge_master_historian',
+        badgeName: 'Master Historian (Ang Tagapag-ingat)',
+        badgeIcon: '👑',
+        badgeColor: 0xFFFACC15,
+        subject: 'PPG',
+        sourceTitle: 'Restored all 7 Charter Seals in Chronicles of the Sovereign',
+        earnedAtMs: now,
+      );
+      nextBadges = [unlockedBadge, ...nextBadges];
+    } else if (totalSealsEarned == 1 &&
+        !nextBadges.any((b) => b.id == 'badge_chronicle_keeper')) {
+      unlockedBadge = EarnedStudentBadge(
+        id: 'badge_chronicle_keeper',
+        badgeName: 'Ang Tagapag-ingat (Chronicle Keeper)',
+        badgeIcon: sealIcon,
+        badgeColor: sealColor,
+        subject: 'PPG',
+        sourceTitle: 'Earned $sealName in Chronicles of the Sovereign',
+        earnedAtMs: now,
+      );
+      nextBadges = [unlockedBadge, ...nextBadges];
+    }
+
+    _progress = _progress.copyWith(
+      xp: _progress.xp + xpGain,
+      completedActivityIds: nextCompleted,
+      earnedBadges: nextBadges,
+      equippedBadgeId: unlockedBadge?.id ?? _progress.equippedBadgeId,
+    );
+    await _saveProgress();
+    notifyListeners();
+    return unlockedBadge;
+  }
+
   /// Teacher can also add custom Pop-Quiz Questions to the Mystery Chest pool.
   Future<MiniQuizQuestion> addQuizQuestion({
     required String subject,
@@ -1693,6 +1764,13 @@ class LobbyDataService extends ChangeNotifier {
           ...cloud.unlockedCosmetics,
         },
         answeredQuestionIds: mergedAnswered,
+        tableDecor: _progress.tableDecor.chairStyle != 'tan_classic' ||
+                _progress.tableDecor.deskMat != 'oak_default' ||
+                _progress.tableDecor.miniLight != 'none' ||
+                _progress.tableDecor.deskFrame != 'none' ||
+                _progress.tableDecor.deskProp != 'none'
+            ? _progress.tableDecor
+            : cloud.tableDecor,
       );
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(

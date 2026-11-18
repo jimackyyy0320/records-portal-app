@@ -23,6 +23,8 @@ import 'package:student_portal_app/school_lobby/lobby_shop_service.dart';
 import 'package:student_portal_app/school_lobby/school_lobby_avatar.dart';
 import 'package:student_portal_app/school_lobby/school_lobby_config.dart';
 import 'package:student_portal_app/school_lobby/school_lobby_engine.dart';
+import 'package:student_portal_app/school_lobby/pixelfx_engine.dart';
+import 'package:student_portal_app/school_lobby/sovereign_story_data.dart';
 import 'package:student_portal_app/theme/portal_theme.dart';
 
 void main() {
@@ -1101,6 +1103,77 @@ void main() {
         room: LobbyRoomId.classroom,
       );
       expect(classroomZones.any((z) => z.id == 'small_chest_6'), isTrue);
+    },
+  );
+
+  test(
+    'School Lobby Phase 8: Chronicles of the Sovereign 7-Act LeafGreen RPG, Saligang Tala & patch-gg/pixelfx Engine',
+    () async {
+      final service = LobbyDataService.instance;
+      await service.init('2024-00555');
+
+      // 1. Verify Glowing Bookshelf Portal exists in Main Lobby interactive zones
+      final mainZones = buildActiveInteractiveZones(
+        service.subjectChests,
+        room: LobbyRoomId.mainLobby,
+      );
+      expect(
+        mainZones.any(
+          (z) =>
+              z.id == 'sovereign_story_bookshelf' &&
+              z.kind == InteractiveZoneKind.storyBookshelfPortal,
+        ),
+        isTrue,
+      );
+
+      // 2. Verify patch-gg/pixelfx Dual-Buffer Frame, Deterministic PRNG, Pure & Simulated 120Hz Effects
+      final frame = createFrame(64, 64);
+      final auraFx = createFx(
+        PixelFxPreset.bookshelfPortalAura,
+        const PixelFxOptions(x: 32, y: 32, seed: 42),
+      );
+      auraFx.update(0.25);
+      auraFx.draw(clearFrame(frame));
+      final composited = compositeFrame(frame);
+      expect(composited.any((px) => px != 0), isTrue);
+
+      final swirlFx = createFx(
+        PixelFxPreset.gbaBattleSwirl,
+        const PixelFxOptions(x: 32, y: 32, seed: 99),
+      );
+      swirlFx.update(0.15);
+      swirlFx.draw(clearFrame(frame));
+      expect(compositeFrame(frame).any((px) => px != 0), isTrue);
+
+      // 3. Verify all 7 Historical Acts, 4 Legal Doctrines, and Saligang Tala Catalog
+      expect(kSovereignActs.length, 7);
+      expect(kAlonDoctrineMoves.length, 4);
+      expect(kSaligangTalaCatalog.length, greaterThanOrEqualTo(16));
+      expect(kSovereignActs.first.zoneTitle, 'Isla Magtanggol');
+      expect(kSovereignActs.last.zoneTitle, 'Highway of Gold');
+
+      // 4. Verify Charter Seal XP & Master Historian ("Ang Tagapag-ingat") Badge unlocking
+      final firstSealBadge = await service.awardSovereignCharterSealReward(
+        sealId: kSovereignActs.first.charterSealId,
+        sealName: kSovereignActs.first.charterSealName,
+        sealIcon: kSovereignActs.first.charterSealIcon,
+        sealColor: kSovereignActs.first.charterSealColor,
+        totalSealsEarned: 1,
+      );
+      expect(firstSealBadge, isNotNull);
+      expect(firstSealBadge!.id, 'badge_chronicle_keeper');
+
+      final masterBadge = await service.awardSovereignCharterSealReward(
+        sealId: kSovereignActs.last.charterSealId,
+        sealName: kSovereignActs.last.charterSealName,
+        sealIcon: kSovereignActs.last.charterSealIcon,
+        sealColor: kSovereignActs.last.charterSealColor,
+        totalSealsEarned: 7,
+        completedAllSevenAltar: true,
+      );
+      expect(masterBadge, isNotNull);
+      expect(masterBadge!.id, 'badge_master_historian');
+      expect(masterBadge.badgeIcon, '👑');
     },
   );
 }

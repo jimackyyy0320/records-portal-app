@@ -25,6 +25,7 @@ class LobbyAudioService extends ChangeNotifier {
   bool _initialized = false;
   int _lastFootstepMs = 0;
   int _playedSfxCount = 0;
+  final Map<String, Uint8List> _wavCache = <String, Uint8List>{};
 
   WebViewController? _audioWebViewController;
   bool _webViewReady = false;
@@ -160,10 +161,14 @@ class LobbyAudioService extends ChangeNotifier {
     _playedSfxCount++;
 
     if (!_isRunningInTest) {
-      final wavBytes = synthesizeToneSequenceWav(
-        notesHz,
-        noteDurationMs: noteDurationMs,
-        volume: playClick ? 0.45 : 0.22,
+      final cacheKey = '${notesHz.join(",")}_${noteDurationMs}_$playClick';
+      final wavBytes = _wavCache.putIfAbsent(
+        cacheKey,
+        () => synthesizeToneSequenceWav(
+          notesHz,
+          noteDurationMs: noteDurationMs,
+          volume: playClick ? 0.45 : 0.22,
+        ),
       );
       _deviceBridge
           .invokeMethod<bool>('playWavBytes', <String, dynamic>{
@@ -238,6 +243,30 @@ class LobbyAudioService extends ChangeNotifier {
   /// Tuning the Campus Radio Base station.
   void playRadioTune() {
     _triggerSfx(const [440.0, 554.37, 659.25], noteDurationMs: 60);
+  }
+
+  /// Four-note Bahay-Pulungan (PokéCenter) healing chime restoring Alon's Civic Resolve.
+  void playBahayPulunganHealChime() {
+    _triggerSfx(
+      const [659.25, 659.25, 587.33, 783.99],
+      noteDurationMs: 95,
+    );
+  }
+
+  /// Classic GBA screen-flashing swirl transition into Chronicles of the Sovereign or a Debate Battle.
+  void playGbaEncounterSwirl() {
+    _triggerSfx(
+      const [392.0, 466.16, 587.33, 783.99, 932.33, 1174.66],
+      noteDurationMs: 48,
+    );
+  }
+
+  /// Triumphant GBA Charter Seal (Gym Badge) unlock fanfare!
+  void playCharterSealFanfare() {
+    _triggerSfx(
+      const [523.25, 659.25, 783.99, 1046.50, 987.77, 1318.51],
+      noteDurationMs: 85,
+    );
   }
 
   static const String _kSynthesizerHtml = '''

@@ -547,6 +547,7 @@ enum InteractiveZoneKind {
   classroomPodium,
   campusShop,
   radioBase,
+  storyBookshelfPortal,
 }
 
 /// Interactive zone definition (recycled from TinyFloor's `ProximityManager.ts`).
@@ -943,8 +944,8 @@ List<LobbyFloorSignpost> floorSignpostsForRoom(LobbyRoomId room) {
         ),
         LobbyFloorSignpost(
           center: Offset(268, 232),
-          text: '📌 BULLETIN WALL',
-          colorValue: 0xFF0284C7,
+          text: '📌 BULLETIN & ✨📚 SOVEREIGN RPG BOOKSHELF',
+          colorValue: 0xFFFACC15,
         ),
         LobbyFloorSignpost(
           center: Offset(1248, 256),
@@ -1101,10 +1102,23 @@ const List<InteractiveZone> INTERACTIVE_ZONES = [
     subtitle: 'View school notices, academic calendar & honor roll tips',
     kind: InteractiveZoneKind.bulletinBoard,
     room: LobbyRoomId.mainLobby,
-    x: 268,
+    x: 228,
     y: 175,
-    radius: 110,
+    radius: 105,
     accentColor: 0xFF38BDF8,
+  ),
+  // 1b. Glowing Bookshelf Portal -> "Chronicles of the Sovereign" (LeafGreen RPG powered by patch-gg/pixelfx)
+  InteractiveZone(
+    id: 'sovereign_story_bookshelf',
+    label: '✨📚 Glowing Bookshelf: Chronicles of the Sovereign',
+    subtitle:
+        'Step into the 16-bit LeafGreen RPG for Philippine Governance (Powered by patch-gg/pixelfx)!',
+    kind: InteractiveZoneKind.storyBookshelfPortal,
+    room: LobbyRoomId.mainLobby,
+    x: 396,
+    y: 162,
+    radius: 115,
+    accentColor: 0xFFFACC15,
   ),
   // 2. Reception / Quest Counter (Top-Center Grand Hall)
   InteractiveZone(
