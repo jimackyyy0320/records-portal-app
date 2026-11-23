@@ -30,6 +30,8 @@ import 'package:student_portal_app/school_lobby/pixelfx_engine.dart';
 import 'package:student_portal_app/school_lobby/sovereign_story_data.dart';
 import 'package:student_portal_app/school_lobby/sovereign_story_screen.dart';
 import 'package:student_portal_app/school_lobby/spritecast_engine.dart';
+import 'package:student_portal_app/school_lobby/dungeon/dungeon_models.dart';
+import 'package:student_portal_app/school_lobby/dungeon/dungeon_physics.dart';
 import 'package:student_portal_app/theme/portal_theme.dart';
 
 void main() {
@@ -1860,6 +1862,297 @@ void main() {
       );
       expect(find.byType(SpriteCastDeskStudioPreview), findsOneWidget);
       expect(find.byType(SpriteCastDeskItemThumbnail), findsOneWidget);
+    },
+  );
+
+  test(
+    'Dungeon Part 1/8: 19 Tile Types, 7 Era Themes, 10 Charms, 5 Silk Skills, Save Merge & Silksong 2D Physics (Coyote, Buffer, Wall-Jump, Dash, Pogo, Grapple, Crumble, Spikes)',
+    () {
+      // 1. Models, Themes, Charms, Skills & Save round-trip/merge
+      expect(kDungeonEraThemes.length, 7);
+      expect(kDungeonCharmCatalog.length, 10);
+      expect(kDungeonSilkSkills.length, 5);
+      expect(dungeonTileFromChar('^').isPogoTarget, isTrue);
+      expect(dungeonTileFromChar('O').isPogoTarget, isTrue);
+      expect(dungeonTileFromChar('=').isOneWay, isTrue);
+      expect(dungeonTileFromChar('H').isClimbable, isTrue);
+
+      const saveA = DungeonProgressSave(
+        archipelagoShards: 85,
+        bladeTier: DungeonBladeTier.kampilanEdge,
+        unlockedCharmIds: <String>{'tarsier_lantern', 'quick_slash_bolo'},
+        equippedCharmIds: <String>['tarsier_lantern', 'quick_slash_bolo'],
+        defeatedBossIds: <String>{'boss_act1_datu'},
+      );
+      final roundTrip = DungeonProgressSave.fromJson(saveA.toJson());
+      expect(roundTrip.archipelagoShards, 85);
+      expect(roundTrip.bladeTier, DungeonBladeTier.kampilanEdge);
+      expect(roundTrip.usedCharmNotches, 3); // 1 + 2
+
+      const saveB = DungeonProgressSave(
+        archipelagoShards: 120,
+        bladeTier: DungeonBladeTier.malolosSteel,
+        unlockedCharmIds: <String>{'tarsier_lantern', 'sovereign_heart'},
+        defeatedBossIds: <String>{'boss_act2_governor'},
+      );
+      final mergedSave = saveA.mergeWith(saveB);
+      expect(mergedSave.archipelagoShards, 120);
+      expect(mergedSave.bladeTier, DungeonBladeTier.malolosSteel);
+      expect(
+        mergedSave.unlockedCharmIds,
+        containsAll(<String>['tarsier_lantern', 'quick_slash_bolo', 'sovereign_heart']),
+      );
+      expect(
+        mergedSave.defeatedBossIds,
+        containsAll(<String>['boss_act1_datu', 'boss_act2_governor']),
+      );
+
+      // 2. Test Chamber (24 x 12 tiles) with ledge, one-way bridge, wall, grapple ring, crumble block & spikes
+      const testChamberSpec = DungeonChamberSpec(
+        id: 'test_physics_room',
+        actNumber: 1,
+        title: 'Physics Crucible',
+        subtitle: 'Unit Test Chamber',
+        defaultSpawnCol: 2,
+        defaultSpawnRow: 8,
+        asciiGrid: <String>[
+          '########################',
+          '#......................#',
+          '#......................#',
+          '#..........G...........#',
+          '#......................#',
+          '#....====..............#',
+          '#......................#',
+          '#...............#......#',
+          '#...............#......#',
+          '######..CC....^^#......#',
+          '#...............#......#',
+          '########################',
+        ],
+      );
+
+      final engine = DungeonPhysicsEngine();
+
+      // 2a. Coyote Time: walk off row 9 ledge (col 5 -> col 6), wait 50ms airborne, jump still fires!
+      final chamber1 = DungeonChamberRuntime(testChamberSpec);
+      final player = DungeonPlayerPhysicsState(
+        x: 5 * kDungeonTileSize + 2,
+        y: 9 * kDungeonTileSize - 14.0,
+      );
+      // Settle on ledge first
+      engine.step(
+        dt: 1 / 60,
+        player: player,
+        chamber: chamber1,
+        input: const DungeonPlayerInput(),
+      );
+      expect(player.isGrounded, isTrue);
+      // Step right off the ledge into air (col 6)
+      player.x = 6 * kDungeonTileSize + 4;
+      engine.step(
+        dt: 0.05,
+        player: player,
+        chamber: chamber1,
+        input: const DungeonPlayerInput(moveX: 1.0),
+      );
+      expect(player.isGrounded, isFalse);
+      expect(player.coyoteTimer, greaterThan(0.0));
+      final coyoteEvents = engine.step(
+        dt: 1 / 60,
+        player: player,
+        chamber: chamber1,
+        input: const DungeonPlayerInput(jumpJustPressed: true, jumpHeld: true),
+      );
+      expect(
+        coyoteEvents.any((e) => e.kind == DungeonPhysicsEventKind.jumped),
+        isTrue,
+      );
+      expect(player.vy, lessThan(-300.0));
+
+      // 2b. Jump Buffering: press jump slightly before landing -> auto-jumps on touch!
+      final pBuf = DungeonPlayerPhysicsState(
+        x: 2 * kDungeonTileSize,
+        y: 9 * kDungeonTileSize - 22.0,
+        vy: 140.0,
+      );
+      final bufEvents = <DungeonPhysicsEvent>[];
+      bufEvents.addAll(
+        engine.step(
+          dt: 1 / 60,
+          player: pBuf,
+          chamber: chamber1,
+          input: const DungeonPlayerInput(jumpJustPressed: true, jumpHeld: true),
+        ),
+      );
+      for (var i = 0; i < 6; i++) {
+        bufEvents.addAll(
+          engine.step(
+            dt: 1 / 60,
+            player: pBuf,
+            chamber: chamber1,
+            input: const DungeonPlayerInput(jumpHeld: true),
+          ),
+        );
+      }
+      expect(
+        bufEvents.any((e) => e.kind == DungeonPhysicsEventKind.jumped),
+        isTrue,
+      );
+
+      // 2c. One-Way Platform landing & Down+Jump Drop-Through
+      final pOneWay = DungeonPlayerPhysicsState(
+        x: 6 * kDungeonTileSize,
+        y: 5 * kDungeonTileSize - 16.0,
+        vy: 80.0,
+      );
+      for (var i = 0; i < 6; i++) {
+        engine.step(
+          dt: 1 / 60,
+          player: pOneWay,
+          chamber: chamber1,
+          input: const DungeonPlayerInput(),
+        );
+      }
+      expect(pOneWay.isGrounded, isTrue);
+      expect(pOneWay.isOnOneWayPlatform, isTrue);
+      final yOnBridge = pOneWay.y;
+      engine.step(
+        dt: 1 / 60,
+        player: pOneWay,
+        chamber: chamber1,
+        input: const DungeonPlayerInput(moveY: 1.0, jumpJustPressed: true),
+      );
+      for (var i = 0; i < 6; i++) {
+        engine.step(
+          dt: 1 / 60,
+          player: pOneWay,
+          chamber: chamber1,
+          input: const DungeonPlayerInput(),
+        );
+      }
+      expect(pOneWay.y, greaterThan(yOnBridge + 8.0));
+
+      // 2d. Wall-Slide & Wall-Jump off col 16 solid pillar
+      final pWall = DungeonPlayerPhysicsState(
+        x: 16 * kDungeonTileSize - 10.5,
+        y: 7 * kDungeonTileSize,
+        vy: 260.0,
+      );
+      engine.step(
+        dt: 0.04,
+        player: pWall,
+        chamber: chamber1,
+        input: const DungeonPlayerInput(moveX: 1.0),
+      );
+      expect(pWall.isWallSliding, isTrue);
+      expect(pWall.vy, lessThanOrEqualTo(engine.tunables.wallSlideMaxFall + 1.0));
+      final wjEvents = engine.step(
+        dt: 1 / 60,
+        player: pWall,
+        chamber: chamber1,
+        input: const DungeonPlayerInput(
+          moveX: 1.0,
+          jumpJustPressed: true,
+          jumpHeld: true,
+        ),
+      );
+      expect(
+        wjEvents.any((e) => e.kind == DungeonPhysicsEventKind.wallJumped),
+        isTrue,
+      );
+      expect(pWall.vx, lessThan(-150.0)); // kicked left away from right wall
+      expect(pWall.vy, lessThan(-300.0));
+
+      // 2e. Air Silk Dash (consumes airDash + grants i-frames + ghost trail) & Pogo Reset!
+      final pDash = DungeonPlayerPhysicsState(
+        x: 6 * kDungeonTileSize,
+        y: 2 * kDungeonTileSize,
+        facing: 1,
+      );
+      final dashEvents = engine.step(
+        dt: 0.04,
+        player: pDash,
+        chamber: chamber1,
+        input: const DungeonPlayerInput(dashJustPressed: true),
+      );
+      expect(
+        dashEvents.any((e) => e.kind == DungeonPhysicsEventKind.dashed),
+        isTrue,
+      );
+      expect(pDash.isDashing, isTrue);
+      expect(pDash.isInvulnerable, isTrue);
+      expect(pDash.airDashAvailable, isFalse);
+      expect(pDash.afterimages, isNotEmpty);
+
+      final pogoEvt = engine.triggerPogoBounce(pDash, hasDoubleJumpCharm: true);
+      expect(pogoEvt.kind, DungeonPhysicsEventKind.pogoBounced);
+      expect(pDash.vy, lessThan(-350.0));
+      expect(pDash.airDashAvailable, isTrue);
+      expect(pDash.doubleJumpAvailable, isTrue);
+
+      // 2f. Silk-Needle Grapple Hook zips toward Grapple Ring (`G` at col 11, row 3)
+      final pGrapple = DungeonPlayerPhysicsState(
+        x: 6 * kDungeonTileSize,
+        y: 4 * kDungeonTileSize,
+        facing: 1,
+      );
+      final grEvents = engine.step(
+        dt: 1 / 60,
+        player: pGrapple,
+        chamber: chamber1,
+        input: const DungeonPlayerInput(grappleJustPressed: true),
+      );
+      expect(
+        grEvents.any((e) => e.kind == DungeonPhysicsEventKind.grappleStarted),
+        isTrue,
+      );
+      expect(pGrapple.grappleActive, isTrue);
+      expect(pGrapple.vx, greaterThan(200.0));
+
+      // 2g. Crumble Block (`C` at col 8, row 9) collapses after 0.45s and regenerates
+      final pCrumble = DungeonPlayerPhysicsState(
+        x: 8 * kDungeonTileSize + 2,
+        y: 9 * kDungeonTileSize - 14.0,
+      );
+      for (var i = 0; i < 36; i++) {
+        engine.step(
+          dt: 1 / 60,
+          player: pCrumble,
+          chamber: chamber1,
+          input: const DungeonPlayerInput(),
+        );
+      }
+      expect(chamber1.effectiveTileAt(8, 9), DungeonTileType.empty);
+
+      // 2h. Spike Hazard Recovery (`^` at col 14, row 9) deducts 1 HP and restores safe ground
+      final pSpike = DungeonPlayerPhysicsState(
+        x: 2 * kDungeonTileSize,
+        y: 9 * kDungeonTileSize - 14.0,
+        resolveHp: 6,
+      );
+      engine.step(
+        dt: 1 / 60,
+        player: pSpike,
+        chamber: chamber1,
+        input: const DungeonPlayerInput(),
+      );
+      final safeX = pSpike.lastSafeGroundX;
+      // Drop onto spike at col 14, row 9
+      pSpike.x = 14 * kDungeonTileSize + 2;
+      pSpike.y = 9 * kDungeonTileSize + 1;
+      final spikeEvents = engine.step(
+        dt: 1 / 60,
+        player: pSpike,
+        chamber: chamber1,
+        input: const DungeonPlayerInput(),
+      );
+      expect(
+        spikeEvents.any((e) => e.kind == DungeonPhysicsEventKind.hazardHit),
+        isTrue,
+      );
+      expect(pSpike.resolveHp, 5);
+      expect(pSpike.x, closeTo(safeX, 1.0));
+      expect(pSpike.isInvulnerable, isTrue);
     },
   );
 }
