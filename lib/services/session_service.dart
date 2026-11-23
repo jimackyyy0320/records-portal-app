@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../config/app_config.dart';
 import '../models/portal_models.dart';
+import 'local_database.dart';
 
 /// Manages Student & Faculty sessions with "Stay Signed In" persistence across
 /// app closes, swipe-from-recents, offline launches, and device restarts.
@@ -61,6 +62,12 @@ class SessionService {
       );
     }
 
+    if (session.isFaculty &&
+        session.id.trim().isNotEmpty &&
+        (session.scannerAuthToken ?? '').trim().isNotEmpty) {
+      await persistScannerSyncCredentials(session);
+    }
+
     if (shouldPersist) {
       await prefs.setString(
         AppConfig.prefSessionKey,
@@ -69,6 +76,53 @@ class SessionService {
     } else {
       await prefs.remove(AppConfig.prefSessionKey);
     }
+  }
+
+  /// Persists the teacher's scanner sync credentials in `SharedPreferences`
+  /// whenever they authenticate or open the classroom scanner, so background
+  /// `WorkManager` sync tasks can still authenticate even if "Stay Signed In"
+  /// was unchecked at login.
+  Future<void> persistScannerSyncCredentials(UserSession session) async {
+    if (!session.isFaculty) return;
+    final cleanId = session.id.trim();
+    final cleanToken = (session.scannerAuthToken ?? '').trim();
+    if (cleanId.isEmpty || cleanToken.isEmpty) return;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      AppConfig.prefScannerSyncCredsKey,
+      jsonEncode(<String, dynamic>{
+        'facultyId': cleanId,
+        'scannerAuthToken': cleanToken,
+      }),
+    );
+  }
+
+  /// Returns active Faculty scanner credentials from either the live/restored
+  /// session or the dedicated scanner sync credential slot for WorkManager.
+  Future<({String facultyId, String scannerAuthToken})?>
+      getScannerSyncCredentials() async {
+    final session = await restoreSession();
+    if (session != null && session.isFaculty) {
+      final token = (session.scannerAuthToken ?? '').trim();
+      if (session.id.trim().isNotEmpty && token.isNotEmpty) {
+        return (facultyId: session.id.trim(), scannerAuthToken: token);
+      }
+    }
+
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(AppConfig.prefScannerSyncCredsKey);
+    if (raw == null || raw.isEmpty) return null;
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is Map) {
+        final fid = decoded['facultyId']?.toString().trim() ?? '';
+        final token = decoded['scannerAuthToken']?.toString().trim() ?? '';
+        if (fid.isNotEmpty && token.isNotEmpty) {
+          return (facultyId: fid, scannerAuthToken: token);
+        }
+      }
+    } catch (_) {}
+    return null;
   }
 
   Future<UserSession?> restoreSession() async {
@@ -100,6 +154,12 @@ class SessionService {
     _activeSession = null;
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(AppConfig.prefSessionKey);
+    await prefs.remove(AppConfig.prefScannerSyncCredsKey);
+    try {
+      await LocalDatabase.instance.clearCache();
+    } catch (_) {
+      // Safe no-op in headless VM tests without SQLite plugin
+    }
   }
 
   /// Test helper to reset in-memory state between unit tests.

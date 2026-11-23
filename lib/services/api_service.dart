@@ -8,7 +8,17 @@ import 'session_service.dart';
 
 class ApiException implements Exception {
   final String message;
-  const ApiException(this.message);
+
+  /// `true` when the backend actively responded with a structured rejection
+  /// (`{"success": false}` or `{"status": "ERROR"}`), as opposed to a network
+  /// timeout or offline transport failure. Server rejections must NEVER be
+  /// silently masked by stale offline `kv_cache` data.
+  final bool isServerRejection;
+
+  const ApiException(
+    this.message, {
+    this.isServerRejection = false,
+  });
 
   @override
   String toString() => message;
@@ -19,6 +29,30 @@ class ApiService {
 
   static final ApiService instance = ApiService._();
   final http.Client _client = http.Client();
+
+  /// Validates a decoded server response map and throws an [ApiException]
+  /// with `isServerRejection: true` when the server actively rejected the call.
+  static void assertServerSuccess(
+    Map<String, dynamic> res, {
+    String fallbackMessage = 'Request failed.',
+    bool checkStatusErrorOnly = false,
+  }) {
+    if (checkStatusErrorOnly) {
+      if (res['status'] == 'ERROR') {
+        throw ApiException(
+          res['message']?.toString() ?? fallbackMessage,
+          isServerRejection: true,
+        );
+      }
+      return;
+    }
+    if (res['success'] != true) {
+      throw ApiException(
+        res['message']?.toString() ?? fallbackMessage,
+        isServerRejection: true,
+      );
+    }
+  }
 
   /// Sends a JSON RPC action to Google Apps Script (`doPost`) and transparently
   /// follows Google's 302 redirect (`script.googleusercontent.com/macros/echo`).
@@ -96,12 +130,21 @@ class ApiService {
   Future<SystemStatus> getSystemStatus() async {
     try {
       final res = await postAction('getSystemStatus');
-      if (res['status'] == 'ERROR') {
-        throw ApiException(res['message']?.toString() ?? 'System status error');
-      }
+      assertServerSuccess(
+        res,
+        fallbackMessage: 'System status error',
+        checkStatusErrorOnly: true,
+      );
       final status = SystemStatus.fromJson(res);
       await LocalDatabase.instance.putCache('system_status', status.toJson());
       return status;
+    } on ApiException catch (e) {
+      if (e.isServerRejection) rethrow;
+      final cached = await LocalDatabase.instance.getCache('system_status');
+      if (cached != null) {
+        return SystemStatus.fromJson(cached);
+      }
+      rethrow;
     } catch (e) {
       final cached = await LocalDatabase.instance.getCache('system_status');
       if (cached != null) {
@@ -179,11 +222,16 @@ class ApiService {
         'subjectCode': subjectCode,
         'isFaculty': isFaculty,
       });
-      if (res['success'] != true) {
-        throw ApiException(res['message']?.toString() ?? 'Failed to load data');
-      }
+      assertServerSuccess(res, fallbackMessage: 'Failed to load data');
       await LocalDatabase.instance.putCache(cacheKey, res);
       return SubjectDashboardData.fromJson(res);
+    } on ApiException catch (e) {
+      if (e.isServerRejection) rethrow;
+      final cached = await LocalDatabase.instance.getCache(cacheKey);
+      if (cached != null) {
+        return SubjectDashboardData.fromJson(cached);
+      }
+      rethrow;
     } catch (e) {
       final cached = await LocalDatabase.instance.getCache(cacheKey);
       if (cached != null) {
@@ -199,13 +247,19 @@ class ApiService {
       final res = await postAction('fetchSubjectRoster', {
         'subjectCode': subjectCode,
       });
-      if (res['success'] != true) {
-        throw ApiException(
-          res['message']?.toString() ?? 'Failed to load subject roster',
-        );
-      }
+      assertServerSuccess(
+        res,
+        fallbackMessage: 'Failed to load subject roster',
+      );
       await LocalDatabase.instance.putCache(cacheKey, res);
       return _parseSheetMatrix(res['sheetData']);
+    } on ApiException catch (e) {
+      if (e.isServerRejection) rethrow;
+      final cached = await LocalDatabase.instance.getCache(cacheKey);
+      if (cached != null) {
+        return _parseSheetMatrix(cached['sheetData']);
+      }
+      rethrow;
     } catch (e) {
       final cached = await LocalDatabase.instance.getCache(cacheKey);
       if (cached != null) {
@@ -314,21 +368,78 @@ class ApiService {
     return postAction('removeStudentAvatar', {'id': id});
   }
 
+  /// Dedicated JSON cloud storage for Virtual School manifests, RPG progress,
+  /// and Chronicles of the Sovereign saves, completely isolated from student
+  /// profile avatar images. Falls back transparently to legacy avatar JSON
+  /// slots if an older Apps Script deployment has not been updated yet.
+  Future<Map<String, dynamic>> saveLobbyCloudData({
+    required String slotKey,
+    required String dataJson,
+  }) async {
+    final res = await postAction('saveLobbyCloudData', {
+      'slotKey': slotKey,
+      'dataJson': dataJson,
+    });
+    if (res['success'] == true) return res;
+    final msg = (res['message']?.toString() ?? '').toLowerCase();
+    if (msg.contains('unknown action')) {
+      final encoded = base64Encode(utf8.encode(dataJson));
+      return uploadStudentAvatar(
+        id: slotKey,
+        dataUrl: 'data:application/json;base64,$encoded',
+      );
+    }
+    return res;
+  }
+
+  /// Fetches dedicated JSON cloud storage for [slotKey], with automatic
+  /// backward-compatible fallback to legacy JSON avatar slots.
+  Future<String?> getLobbyCloudData(String slotKey) async {
+    try {
+      final res = await postAction('getLobbyCloudData', {'slotKey': slotKey});
+      if (res['success'] == true) {
+        final raw = res['dataJson']?.toString();
+        if (raw != null && raw.trim().isNotEmpty) {
+          return raw;
+        }
+      }
+    } catch (_) {}
+
+    // Backward-compatible fallback for older deployments or pre-migration saves
+    try {
+      final rawDataUrl = await getStudentAvatar(slotKey);
+      if (rawDataUrl == null || !rawDataUrl.contains(',')) return null;
+      final b64 = rawDataUrl.split(',').last.trim();
+      if (b64.isEmpty) return null;
+      return utf8.decode(base64Decode(b64));
+    } catch (_) {
+      return null;
+    }
+  }
+
   // ─────────────────────────────────────────────────────────────
   //  SCANNER BOOTSTRAP ("Reference" Col C) & BATCH SYNC (FACULTY ONLY)
   // ─────────────────────────────────────────────────────────────
 
   Future<({List<String> subjects, Map<String, String> students})>
       fetchScannerBootstrap({UserSession? sessionOverride}) async {
-    final session =
-        sessionOverride ?? await SessionService.instance.restoreSession();
-    if (session == null || !session.isFaculty) {
+    if (sessionOverride != null && sessionOverride.isFaculty) {
+      await SessionService.instance
+          .persistScannerSyncCredentials(sessionOverride);
+    }
+    final creds = sessionOverride != null && sessionOverride.isFaculty
+        ? (
+            facultyId: sessionOverride.id.trim(),
+            scannerAuthToken: (sessionOverride.scannerAuthToken ?? '').trim(),
+          )
+        : await SessionService.instance.getScannerSyncCredentials();
+    if (creds == null || creds.facultyId.isEmpty) {
       return (subjects: <String>[], students: <String, String>{});
     }
     try {
       final res = await postAction('getScannerBootstrap', {
-        'facultyId': session.id,
-        'scannerAuthToken': session.scannerAuthToken ?? '',
+        'facultyId': creds.facultyId,
+        'scannerAuthToken': creds.scannerAuthToken,
       });
       if (res['success'] == true) {
         final subjects = (res['subjects'] as List?)
@@ -354,19 +465,32 @@ class ApiService {
     return LocalDatabase.instance.getCachedReferenceBootstrap();
   }
 
-  Future<Map<String, dynamic>> syncScanBatch(List<ScanLogEntry> logs) async {
-    final session = await SessionService.instance.restoreSession();
-    if (session == null || !session.isFaculty) {
-      return {
-        'success': false,
-        'message': 'Unauthorized: Faculty access is required to sync scans.',
-      };
+  Future<Map<String, dynamic>> syncScanBatch(
+    List<ScanLogEntry> logs, {
+    String? facultyId,
+    String? scannerAuthToken,
+  }) async {
+    String? resolvedFacultyId = facultyId?.trim();
+    String? resolvedToken = scannerAuthToken?.trim();
+    if (resolvedFacultyId == null ||
+        resolvedFacultyId.isEmpty ||
+        resolvedToken == null ||
+        resolvedToken.isEmpty) {
+      final creds = await SessionService.instance.getScannerSyncCredentials();
+      if (creds == null) {
+        return {
+          'success': false,
+          'message': 'Unauthorized: Faculty access is required to sync scans.',
+        };
+      }
+      resolvedFacultyId = creds.facultyId;
+      resolvedToken = creds.scannerAuthToken;
     }
     return postAction(
       'syncScanBatch',
       {
-        'facultyId': session.id,
-        'scannerAuthToken': session.scannerAuthToken ?? '',
+        'facultyId': resolvedFacultyId,
+        'scannerAuthToken': resolvedToken,
         'logs': logs.map((e) => e.toSyncJson()).toList(),
       },
       const Duration(seconds: 40),

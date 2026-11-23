@@ -107,11 +107,30 @@ class LocalDatabase {
     return (res.first['cnt'] as num?)?.toInt() ?? 0;
   }
 
-  Future<List<ScanLogEntry>> getUnsyncedScans({int limit = 150}) async {
+  /// Maximum retry attempts before a malformed scan row is quarantined so it
+  /// can never starve valid scans in the offline sync queue.
+  static const int maxSyncRetries = 5;
+
+  /// Pure helper used by sync queries and unit tests to determine whether a
+  /// queued [ScanLogEntry] is still eligible for automatic batch sync.
+  static bool isEligibleForRetry(
+    ScanLogEntry entry, {
+    int maxRetries = maxSyncRetries,
+  }) {
+    final status = entry.syncStatus.trim().toLowerCase();
+    return status != 'synced' && entry.retryCount < maxRetries;
+  }
+
+  Future<List<ScanLogEntry>> getUnsyncedScans({
+    int limit = 150,
+    int maxRetries = maxSyncRetries,
+  }) async {
     final db = await database;
     final rows = await db.query(
       'scan_logs',
-      where: "sync_status IN ('pending', 'failed', 'syncing')",
+      where:
+          "sync_status IN ('pending', 'failed', 'syncing') AND retry_count < ?",
+      whereArgs: [maxRetries],
       orderBy: 'created_at ASC',
       limit: limit,
     );
@@ -128,10 +147,11 @@ class LocalDatabase {
     return rows.map(ScanLogEntry.fromDbMap).toList();
   }
 
-  Future<int> getUnsyncedCount() async {
+  Future<int> getUnsyncedCount({int maxRetries = maxSyncRetries}) async {
     final db = await database;
     final res = await db.rawQuery(
-      "SELECT COUNT(*) AS cnt FROM scan_logs WHERE sync_status != 'synced'",
+      "SELECT COUNT(*) AS cnt FROM scan_logs WHERE sync_status != 'synced' AND retry_count < ?",
+      [maxRetries],
     );
     if (res.isEmpty) return 0;
     return (res.first['cnt'] as num?)?.toInt() ?? 0;
@@ -207,6 +227,13 @@ class LocalDatabase {
       if (decoded is Map) return Map<String, dynamic>.from(decoded);
     } catch (_) {}
     return null;
+  }
+
+  /// Clears all cached API responses (e.g., on user logout) so switching
+  /// accounts never displays stale offline data from a previous user.
+  Future<void> clearCache() async {
+    final db = await database;
+    await db.delete('kv_cache');
   }
 
   Future<void> saveReferenceBootstrap({

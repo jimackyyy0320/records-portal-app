@@ -19,6 +19,7 @@ class AppConfig {
   static const String prefSessionKey = 'portal_user_session_v1';
   static const String prefStaySignedInKey = 'portal_stay_signed_in_v1';
   static const String prefLastStudentIdKey = 'portal_last_student_id_v1';
+  static const String prefScannerSyncCredsKey = 'portal_scanner_sync_creds_v1';
 
   /// Workmanager task identifiers
   static const String wmOneOffSyncUniqueName = 'portal_oneoff_batch_sync';

@@ -2116,6 +2116,40 @@ class SovereignCampaignSave {
     );
   }
 
+  /// Merges this local save with a cloud [other] save by unioning earned seals,
+  /// unlocked Saligang Tala entries, defeated entities, solved puzzles, and taking
+  /// the furthest act progression so switching devices never regresses Story Mode.
+  SovereignCampaignSave mergeWith(SovereignCampaignSave other) {
+    final mergedMaxHp = maxCivicResolveHp >= other.maxCivicResolveHp
+        ? maxCivicResolveHp
+        : other.maxCivicResolveHp;
+    final mergedHp = (civicResolveHp >= other.civicResolveHp
+            ? civicResolveHp
+            : other.civicResolveHp)
+        .clamp(1, mergedMaxHp);
+    return SovereignCampaignSave(
+      currentActNumber: currentActNumber >= other.currentActNumber
+          ? currentActNumber
+          : other.currentActNumber,
+      earnedSealIds: <String>{...earnedSealIds, ...other.earnedSealIds},
+      unlockedSaligangTalaIds: <String>{
+        ...unlockedSaligangTalaIds,
+        ...other.unlockedSaligangTalaIds,
+      },
+      defeatedEntityIds: <String>{
+        ...defeatedEntityIds,
+        ...other.defeatedEntityIds,
+      },
+      activatedPuzzleNodeIds: <String>{
+        ...activatedPuzzleNodeIds,
+        ...other.activatedPuzzleNodeIds,
+      },
+      civicResolveHp: mergedHp,
+      maxCivicResolveHp: mergedMaxHp,
+      completedAltarEnding: completedAltarEnding || other.completedAltarEnding,
+    );
+  }
+
   Map<String, dynamic> toJson() => <String, dynamic>{
         'currentActNumber': currentActNumber,
         'earnedSealIds': earnedSealIds.toList(),

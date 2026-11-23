@@ -49,17 +49,20 @@ jobs:
           INPUT_SCRIPT_URL: ${{ inputs.apps_script_url }}
         run: |
           python3 - <<'PY'
-          import os, pathlib
+          import os, pathlib, re
           url = os.environ.get("INPUT_SCRIPT_URL", "").strip()
           if url.startswith("https://script.google.com/macros/s/"):
               cfg = pathlib.Path("lib/config/app_config.dart")
               txt = cfg.read_text(encoding="utf-8")
-              txt = txt.replace(
-                  "https://script.google.com/macros/s/REPLACE_WITH_YOUR_DEPLOYMENT_ID/exec",
+              updated, count = re.subn(
+                  r"https://script\.google\.com/macros/s/[^'\"]+/exec",
                   url,
+                  txt,
+                  count=1,
               )
-              cfg.write_text(txt, encoding="utf-8")
-              print("Pre-configured Apps Script URL into AppConfig.")
+              if count > 0:
+                  cfg.write_text(updated, encoding="utf-8")
+                  print("Pre-configured Apps Script URL into AppConfig.")
           PY
 
       - name: Generate Version-Matched Android Gradle Wrapper & Apply Native Bridge + App Logo
@@ -134,11 +137,24 @@ jobs:
           path: build/app/outputs/flutter-apk/mis-shs-learner-app.apk
           if-no-files-found: error
 
+      - name: Read Version from pubspec.yaml
+        id: app_version
+        run: |
+          python3 - <<'PY'
+          import os, pathlib, re
+          txt = pathlib.Path("pubspec.yaml").read_text(encoding="utf-8")
+          m = re.search(r"^version:\s*([0-9]+\.[0-9]+\.[0-9]+)", txt, re.M)
+          semver = m.group(1) if m else "1.3.0"
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+              fh.write(f"semver={semver}\n")
+          print(f"Resolved pubspec semver: {semver}")
+          PY
+
       - name: Publish Direct-Download APK to GitHub Releases
         continue-on-error: true
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.0.${{ github.run_number }}
-          name: "MIS-SHS Learner App Android v1.0.${{ github.run_number }}"
-          body: "Tap `mis-shs-learner-app.apk` below on your Android phone to download and install the MIS-SHS Learner App."
+          tag_name: v${{ steps.app_version.outputs.semver }}.${{ github.run_number }}
+          name: "MIS-SHS Learner App Android v${{ steps.app_version.outputs.semver }}+${{ github.run_number }}"
+          body: "Tap `mis-shs-learner-app.apk` below on your Android phone to download and install the MIS-SHS Learner App (v${{ steps.app_version.outputs.semver }} build ${{ github.run_number }})."
           files: build/app/outputs/flutter-apk/mis-shs-learner-app.apk

@@ -8,6 +8,7 @@ import '../models/portal_models.dart';
 import '../services/api_service.dart';
 import 'lobby_exam_bank.dart';
 import 'lobby_shop_service.dart';
+import 'sovereign_story_data.dart';
 
 /// Selectable pixel-style badge presets for Teacher "+ Post an Activity" & Student Achievements.
 class LobbyBadgePreset {
@@ -1070,8 +1071,9 @@ class LobbyDataService extends ChangeNotifier {
   }
 
   /// Pushes the Teacher's current Activities and Subject Chest Reviewer Links
-  /// to Google Drive (`_kCloudManifestId = '999999001'`) so all Student APKs
-  /// automatically receive the Teacher's links across devices.
+  /// to Google Drive (`_kCloudManifestId = '999999001'`) via isolated JSON
+  /// cloud storage (`saveLobbyCloudData`) so all Student APKs automatically
+  /// receive the Teacher's links across devices.
   Future<bool> pushCloudManifest() async {
     try {
       final manifest = <String, dynamic>{
@@ -1081,11 +1083,9 @@ class LobbyDataService extends ChangeNotifier {
         'subjectChests': _subjectChests.map((c) => c.toJson()).toList(),
       };
       final rawJson = jsonEncode(manifest);
-      final encoded = base64Encode(utf8.encode(rawJson));
-      final dataUrl = 'data:application/json;base64,$encoded';
-      final res = await ApiService.instance.uploadStudentAvatar(
-        id: _kCloudManifestId,
-        dataUrl: dataUrl,
+      final res = await ApiService.instance.saveLobbyCloudData(
+        slotKey: _kCloudManifestId,
+        dataJson: rawJson,
       );
       return res['success'] == true;
     } catch (_) {
@@ -1097,12 +1097,9 @@ class LobbyDataService extends ChangeNotifier {
   /// from Google Drive (`_kCloudManifestId = '999999001'`).
   Future<bool> _pullCloudManifest() async {
     try {
-      final rawDataUrl =
-          await ApiService.instance.getStudentAvatar(_kCloudManifestId);
-      if (rawDataUrl == null || !rawDataUrl.contains(',')) return false;
-      final b64 = rawDataUrl.split(',').last.trim();
-      if (b64.isEmpty) return false;
-      final decodedStr = utf8.decode(base64Decode(b64));
+      final decodedStr =
+          await ApiService.instance.getLobbyCloudData(_kCloudManifestId);
+      if (decodedStr == null || decodedStr.trim().isEmpty) return false;
       final map = jsonDecode(decodedStr);
       if (map is! Map) return false;
 
@@ -1778,17 +1775,133 @@ class LobbyDataService extends ChangeNotifier {
     unawaited(_pushCloudProgress());
   }
 
-  /// Section 4.2 Critique Fix: Cloud-backed RPG & Shop state persistence (`999999003_<studentId>`)
-  /// so a student reinstalling the APK or switching phones never loses their XP, Badges, or Shop Cosmetics.
+  /// Recalculates total spent XP directly from the union of unlocked paid
+  /// cosmetics in [LobbyShopService], preventing multi-device XP duplication
+  /// when two devices unlock different items while offline.
+  static int recalculateSpentXpFromUnlockedCosmetics(
+    Set<String> unlockedCosmetics, {
+    int fallbackSpentXp = 0,
+  }) {
+    var totalCost = 0;
+    for (final rawKey in unlockedCosmetics) {
+      final clean = rawKey.trim();
+      final sepIdx = clean.indexOf(':');
+      if (sepIdx <= 0 || sepIdx >= clean.length - 1) continue;
+      final category = clean.substring(0, sepIdx);
+      final partId = clean.substring(sepIdx + 1);
+      final cost = LobbyShopService.instance.costForCosmetic(category, partId);
+      if (cost > 0) {
+        totalCost += cost;
+      }
+    }
+    return math.max(totalCost, fallbackSpentXp);
+  }
+
+  /// Pure merge routine combining local + cloud [StudentLobbyProgress] and
+  /// bundled [SovereignCampaignSave] Story Mode state, with accurate union-based
+  /// `spentXp` reconciliation.
+  static ({StudentLobbyProgress progress, SovereignCampaignSave? campaign})
+      mergeCloudPayload({
+    required StudentLobbyProgress localProgress,
+    SovereignCampaignSave? localCampaign,
+    required Map<String, dynamic> cloudPayload,
+  }) {
+    final cloud = StudentLobbyProgress.fromJson(cloudPayload);
+    final mergedBadges = <String, EarnedStudentBadge>{};
+    for (final b in [...localProgress.earnedBadges, ...cloud.earnedBadges]) {
+      mergedBadges[b.id] = b;
+    }
+    final mergedCooldowns =
+        Map<String, int>.from(localProgress.smallChestCooldownUntilMs);
+    cloud.smallChestCooldownUntilMs.forEach((k, v) {
+      final cur = mergedCooldowns[k] ?? 0;
+      if (v > cur) mergedCooldowns[k] = v;
+    });
+    final mergedAnswered = <String>[...localProgress.answeredQuestionIds];
+    for (final qid in cloud.answeredQuestionIds) {
+      if (!mergedAnswered.contains(qid)) mergedAnswered.add(qid);
+    }
+
+    final unionUnlocked = <String>{
+      ...localProgress.unlockedCosmetics,
+      ...cloud.unlockedCosmetics,
+    };
+    final reconciledSpentXp = recalculateSpentXpFromUnlockedCosmetics(
+      unionUnlocked,
+      fallbackSpentXp: math.max(localProgress.spentXp, cloud.spentXp),
+    );
+
+    final mergedProgress = localProgress.copyWith(
+      xp: math.max(localProgress.xp, cloud.xp),
+      spentXp: reconciledSpentXp,
+      launchedActivityIds: {
+        ...localProgress.launchedActivityIds,
+        ...cloud.launchedActivityIds,
+      },
+      completedActivityIds: {
+        ...localProgress.completedActivityIds,
+        ...cloud.completedActivityIds,
+      },
+      launchedReviewerIds: {
+        ...localProgress.launchedReviewerIds,
+        ...cloud.launchedReviewerIds,
+      },
+      completedReviewerIds: {
+        ...localProgress.completedReviewerIds,
+        ...cloud.completedReviewerIds,
+      },
+      earnedBadges: mergedBadges.values.toList(),
+      equippedBadgeId: localProgress.equippedBadgeId ?? cloud.equippedBadgeId,
+      smallChestCooldownUntilMs: mergedCooldowns,
+      smallChestsSolvedCount: math.max(
+        localProgress.smallChestsSolvedCount,
+        cloud.smallChestsSolvedCount,
+      ),
+      unlockedCosmetics: unionUnlocked,
+      answeredQuestionIds: mergedAnswered,
+      tableDecor: localProgress.tableDecor.chairStyle != 'tan_classic' ||
+              localProgress.tableDecor.deskMat != 'oak_default' ||
+              localProgress.tableDecor.miniLight != 'none' ||
+              localProgress.tableDecor.deskFrame != 'none' ||
+              localProgress.tableDecor.deskProp != 'none'
+          ? localProgress.tableDecor
+          : cloud.tableDecor,
+    );
+
+    SovereignCampaignSave? mergedCampaign = localCampaign;
+    final rawCampaign = cloudPayload['sovereignCampaign'];
+    if (rawCampaign is Map) {
+      final cloudCampaign = SovereignCampaignSave.fromJson(
+        Map<String, dynamic>.from(rawCampaign),
+      );
+      mergedCampaign = localCampaign != null
+          ? localCampaign.mergeWith(cloudCampaign)
+          : cloudCampaign;
+    }
+
+    return (progress: mergedProgress, campaign: mergedCampaign);
+  }
+
+  /// Triggers an immediate cloud backup of both Virtual School RPG progress
+  /// and the student's **Chronicles of the Sovereign** Story Mode save.
+  Future<void> pushCloudProgressNow() => _pushCloudProgress();
+
+  /// Part 6/6 Cloud-backed RPG, Shop & Story Mode persistence (`999999003_<studentId>`)
+  /// using dedicated `saveLobbyCloudData` storage isolated from student profile avatars,
+  /// so reinstalling the APK or switching devices preserves XP, Badges, Shop Cosmetics,
+  /// and Chronicles of the Sovereign Charter Seals & Saligang Tala progress!
   Future<void> _pushCloudProgress() async {
     if (_activeUserId.isEmpty || _activeUserId == 'guest') return;
     try {
-      final rawJson = jsonEncode(_progress.toJson());
-      final encoded = base64Encode(utf8.encode(rawJson));
-      final dataUrl = 'data:application/json;base64,$encoded';
-      await ApiService.instance.uploadStudentAvatar(
-        id: '$_kCloudProgressPrefix$_activeUserId',
-        dataUrl: dataUrl,
+      final campaignSave = await SovereignCampaignSave.load(_activeUserId);
+      final payloadMap = <String, dynamic>{
+        ..._progress.toJson(),
+        'sovereignCampaign': campaignSave.toJson(),
+      };
+      final rawJson = jsonEncode(payloadMap);
+      await ApiService.instance.saveLobbyCloudData(
+        slotKey: '$_kCloudProgressPrefix$_activeUserId',
+        dataJson: rawJson,
       );
     } catch (_) {}
   }
@@ -1796,76 +1909,27 @@ class LobbyDataService extends ChangeNotifier {
   Future<void> _pullAndMergeCloudProgress() async {
     if (_activeUserId.isEmpty || _activeUserId == 'guest') return;
     try {
-      final rawDataUrl = await ApiService.instance
-          .getStudentAvatar('$_kCloudProgressPrefix$_activeUserId');
-      if (rawDataUrl == null || !rawDataUrl.contains(',')) return;
-      final b64 = rawDataUrl.split(',').last.trim();
-      if (b64.isEmpty) return;
-      final decodedStr = utf8.decode(base64Decode(b64));
+      final decodedStr = await ApiService.instance
+          .getLobbyCloudData('$_kCloudProgressPrefix$_activeUserId');
+      if (decodedStr == null || decodedStr.trim().isEmpty) return;
       final map = jsonDecode(decodedStr);
       if (map is! Map) return;
 
-      final cloud =
-          StudentLobbyProgress.fromJson(Map<String, dynamic>.from(map));
-      final mergedBadges = <String, EarnedStudentBadge>{};
-      for (final b in [..._progress.earnedBadges, ...cloud.earnedBadges]) {
-        mergedBadges[b.id] = b;
-      }
-      final mergedCooldowns =
-          Map<String, int>.from(_progress.smallChestCooldownUntilMs);
-      cloud.smallChestCooldownUntilMs.forEach((k, v) {
-        final cur = mergedCooldowns[k] ?? 0;
-        if (v > cur) mergedCooldowns[k] = v;
-      });
-      final mergedAnswered = <String>[..._progress.answeredQuestionIds];
-      for (final qid in cloud.answeredQuestionIds) {
-        if (!mergedAnswered.contains(qid)) mergedAnswered.add(qid);
-      }
-
-      _progress = _progress.copyWith(
-        xp: math.max(_progress.xp, cloud.xp),
-        spentXp: math.max(_progress.spentXp, cloud.spentXp),
-        launchedActivityIds: {
-          ..._progress.launchedActivityIds,
-          ...cloud.launchedActivityIds,
-        },
-        completedActivityIds: {
-          ..._progress.completedActivityIds,
-          ...cloud.completedActivityIds,
-        },
-        launchedReviewerIds: {
-          ..._progress.launchedReviewerIds,
-          ...cloud.launchedReviewerIds,
-        },
-        completedReviewerIds: {
-          ..._progress.completedReviewerIds,
-          ...cloud.completedReviewerIds,
-        },
-        earnedBadges: mergedBadges.values.toList(),
-        equippedBadgeId: _progress.equippedBadgeId ?? cloud.equippedBadgeId,
-        smallChestCooldownUntilMs: mergedCooldowns,
-        smallChestsSolvedCount: math.max(
-          _progress.smallChestsSolvedCount,
-          cloud.smallChestsSolvedCount,
-        ),
-        unlockedCosmetics: {
-          ..._progress.unlockedCosmetics,
-          ...cloud.unlockedCosmetics,
-        },
-        answeredQuestionIds: mergedAnswered,
-        tableDecor: _progress.tableDecor.chairStyle != 'tan_classic' ||
-                _progress.tableDecor.deskMat != 'oak_default' ||
-                _progress.tableDecor.miniLight != 'none' ||
-                _progress.tableDecor.deskFrame != 'none' ||
-                _progress.tableDecor.deskProp != 'none'
-            ? _progress.tableDecor
-            : cloud.tableDecor,
+      final localCampaign = await SovereignCampaignSave.load(_activeUserId);
+      final merged = mergeCloudPayload(
+        localProgress: _progress,
+        localCampaign: localCampaign,
+        cloudPayload: Map<String, dynamic>.from(map),
       );
+      _progress = merged.progress;
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(
         '$_kProgressPrefix$_activeUserId',
         jsonEncode(_progress.toJson()),
       );
+      if (merged.campaign != null) {
+        await merged.campaign!.persist(_activeUserId);
+      }
       notifyListeners();
     } catch (_) {}
   }

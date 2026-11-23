@@ -23,10 +23,12 @@ void portalWorkmanagerDispatcher() {
 }
 
 /// Shared batch sync routine safe to run in both foreground UI and WorkManager isolate.
-/// Strictly requires an active Faculty session before syncing attendance/recitation logs.
+/// Strictly requires active Faculty scanner credentials (either from the restored
+/// session or from the scanner sync credential slot persisted when a teacher opens
+/// the classroom scanner).
 Future<bool> executeHeadlessBatchSync() async {
-  final session = await SessionService.instance.restoreSession();
-  if (session == null || !session.isFaculty) {
+  final creds = await SessionService.instance.getScannerSyncCredentials();
+  if (creds == null) {
     return false;
   }
 
@@ -41,7 +43,11 @@ Future<bool> executeHeadlessBatchSync() async {
     if (pending.isEmpty) return true;
 
     try {
-      final res = await ApiService.instance.syncScanBatch(pending);
+      final res = await ApiService.instance.syncScanBatch(
+        pending,
+        facultyId: creds.facultyId,
+        scannerAuthToken: creds.scannerAuthToken,
+      );
       if (res['success'] == true) {
         final synced = (res['syncedIds'] as List?)
                 ?.map((e) => e.toString())

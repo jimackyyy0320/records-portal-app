@@ -9,6 +9,8 @@ import 'package:student_portal_app/config/app_config.dart';
 import 'package:student_portal_app/models/portal_models.dart';
 import 'package:student_portal_app/screens/auth_screen.dart';
 import 'package:student_portal_app/screens/teacher_scanner_screen.dart';
+import 'package:student_portal_app/services/api_service.dart';
+import 'package:student_portal_app/services/local_database.dart';
 import 'package:student_portal_app/services/session_service.dart';
 import 'package:student_portal_app/utils/reviewer_outline_extractor.dart';
 import 'package:student_portal_app/widgets/common_widgets.dart';
@@ -1558,6 +1560,198 @@ void main() {
       await ThemeController.instance.setDarkMode(false);
       expect(PortalColors.activeCard, Colors.white);
       expect(PortalColors.activeBg, PortalColors.parchment);
+    },
+  );
+
+  test(
+    'Part 6/6: Cloud Save + SovereignCampaignSave Merge, spentXp Union Reconciliation, iOS NDEF UTF-16/URI, WorkManager Scanner Creds, ApiException & Retry Cap',
+    () async {
+      // 1. Multi-device cloud merge: union unlocked cosmetics must sum paid costs (preventing XP duplication)
+      //    and merge bundled SovereignCampaignSave Charter Seals & Saligang Tala entries.
+      const localProgress = StudentLobbyProgress(
+        xp: 400,
+        spentXp: 90,
+        unlockedCosmetics: <String>{'hat:5-1', 'outfit:1-1'}, // hat:5-1 = 90 XP, outfit:1-1 = starter (0 XP)
+      );
+      const localCampaign = SovereignCampaignSave(
+        currentActNumber: 2,
+        earnedSealIds: <String>{'seal_act1_balangay'},
+        unlockedSaligangTalaIds: <String>{'tala_barangay', 'tala_datu'},
+        activatedPuzzleNodeIds: <String>{'act1_node_1'},
+      );
+      const cloudCampaign = SovereignCampaignSave(
+        currentActNumber: 4,
+        earnedSealIds: <String>{'seal_act1_balangay', 'seal_act3_malolos'},
+        unlockedSaligangTalaIds: <String>{'tala_malolos'},
+        defeatedEntityIds: <String>{'act3_boss_calderon'},
+      );
+      final cloudPayload = <String, dynamic>{
+        ...const StudentLobbyProgress(
+          xp: 350,
+          spentXp: 75,
+          unlockedCosmetics: <String>{'outfit:4-1'}, // outfit:4-1 = 75 XP
+        ).toJson(),
+        'sovereignCampaign': cloudCampaign.toJson(),
+      };
+
+      final merged = LobbyDataService.mergeCloudPayload(
+        localProgress: localProgress,
+        localCampaign: localCampaign,
+        cloudPayload: cloudPayload,
+      );
+      expect(merged.progress.xp, 400);
+      expect(
+        merged.progress.unlockedCosmetics,
+        containsAll(<String>['hat:5-1', 'outfit:4-1', 'outfit:1-1']),
+      );
+      // 90 (hat:5-1) + 75 (outfit:4-1) + 0 (starter outfit:1-1) = 165 XP spent
+      expect(merged.progress.spentXp, 165);
+      expect(merged.progress.availableXp, 235);
+      expect(merged.campaign, isNotNull);
+      expect(merged.campaign!.currentActNumber, 4);
+      expect(
+        merged.campaign!.earnedSealIds,
+        containsAll(<String>['seal_act1_balangay', 'seal_act3_malolos']),
+      );
+      expect(
+        merged.campaign!.unlockedSaligangTalaIds,
+        containsAll(<String>['tala_barangay', 'tala_datu', 'tala_malolos']),
+      );
+      expect(merged.campaign!.defeatedEntityIds, contains('act3_boss_calderon'));
+      expect(merged.campaign!.activatedPuzzleNodeIds, contains('act1_node_1'));
+
+      // 2. iOS NFC NDEF decoding: UTF-8 Text, UTF-16 BE/LE Text with BOM, and 0x55 URI Prefix restoration
+      final utf8TextPayload = <int>[0x02, 0x65, 0x6E, ...utf8.encode('2024-00123')];
+      expect(
+        decodeNdefPayloadBytes(type: const [0x54], payload: utf8TextPayload),
+        '2024-00123',
+      );
+      // UTF-16 BE with BOM (0xFE, 0xFF) for "AB-9"
+      final utf16BePayload = <int>[
+        0x82, // UTF-16 bit (0x80) | langLen=2
+        0x65, 0x6E, // "en"
+        0xFE, 0xFF, // BE BOM
+        0x00, 0x41, // 'A'
+        0x00, 0x42, // 'B'
+        0x00, 0x2D, // '-'
+        0x00, 0x39, // '9'
+      ];
+      expect(
+        decodeNdefPayloadBytes(type: const [0x54], payload: utf16BePayload),
+        'AB-9',
+      );
+      // UTF-16 LE with BOM (0xFF, 0xFE) for "2024"
+      final utf16LePayload = <int>[
+        0x82,
+        0x65, 0x6E,
+        0xFF, 0xFE, // LE BOM
+        0x32, 0x00, // '2'
+        0x30, 0x00, // '0'
+        0x32, 0x00, // '2'
+        0x34, 0x00, // '4'
+      ];
+      expect(
+        decodeNdefPayloadBytes(type: const [0x54], payload: utf16LePayload),
+        '2024',
+      );
+      // URI Record (0x55) with prefix code 0x04 ("https://")
+      final uriPayload = <int>[
+        0x04,
+        ...utf8.encode('portal.mis.edu/pass?id=2024-00123'),
+      ];
+      final decodedUri =
+          decodeNdefPayloadBytes(type: const [0x55], payload: uriPayload);
+      expect(decodedUri, 'https://portal.mis.edu/pass?id=2024-00123');
+      expect(Uri.tryParse(decodedUri)?.queryParameters['id'], '2024-00123');
+
+      // 3. Background WorkManager scanner sync credentials survive "Stay Signed In = false"
+      //    and are cleanly cleared on explicit logout.
+      final facultySession = UserSession(
+        id: 'FAC-001',
+        name: 'Prof. Santos',
+        isFaculty: true,
+        subjects: const <SubjectItem>[],
+        scannerAuthToken: 'hmac-scanner-token-123',
+      );
+      await SessionService.instance.saveSession(
+        facultySession,
+        staySignedIn: false,
+      );
+      SessionService.instance.resetMemoryCacheForTesting();
+      expect(await SessionService.instance.restoreSession(), isNull);
+      final bgCreds = await SessionService.instance.getScannerSyncCredentials();
+      expect(bgCreds, isNotNull);
+      expect(bgCreds!.facultyId, 'FAC-001');
+      expect(bgCreds.scannerAuthToken, 'hmac-scanner-token-123');
+
+      await SessionService.instance.clearSession();
+      expect(await SessionService.instance.getScannerSyncCredentials(), isNull);
+
+      // 4. ApiService.assertServerSuccess throws server-rejection ApiException (not masked by kv_cache)
+      expect(
+        () => ApiService.assertServerSuccess(
+          const <String, dynamic>{
+            'success': false,
+            'message': 'Records not found.',
+          },
+        ),
+        throwsA(
+          isA<ApiException>()
+              .having((e) => e.isServerRejection, 'isServerRejection', isTrue)
+              .having((e) => e.message, 'message', 'Records not found.'),
+        ),
+      );
+      expect(
+        () => ApiService.assertServerSuccess(
+          const <String, dynamic>{
+            'status': 'ERROR',
+            'message': 'Portal maintenance error',
+          },
+          checkStatusErrorOnly: true,
+        ),
+        throwsA(
+          isA<ApiException>()
+              .having((e) => e.isServerRejection, 'isServerRejection', isTrue),
+        ),
+      );
+
+      // 5. LocalDatabase retry cap prevents malformed rows (>= 5 retries) from starving the queue
+      final retryableScan = ScanLogEntry(
+        logId: 'log_ok',
+        scanType: ScanMode.attendance,
+        timestamp: '2026-11-23 08:00:00',
+        studentId: '2024-00123',
+        subject: 'PPG',
+        pointsAwarded: null,
+        syncStatus: 'failed',
+        retryCount: 4,
+        createdAt: 1000,
+      );
+      final quarantinedScan = ScanLogEntry(
+        logId: 'log_bad',
+        scanType: ScanMode.attendance,
+        timestamp: '2026-11-23 08:01:00',
+        studentId: '2024-00123',
+        subject: 'PPG',
+        pointsAwarded: null,
+        syncStatus: 'failed',
+        retryCount: 5,
+        createdAt: 1001,
+      );
+      final syncedScan = ScanLogEntry(
+        logId: 'log_done',
+        scanType: ScanMode.recitation,
+        timestamp: '2026-11-23 08:02:00',
+        studentId: '2024-00123',
+        subject: 'PPG',
+        pointsAwarded: 1,
+        syncStatus: 'synced',
+        retryCount: 0,
+        createdAt: 1002,
+      );
+      expect(LocalDatabase.isEligibleForRetry(retryableScan), isTrue);
+      expect(LocalDatabase.isEligibleForRetry(quarantinedScan), isFalse);
+      expect(LocalDatabase.isEligibleForRetry(syncedScan), isFalse);
     },
   );
 }

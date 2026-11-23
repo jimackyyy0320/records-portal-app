@@ -1323,6 +1323,7 @@ class _SovereignStoryScreenState extends State<SovereignStoryScreen> {
       defeatedEntityIds: nextDefeated,
     );
     await _save.persist(widget.session.id);
+    unawaited(LobbyDataService.instance.pushCloudProgressNow());
 
     // Trigger `craft-game-floors` Milestone Sequence (Flash -> Sting -> Banner -> Confetti)!
     setState(() {
@@ -1364,6 +1365,7 @@ class _SovereignStoryScreenState extends State<SovereignStoryScreen> {
         _shellState = _StoryShellState.altarVictory;
         _save = _save.copyWith(completedAltarEnding: true);
         unawaited(_save.persist(widget.session.id));
+        unawaited(LobbyDataService.instance.pushCloudProgressNow());
       } else {
         _shellState = _StoryShellState.overworld;
       }

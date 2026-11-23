@@ -16,8 +16,106 @@ import '../models/portal_models.dart';
 import '../services/api_service.dart';
 import '../services/device_bridge_service.dart';
 import '../services/local_database.dart';
+import '../services/session_service.dart';
 import '../services/sync_manager.dart';
 import '../theme/portal_theme.dart';
+
+/// Standard NFC Forum RTD URI Identifier Code prefixes (`0x00`..`0x23`).
+const List<String> _kNfcUriPrefixes = <String>[
+  '',
+  'http://www.',
+  'https://www.',
+  'http://',
+  'https://',
+  'tel:',
+  'mailto:',
+  'ftp://anonymous:anonymous@',
+  'ftp://ftp.',
+  'ftps://',
+  'sftp://',
+  'smb://',
+  'nfs://',
+  'ftp://',
+  'dav://',
+  'news:',
+  'telnet://',
+  'imap:',
+  'rtsp://',
+  'urn:',
+  'pop:',
+  'sip:',
+  'sips:',
+  'tftp:',
+  'btspp://',
+  'btl2cap://',
+  'btgoep://',
+  'tcpobex://',
+  'irdaobex://',
+  'file://',
+  'urn:epc:id:',
+  'urn:epc:tag:',
+  'urn:epc:pat:',
+  'urn:epc:raw:',
+  'urn:epc:',
+  'urn:nfc:',
+];
+
+/// Decodes raw NFC NDEF record bytes for Text (`0x54`, UTF-8 and UTF-16 BE/LE
+/// with optional BOM) and URI (`0x55`, prepending the standard NFC Forum URI
+/// identifier prefix so URL query parameters like `?id=...` parse cleanly).
+String decodeNdefPayloadBytes({
+  required List<int> type,
+  required List<int> payload,
+}) {
+  if (payload.isEmpty) return '';
+
+  // NFC Forum Well-Known Text Record ('T' = 0x54)
+  if (type.length == 1 && type[0] == 0x54) {
+    final statusByte = payload[0];
+    final langLen = statusByte & 0x3F;
+    final start = 1 + langLen;
+    if (payload.length <= start) return '';
+    final isUtf16 = (statusByte & 0x80) != 0;
+    final textBytes = payload.sublist(start);
+    if (!isUtf16) {
+      return utf8.decode(textBytes, allowMalformed: true).trim();
+    }
+
+    // Properly pair UTF-16 bytes respecting BOM (default Big-Endian per NFC Forum RTD)
+    var offset = 0;
+    var littleEndian = false;
+    if (textBytes.length >= 2) {
+      if (textBytes[0] == 0xFF && textBytes[1] == 0xFE) {
+        littleEndian = true;
+        offset = 2;
+      } else if (textBytes[0] == 0xFE && textBytes[1] == 0xFF) {
+        littleEndian = false;
+        offset = 2;
+      }
+    }
+    final codeUnits = <int>[];
+    for (var i = offset; i + 1 < textBytes.length; i += 2) {
+      final unit = littleEndian
+          ? (textBytes[i] | (textBytes[i + 1] << 8))
+          : ((textBytes[i] << 8) | textBytes[i + 1]);
+      if (unit != 0) codeUnits.add(unit);
+    }
+    return String.fromCharCodes(codeUnits).trim();
+  }
+
+  // NFC Forum Well-Known URI Record ('U' = 0x55)
+  if (type.length == 1 && type[0] == 0x55) {
+    if (payload.length <= 1) return '';
+    final prefixCode = payload[0];
+    final prefix = (prefixCode >= 0 && prefixCode < _kNfcUriPrefixes.length)
+        ? _kNfcUriPrefixes[prefixCode]
+        : '';
+    final suffix = utf8.decode(payload.sublist(1), allowMalformed: true).trim();
+    return '$prefix$suffix'.trim();
+  }
+
+  return utf8.decode(payload, allowMalformed: true).trim();
+}
 
 /// Seamless, offline-first QR + NFC Classroom Scanner built around the exact 3-step UX:
 /// 1. Select Mode first (Attendance -> `Attendance Log` | Recitation -> `Recitation_Log` w/ Points_Awarded = 1)
@@ -111,6 +209,10 @@ class _TeacherScannerScreenState extends State<TeacherScannerScreen>
       _checkingHardware = false;
       return;
     }
+
+    // Persist faculty scanner credentials so background WorkManager sync works
+    // even if the teacher unchecked "Stay Signed In" at login.
+    unawaited(SessionService.instance.persistScannerSyncCredentials(widget.session));
 
     WidgetsBinding.instance.addObserver(this);
 
@@ -336,24 +438,10 @@ class _TeacherScannerScreenState extends State<TeacherScannerScreen>
   }
 
   String _decodeNdefRecordPayload(NdefRecord record) {
-    final payload = record.payload;
-    if (payload.isEmpty) return '';
-    if (record.type.length == 1 && record.type[0] == 0x54) {
-      final statusByte = payload[0];
-      final langLen = statusByte & 0x3F;
-      final start = 1 + langLen;
-      if (payload.length <= start) return '';
-      final isUtf16 = (statusByte & 0x80) != 0;
-      return isUtf16
-          ? String.fromCharCodes(payload.sublist(start)).trim()
-          : utf8.decode(payload.sublist(start), allowMalformed: true).trim();
-    }
-    if (record.type.length == 1 &&
-        record.type[0] == 0x55 &&
-        payload.length > 1) {
-      return utf8.decode(payload.sublist(1), allowMalformed: true).trim();
-    }
-    return utf8.decode(payload, allowMalformed: true).trim();
+    return decodeNdefPayloadBytes(
+      type: record.type,
+      payload: record.payload,
+    );
   }
 
   // ─────────────────────────────────────────────────────────────
