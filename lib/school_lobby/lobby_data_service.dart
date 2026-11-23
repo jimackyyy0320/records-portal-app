@@ -1000,11 +1000,12 @@ class LobbyDataService extends ChangeNotifier {
   ) {
     if (driveFiles.isEmpty) return 0;
     final normCode = normalizeSubjectCode(subjectCode);
-    var chestIdx = _subjectChests.indexWhere(
+    final mutableChests = List<SubjectChest>.from(_subjectChests);
+    var chestIdx = mutableChests.indexWhere(
       (c) => normalizeSubjectCode(c.subjectName) == normCode,
     );
     if (chestIdx < 0) {
-      _subjectChests.add(
+      mutableChests.add(
         SubjectChest(
           id: 'chest_${normCode.toLowerCase().replaceAll(' ', '_')}',
           subjectName: normCode,
@@ -1013,10 +1014,10 @@ class LobbyDataService extends ChangeNotifier {
           reviewers: const [],
         ),
       );
-      chestIdx = _subjectChests.length - 1;
+      chestIdx = mutableChests.length - 1;
     }
 
-    final chest = _subjectChests[chestIdx];
+    final chest = mutableChests[chestIdx];
     final existingDriveIds = chest.reviewers
         .where((r) => r.driveFileId != null && r.driveFileId!.isNotEmpty)
         .map((r) => r.driveFileId!)
@@ -1062,7 +1063,8 @@ class LobbyDataService extends ChangeNotifier {
     }
 
     if (addedCount > 0) {
-      _subjectChests[chestIdx] = chest.copyWith(reviewers: updatedReviewers);
+      mutableChests[chestIdx] = chest.copyWith(reviewers: updatedReviewers);
+      _subjectChests = mutableChests;
     }
     return addedCount;
   }
