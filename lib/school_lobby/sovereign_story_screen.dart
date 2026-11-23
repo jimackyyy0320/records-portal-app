@@ -11,6 +11,7 @@ import 'lobby_data_service.dart';
 import 'pixelfx_engine.dart';
 import 'school_lobby_avatar.dart';
 import 'sovereign_story_data.dart';
+import 'spritecast_engine.dart';
 
 enum _StoryShellState {
   title,
@@ -3754,14 +3755,51 @@ class _SovereignOverworldPainter extends CustomPainter {
             break;
         }
 
-        // Cast 2.5D GBA drop shadow onto walkable tiles directly south of '#' / 'B' / 'T'
+        // SpriteCast 5-step grounded directional shadow onto walkable tiles south of '#' / 'B' / 'T'
         if (ch == '.' || ch == '=' || ch == 'U') {
           final north = _charAt(c, r - 1);
           if (north == '#' || north == 'B' || north == 'T') {
-            canvas.drawRect(
-              Rect.fromLTWH(rect.left, rect.top, tileW + 0.5, tileH * 0.24),
-              Paint()..color = Color(pal.shadowTone).withValues(alpha: 0.32),
+            SpriteCastEngine.drawSteppedContactShadow(
+              canvas,
+              Rect.fromLTWH(rect.left + 1.0, rect.top, tileW - 2.0, tileH * 0.22),
+              castDx: 2.0,
+              castDy: 1.5,
+              strength: 0.72,
             );
+          }
+          // SpriteCast `ground.py` non-repeating meadow grass tufts & era wildflowers on '.' tiles
+          if (ch == '.') {
+            final h = SpriteCastEngine.hash01(c * 19 + act.actNumber * 7, r * 31);
+            if (h > 0.64) {
+              final sway = SpriteCastEngine.windSwayPx(
+                (idleTime * 24).round(),
+                c * 13 + r * 29,
+                px: 0.8,
+              );
+              final gx = rect.left + tileW * (0.22 + (h - 0.64) * 1.4);
+              final gy = rect.top + tileH * 0.62;
+              final tuftCol = Color.lerp(
+                Color(pal.groundSecondary),
+                SpriteCastPalette.endesga32[12],
+                0.35,
+              )!;
+              canvas.drawRect(
+                Rect.fromLTWH(gx + sway, gy - 3.0, 1.8, 3.8),
+                Paint()..color = tuftCol..isAntiAlias = false,
+              );
+              canvas.drawRect(
+                Rect.fromLTWH(gx + 2.2 + sway, gy - 2.2, 1.6, 3.0),
+                Paint()..color = Color(pal.groundSecondary)..isAntiAlias = false,
+              );
+              if (h > 0.86) {
+                canvas.drawRect(
+                  Rect.fromLTWH(gx + 0.5 + sway, gy - 4.2, 2.0, 2.0),
+                  Paint()
+                    ..color = Color(pal.uiAccent).withValues(alpha: 0.85)
+                    ..isAntiAlias = false,
+                );
+              }
+            }
           }
         }
       }
@@ -3924,6 +3962,23 @@ class _SovereignOverworldPainter extends CustomPainter {
           tileW: tileW,
           tileH: tileH,
         );
+        // SpriteCast `"feet in the grass"` foreground occlusion when wading through
+        // Civic Unrest ('U') tall grass tiles!
+        final alonTileChar = _charAt(alonVisualCol.round(), alonVisualRow.round());
+        if (alonTileChar == 'U') {
+          SpriteCastEngine.drawFootOcclusionGrassStrip(
+            canvas,
+            Offset(alonCx, alonCy + tileH * 0.34),
+            animTick: (idleTime * 24).round(),
+            primaryColor: Color(pal.unrestGrass),
+            highlightColor: Color.lerp(
+              Color(pal.unrestGrass),
+              SpriteCastPalette.endesga32[11],
+              0.38,
+            ),
+            px: 1.6,
+          );
+        }
       },
     ));
 

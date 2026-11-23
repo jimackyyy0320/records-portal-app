@@ -439,41 +439,150 @@ LobbyGroupStudySpace groupStudySpaceForRoom(LobbyRoomId room) {
   );
 }
 
-/// Primary local student's personal Classroom Desk RestSpot ID (`Row 1, Desk 2`).
+/// Geometry & metadata for one Personal Student Classroom Desk so every student
+/// owns and decorates their own distinct desk rather than sharing a single hardcoded slot.
+class ClassroomDeskGeometry {
+  final String spotId;
+  final int deskNumber;
+  final String shortLabel;
+  final Rect deskRect;
+  final Offset chairCenter;
+
+  const ClassroomDeskGeometry({
+    required this.spotId,
+    required this.deskNumber,
+    required this.shortLabel,
+    required this.deskRect,
+    required this.chairCenter,
+  });
+}
+
+/// Default fallback personal Classroom Desk RestSpot ID (`Row 1, Desk 2`).
 const String kLocalPlayerClassroomDeskSpotId = 'rest_classroom_r1_c2';
 
-/// Ordered list of personal Classroom Student Desk RestSpot IDs (`Row 1` & `Row 2`).
-const List<String> kClassroomPersonalDeskSpotIds = <String>[
-  kLocalPlayerClassroomDeskSpotId, // Desk #1 (Front Center-Left — Primary Player Personal Table)
-  'rest_classroom_r1_c3', // Desk #2 (Front Center-Right)
-  'rest_classroom_r1_c1', // Desk #3 (Front West)
-  'rest_classroom_r1_c4', // Desk #4 (Front East)
-  'rest_classroom_r2_c1', // Desk #5 (Row 2 West)
-  'rest_classroom_r2_c2', // Desk #6 (Row 2 Center-Left)
-  'rest_classroom_r2_c3', // Desk #7 (Row 2 Center-Right)
-  'rest_classroom_r2_c4', // Desk #8 (Row 2 East)
+/// Ordered catalog of all 10 Personal Classroom Student Desks (`Row 1`, `Row 2`, & `Row 3` wings).
+/// Row 3 Center (`c2`, `c3`) remains open Group Study seating for all students!
+const List<ClassroomDeskGeometry> kClassroomDeskGeometries =
+    <ClassroomDeskGeometry>[
+  ClassroomDeskGeometry(
+    spotId: 'rest_classroom_r1_c1',
+    deskNumber: 1,
+    shortLabel: 'Desk #1 (Row 1 West)',
+    deskRect: Rect.fromLTWH(268, 326, 112, 46),
+    chairCenter: Offset(340, 412),
+  ),
+  ClassroomDeskGeometry(
+    spotId: 'rest_classroom_r1_c2',
+    deskNumber: 2,
+    shortLabel: 'Desk #2 (Row 1 Center-Left)',
+    deskRect: Rect.fromLTWH(488, 326, 112, 46),
+    chairCenter: Offset(560, 412),
+  ),
+  ClassroomDeskGeometry(
+    spotId: 'rest_classroom_r1_c3',
+    deskNumber: 3,
+    shortLabel: 'Desk #3 (Row 1 Center-Right)',
+    deskRect: Rect.fromLTWH(888, 326, 112, 46),
+    chairCenter: Offset(960, 412),
+  ),
+  ClassroomDeskGeometry(
+    spotId: 'rest_classroom_r1_c4',
+    deskNumber: 4,
+    shortLabel: 'Desk #4 (Row 1 East)',
+    deskRect: Rect.fromLTWH(1108, 326, 112, 46),
+    chairCenter: Offset(1180, 412),
+  ),
+  ClassroomDeskGeometry(
+    spotId: 'rest_classroom_r2_c1',
+    deskNumber: 5,
+    shortLabel: 'Desk #5 (Row 2 West)',
+    deskRect: Rect.fromLTWH(268, 506, 112, 46),
+    chairCenter: Offset(340, 592),
+  ),
+  ClassroomDeskGeometry(
+    spotId: 'rest_classroom_r2_c2',
+    deskNumber: 6,
+    shortLabel: 'Desk #6 (Row 2 Center-Left)',
+    deskRect: Rect.fromLTWH(488, 506, 112, 46),
+    chairCenter: Offset(560, 592),
+  ),
+  ClassroomDeskGeometry(
+    spotId: 'rest_classroom_r2_c3',
+    deskNumber: 7,
+    shortLabel: 'Desk #7 (Row 2 Center-Right)',
+    deskRect: Rect.fromLTWH(888, 506, 112, 46),
+    chairCenter: Offset(960, 592),
+  ),
+  ClassroomDeskGeometry(
+    spotId: 'rest_classroom_r2_c4',
+    deskNumber: 8,
+    shortLabel: 'Desk #8 (Row 2 East)',
+    deskRect: Rect.fromLTWH(1108, 506, 112, 46),
+    chairCenter: Offset(1180, 592),
+  ),
+  ClassroomDeskGeometry(
+    spotId: 'rest_classroom_r3_c1',
+    deskNumber: 9,
+    shortLabel: 'Desk #9 (Row 3 West)',
+    deskRect: Rect.fromLTWH(268, 686, 112, 46),
+    chairCenter: Offset(340, 772),
+  ),
+  ClassroomDeskGeometry(
+    spotId: 'rest_classroom_r3_c4',
+    deskNumber: 10,
+    shortLabel: 'Desk #10 (Row 3 East)',
+    deskRect: Rect.fromLTWH(1108, 686, 112, 46),
+    chairCenter: Offset(1180, 772),
+  ),
 ];
 
-/// Returns true if [spotId] is one of the 8 personal student desks in the Classroom.
+/// Ordered list of all 10 personal Classroom Student Desk RestSpot IDs.
+const List<String> kClassroomPersonalDeskSpotIds = <String>[
+  'rest_classroom_r1_c1',
+  'rest_classroom_r1_c2',
+  'rest_classroom_r1_c3',
+  'rest_classroom_r1_c4',
+  'rest_classroom_r2_c1',
+  'rest_classroom_r2_c2',
+  'rest_classroom_r2_c3',
+  'rest_classroom_r2_c4',
+  'rest_classroom_r3_c1',
+  'rest_classroom_r3_c4',
+];
+
+/// Looks up the exact Classroom tabletop & chair coordinates for [spotId].
+ClassroomDeskGeometry? classroomDeskGeometryForSpotId(String spotId) {
+  for (final g in kClassroomDeskGeometries) {
+    if (g.spotId == spotId) return g;
+  }
+  return null;
+}
+
+/// Returns true if [spotId] is one of the 10 personal student desks in the Classroom.
 bool isPersonalClassroomDeskSpot(String spotId) {
   return kClassroomPersonalDeskSpotIds.contains(spotId);
 }
 
-/// Deterministically assigns a personal Classroom Desk (`rest_classroom_r1_c2` for the primary local student,
-/// or hashed by `studentId` for remote classmates) and enforces that ONLY that student can sit on their table!
+/// Deterministically assigns a unique personal Classroom Desk based on [studentId]
+/// (or honors the student's explicitly claimed [preferredDeskSpotId]), ensuring
+/// different students each get their own distinct desk instead of sharing a single slot!
 String assignedClassroomDeskSpotIdForStudent(
   String studentId, {
-  bool isLocalPrimaryStudent = true,
+  String? preferredDeskSpotId,
+  bool isLocalPrimaryStudent = false,
 }) {
-  if (isLocalPrimaryStudent) {
-    return kLocalPlayerClassroomDeskSpotId;
+  if (preferredDeskSpotId != null &&
+      isPersonalClassroomDeskSpot(preferredDeskSpotId)) {
+    return preferredDeskSpotId;
   }
   final clean = studentId.trim();
-  if (clean.isEmpty) return 'rest_classroom_r1_c3';
-  final hash = clean.codeUnits.fold<int>(0, (a, b) => a * 31 + b).abs();
-  // Assign remote classmates to desks 1..7 so they don't collide with the local student's front desk
-  final idx = 1 + (hash % (kClassroomPersonalDeskSpotIds.length - 1));
-  return kClassroomPersonalDeskSpotIds[idx];
+  if (clean.isEmpty || clean == 'local_player') {
+    return kLocalPlayerClassroomDeskSpotId;
+  }
+  final hash =
+      clean.codeUnits.fold<int>(17, (a, b) => (a * 31 + b) & 0x7FFFFFFF);
+  return kClassroomPersonalDeskSpotIds[
+      hash % kClassroomPersonalDeskSpotIds.length];
 }
 
 /// Checks if a student is allowed to sit on [spotId].
@@ -481,16 +590,17 @@ String assignedClassroomDeskSpotIdForStudent(
 bool canStudentSitAtSpot({
   required String spotId,
   String studentId = 'local_player',
+  String? preferredDeskSpotId,
   required bool isFaculty,
-  bool isLocalPrimaryStudent = true,
+  bool isLocalPrimaryStudent = false,
   bool? isLocalPlayer,
 }) {
   if (isFaculty) return true;
   if (!isPersonalClassroomDeskSpot(spotId)) return true;
-  final effectiveIsLocal = isLocalPlayer ?? isLocalPrimaryStudent;
   final myDeskId = assignedClassroomDeskSpotIdForStudent(
     studentId,
-    isLocalPrimaryStudent: effectiveIsLocal,
+    preferredDeskSpotId: preferredDeskSpotId,
+    isLocalPrimaryStudent: isLocalPlayer ?? isLocalPrimaryStudent,
   );
   return spotId == myDeskId;
 }
@@ -1652,10 +1762,10 @@ const List<LobbyRestSpot> kLobbyRestSpots = [
     canSleepFlat: true,
   ),
 
-  // ── SHS CLASS ROOM: 8 PERSONAL STUDENT DESKS + GROUP STUDY SEATS + BACK SOFA ──
+  // ── SHS CLASS ROOM: 10 PERSONAL STUDENT DESKS + GROUP STUDY SEATS + BACK SOFA ──
   LobbyRestSpot(
     id: 'rest_classroom_r1_c1',
-    label: 'Classroom Desk #3 (Row 1 West)',
+    label: 'Classroom Desk #1 (Row 1 West)',
     room: LobbyRoomId.classroom,
     x: 340,
     y: 426,
@@ -1666,7 +1776,7 @@ const List<LobbyRestSpot> kLobbyRestSpots = [
   ),
   LobbyRestSpot(
     id: 'rest_classroom_r1_c2',
-    label: '★ My Personal Classroom Table (Row 1 Center-Left)',
+    label: 'Classroom Desk #2 (Row 1 Center-Left)',
     room: LobbyRoomId.classroom,
     x: 560,
     y: 426,
@@ -1677,7 +1787,7 @@ const List<LobbyRestSpot> kLobbyRestSpots = [
   ),
   LobbyRestSpot(
     id: 'rest_classroom_r1_c3',
-    label: 'Classroom Desk #2 (Row 1 Center-Right)',
+    label: 'Classroom Desk #3 (Row 1 Center-Right)',
     room: LobbyRoomId.classroom,
     x: 960,
     y: 426,
@@ -1738,6 +1848,28 @@ const List<LobbyRestSpot> kLobbyRestSpots = [
     y: 606,
     standX: 1180,
     standY: 636,
+    facing: AvatarFacing.up,
+    canSleepFlat: false,
+  ),
+  LobbyRestSpot(
+    id: 'rest_classroom_r3_c1',
+    label: 'Classroom Desk #9 (Row 3 West)',
+    room: LobbyRoomId.classroom,
+    x: 340,
+    y: 786,
+    standX: 340,
+    standY: 816,
+    facing: AvatarFacing.up,
+    canSleepFlat: false,
+  ),
+  LobbyRestSpot(
+    id: 'rest_classroom_r3_c4',
+    label: 'Classroom Desk #10 (Row 3 East)',
+    room: LobbyRoomId.classroom,
+    x: 1180,
+    y: 786,
+    standX: 1180,
+    standY: 816,
     facing: AvatarFacing.up,
     canSleepFlat: false,
   ),
@@ -2994,6 +3126,7 @@ List<InteractiveZone> buildActiveInteractiveZones(
   List<SubjectChest> subjectChests, {
   LobbyRoomId room = LobbyRoomId.mainLobby,
   int? nowMs,
+  String? localAssignedDeskSpotId,
 }) {
   final zones = <InteractiveZone>[];
 
@@ -3086,16 +3219,19 @@ List<InteractiveZone> buildActiveInteractiveZones(
   }
 
   // Add Rest Spots for this room (Sit, Nap, or Sleep) with generous 98px proximity!
+  final effectiveLocalDeskId =
+      localAssignedDeskSpotId ?? kLocalPlayerClassroomDeskSpotId;
   for (final spot in restSpotsForRoom(room)) {
     final isPersonalDesk = isPersonalClassroomDeskSpot(spot.id);
+    final isMine = isPersonalDesk && spot.id == effectiveLocalDeskId;
     zones.add(
       InteractiveZone(
         id: 'rest_zone_${spot.id}',
-        label: '🪑 ${spot.label}',
+        label: isMine ? '⭐ ${spot.label} (Yours)' : '🪑 ${spot.label}',
         subtitle: isPersonalDesk
-            ? (spot.id == 'rest_classroom_r1_c2'
-                ? 'Your Personal Classroom Table! Tap to Sit 🪑, Nap 😪, or Decorate Table 🎨'
-                : 'Assigned Classmate Table • Only the owner student can sit here')
+            ? (isMine
+                ? 'Your Personal Classroom Desk! Tap to Sit 🪑, Nap 😪, or Open Desk Studio 🎨'
+                : 'Student Desk • Tap to Claim as Your Personal Desk (if unoccupied)')
             : (spot.canSleepFlat
                 ? 'Tap Interact to Sit 🪑, Nap 😪, or Sleep 🛌'
                 : 'Tap Interact to Sit 🪑 or Nap 😪 at this seat'),
@@ -3104,7 +3240,7 @@ List<InteractiveZone> buildActiveInteractiveZones(
         x: spot.x,
         y: spot.y,
         radius: 98.0,
-        accentColor: spot.id == 'rest_classroom_r1_c2' ? 0xFFFACC15 : 0xFF10B981,
+        accentColor: isMine ? 0xFFFACC15 : 0xFF10B981,
         restSpotId: spot.id,
       ),
     );

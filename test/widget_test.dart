@@ -29,6 +29,7 @@ import 'package:student_portal_app/school_lobby/school_lobby_engine.dart';
 import 'package:student_portal_app/school_lobby/pixelfx_engine.dart';
 import 'package:student_portal_app/school_lobby/sovereign_story_data.dart';
 import 'package:student_portal_app/school_lobby/sovereign_story_screen.dart';
+import 'package:student_portal_app/school_lobby/spritecast_engine.dart';
 import 'package:student_portal_app/theme/portal_theme.dart';
 
 void main() {
@@ -864,30 +865,22 @@ void main() {
       }
 
       // 4. Personal Student Classroom Table Assignment & Exclusive Ownership Lock
-      expect(
-        assignedClassroomDeskSpotIdForStudent('2024-00777'),
-        equals('rest_classroom_r1_c2'),
-      );
+      final assignedFor777 = assignedClassroomDeskSpotIdForStudent('2024-00777');
+      expect(isPersonalClassroomDeskSpot(assignedFor777), isTrue);
       expect(
         canStudentSitAtSpot(
-          spotId: 'rest_classroom_r1_c2',
+          spotId: assignedFor777,
           studentId: '2024-00777',
           isFaculty: false,
         ),
         isTrue,
       );
       // Other students' personal Classroom tables are locked for non-faculty students
+      final otherDeskId = kClassroomPersonalDeskSpotIds
+          .firstWhere((id) => id != assignedFor777);
       expect(
         canStudentSitAtSpot(
-          spotId: 'rest_classroom_r1_c1',
-          studentId: '2024-00777',
-          isFaculty: false,
-        ),
-        isFalse,
-      );
-      expect(
-        canStudentSitAtSpot(
-          spotId: 'rest_classroom_r2_c3',
+          spotId: otherDeskId,
           studentId: '2024-00777',
           isFaculty: false,
         ),
@@ -1752,6 +1745,121 @@ void main() {
       expect(LocalDatabase.isEligibleForRetry(retryableScan), isTrue);
       expect(LocalDatabase.isEligibleForRetry(quarantinedScan), isFalse);
       expect(LocalDatabase.isEligibleForRetry(syncedScan), isFalse);
+    },
+  );
+
+  testWidgets(
+    'SpriteCast Integration: Unique Per-Student Classroom Desks, Claimable Seats, Multiplayer Desk Sync & Live Pixel Desk Studio',
+    (WidgetTester tester) async {
+      // 1. All 10 personal desks have distinct geometry and desk numbers 1..10
+      expect(kClassroomDeskGeometries.length, 10);
+      expect(
+        kClassroomDeskGeometries.map((g) => g.deskNumber).toSet().length,
+        10,
+      );
+      expect(
+        kClassroomDeskGeometries.map((g) => g.deskRect).toSet().length,
+        10,
+      );
+
+      // 2. Different students receive distinct personal desks (no longer forced onto 1 shared desk!)
+      final assignedDesks = <String>{
+        assignedClassroomDeskSpotIdForStudent('2024-00101'),
+        assignedClassroomDeskSpotIdForStudent('2024-00102'),
+        assignedClassroomDeskSpotIdForStudent('2024-00103'),
+        assignedClassroomDeskSpotIdForStudent('2024-00104'),
+        assignedClassroomDeskSpotIdForStudent('2024-00105'),
+      };
+      expect(assignedDesks.length, greaterThanOrEqualTo(4));
+
+      // 3. Students can claim a specific personal desk and persist it in StudentLobbyProgress
+      final dataService = LobbyDataService.instance;
+      await dataService.init('2024-00612');
+      await dataService.setAssignedDeskSpotId('rest_classroom_r3_c4');
+      expect(dataService.progress.assignedDeskSpotId, 'rest_classroom_r3_c4');
+      expect(
+        canStudentSitAtSpot(
+          spotId: 'rest_classroom_r3_c4',
+          studentId: '2024-00612',
+          preferredDeskSpotId: dataService.progress.assignedDeskSpotId,
+          isFaculty: false,
+        ),
+        isTrue,
+      );
+      expect(
+        canStudentSitAtSpot(
+          spotId: 'rest_classroom_r1_c2',
+          studentId: '2024-00612',
+          preferredDeskSpotId: dataService.progress.assignedDeskSpotId,
+          isFaculty: false,
+        ),
+        isFalse,
+      );
+
+      // 4. Multiplayer presence carries each classmate's claimed desk & SpriteCast decor live
+      final presence = LobbyPresenceService.instance;
+      presence.handleIncomingPresencePayload(<String, dynamic>{
+        'app': 'mis_shs_lobby_v1',
+        'type': 'state',
+        'peerKey': 'peer_desk_test_1',
+        'userId': '2024-00988',
+        'nickname': 'Luna_HUMSS',
+        'isFaculty': false,
+        'look': 'preset:Alex',
+        'desk': 'rest_classroom_r2_c3',
+        'decor': 'cyber_neon|galaxy_mat|starlight_lantern|holo_plaque|zen_bonsai',
+        'room': 'classroom',
+        'x': 960,
+        'y': 606,
+        'facing': 'up',
+        'isWalking': false,
+        'rest': 'sitting',
+        'sessionMs': 2000,
+        'seq': 1,
+      });
+      final luna = presence.allRemotePlayers
+          .firstWhere((p) => p.userId == '2024-00988');
+      expect(luna.deskSpotId, 'rest_classroom_r2_c3');
+      expect(luna.tableDecor.chairStyle, 'cyber_neon');
+      expect(luna.tableDecor.deskMat, 'galaxy_mat');
+      expect(luna.tableDecor.miniLight, 'starlight_lantern');
+      expect(luna.tableDecor.deskFrame, 'holo_plaque');
+      expect(luna.tableDecor.deskProp, 'zen_bonsai');
+
+      // 5. SpriteCast palettes, quantized wind sway, and Desk Studio pixel widgets render cleanly
+      expect(SpriteCastPalette.endesga32.length, 32);
+      expect(SpriteCastPalette.sweetie16.length, 16);
+      final swayVal = SpriteCastEngine.windSwayPx(15, 7, px: 1.0);
+      expect(<double>[-1.0, 0.0, 1.0].contains(swayVal), isTrue);
+
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: Scaffold(
+            body: Column(
+              children: [
+                SpriteCastDeskStudioPreview(
+                  decor: LobbyTableDecorConfig(
+                    chairStyle: 'cyber_neon',
+                    deskMat: 'galaxy_mat',
+                    miniLight: 'starlight_lantern',
+                    deskFrame: 'holo_plaque',
+                    deskProp: 'zen_bonsai',
+                  ),
+                  ownerLabel: "★ Alon's Desk #10",
+                  nightPreview: true,
+                  animTick: 12,
+                ),
+                SpriteCastDeskItemThumbnail(
+                  category: 'table_prop',
+                  partId: 'trophy_mug',
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+      expect(find.byType(SpriteCastDeskStudioPreview), findsOneWidget);
+      expect(find.byType(SpriteCastDeskItemThumbnail), findsOneWidget);
     },
   );
 }

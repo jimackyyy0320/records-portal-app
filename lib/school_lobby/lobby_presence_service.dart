@@ -11,6 +11,7 @@ import '../services/api_service.dart';
 import 'lobby_data_service.dart';
 import 'lobby_moderation_service.dart';
 import 'lobby_radio_service.dart';
+import 'lobby_shop_service.dart';
 import 'school_lobby_avatar.dart';
 import 'school_lobby_config.dart';
 
@@ -55,6 +56,10 @@ class RemoteLobbyPlayer {
   String _resolvedLookSignature = '';
   bool _resolvingSprite = false;
 
+  /// Personal Classroom Desk ownership & SpriteCast table decoration synced in real time.
+  String? deskSpotId;
+  LobbyTableDecorConfig tableDecor;
+
   RemoteLobbyPlayer({
     required this.userId,
     required this.nickname,
@@ -75,6 +80,8 @@ class RemoteLobbyPlayer {
     this.sessionStartMs = 0,
     this.lastSeq = 0,
     this.spriteSheet,
+    this.deskSpotId,
+    this.tableDecor = const LobbyTableDecorConfig(),
   });
 
   bool get hasActiveThought =>
@@ -642,6 +649,13 @@ class LobbyPresenceService extends ChangeNotifier {
     final thoughtText = rawThoughtText != null
         ? LobbyModerationService.instance.sanitizeText(rawThoughtText)
         : null;
+    final rawDeskSpotId = data['desk']?.toString().trim();
+    final deskSpotId = (rawDeskSpotId != null &&
+            isPersonalClassroomDeskSpot(rawDeskSpotId))
+        ? rawDeskSpotId
+        : assignedClassroomDeskSpotIdForStudent(userId);
+    final remoteDecor =
+        LobbyTableDecorConfig.decodeCompact(data['decor']?.toString());
 
     // Sync Campus Radio 1-hour channel lock if carried in packet
     final radioId = (data['radioId'] ?? '').toString().trim();
@@ -693,6 +707,8 @@ class LobbyPresenceService extends ChangeNotifier {
         lastSeenMs: nowMs,
         sessionStartMs: incomingSessionMs,
         lastSeq: incomingSeq,
+        deskSpotId: deskSpotId,
+        tableDecor: remoteDecor,
       );
       _remotePlayers[peerKey] = created;
       if (thoughtText != null && thoughtText.trim().isNotEmpty) {
@@ -732,6 +748,8 @@ class LobbyPresenceService extends ChangeNotifier {
       existing.facing = facing;
       existing.isWalking = isWalking;
       existing.restState = restState;
+      existing.deskSpotId = deskSpotId;
+      existing.tableDecor = remoteDecor;
       existing.lastSeenMs = nowMs;
 
       if (type == 'wave') {
@@ -801,6 +819,11 @@ class LobbyPresenceService extends ChangeNotifier {
     final vel = _computeSelfVelocityVector();
     final radio = LobbyRadioService.instance;
     final mod = LobbyModerationService.instance;
+    final progress = LobbyDataService.instance.progress;
+    final selfDeskId = assignedClassroomDeskSpotIdForStudent(
+      _selfUserId,
+      preferredDeskSpotId: progress.assignedDeskSpotId,
+    );
     final sig = _computePacketSignature(
       peerKey: _selfPeerKey,
       userId: _selfUserId,
@@ -816,6 +839,8 @@ class LobbyPresenceService extends ChangeNotifier {
       'isFaculty': _selfIsFaculty,
       'look': _selfLook.toLookString(),
       'badgeIcon': _selfBadgeIcon ?? '',
+      'desk': selfDeskId,
+      'decor': progress.tableDecor.encodeCompact(),
       'room': _selfRoom.name,
       'x': _selfPos.dx.round(),
       'y': _selfPos.dy.round(),

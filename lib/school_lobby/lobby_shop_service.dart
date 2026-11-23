@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -5,6 +6,8 @@ import 'package:google_fonts/google_fonts.dart';
 import 'lobby_audio_service.dart';
 import 'lobby_data_service.dart';
 import 'school_lobby_avatar.dart';
+import 'school_lobby_config.dart';
+import 'spritecast_engine.dart';
 
 /// Represents a student's personalized Classroom Table Space decorations
 /// (Chair color/style, Desk mat, Mini light/lamp, Picture frame, and Tabletop props).
@@ -564,6 +567,8 @@ Future<LobbyAvatarLook?> showCampusShopModal({
   required LobbyAvatarLook currentLook,
   required bool isFaculty,
   String? initialCategory,
+  String? studentId,
+  String? studentName,
 }) {
   return showModalBottomSheet<LobbyAvatarLook>(
     context: context,
@@ -573,6 +578,8 @@ Future<LobbyAvatarLook?> showCampusShopModal({
       initialLook: currentLook,
       isFaculty: isFaculty,
       initialCategory: initialCategory ?? 'table_chair',
+      studentId: studentId ?? 'local_player',
+      studentName: studentName ?? 'Student',
     ),
   );
 }
@@ -581,11 +588,15 @@ class _CampusShopModalSheet extends StatefulWidget {
   final LobbyAvatarLook initialLook;
   final bool isFaculty;
   final String initialCategory;
+  final String studentId;
+  final String studentName;
 
   const _CampusShopModalSheet({
     required this.initialLook,
     required this.isFaculty,
     this.initialCategory = 'table_chair',
+    this.studentId = 'local_player',
+    this.studentName = 'Student',
   });
 
   @override
@@ -599,22 +610,30 @@ class _CampusShopModalSheetState extends State<_CampusShopModalSheet> {
   late LobbyTableDecorConfig _previewTableDecor;
   late String _selectedCategory;
   AvatarFacing _previewFacing = AvatarFacing.down;
+  bool _nightDeskPreview = false;
+  int _studioAnimTick = 0;
+  Timer? _studioTimer;
 
-  static const List<Map<String, String>> _shopCategories = [
-    {'key': 'table_chair', 'label': '🪑 Chair Styles'},
-    {'key': 'table_light', 'label': '💡 Mini Lights'},
-    {'key': 'table_frame', 'label': '🖼️ Desk Frames'},
-    {'key': 'table_mat', 'label': '🟩 Desk Mats'},
-    {'key': 'table_prop', 'label': '📚 Table Props'},
-    {'key': 'outfit', 'label': '👕 Outfits (75 XP)'},
-    {'key': 'hair', 'label': '💇 Hairstyles (50 XP)'},
-    {'key': 'glasses', 'label': '🕶️ Glasses (60 XP)'},
-    {'key': 'hat', 'label': '🧢 Hats & Caps (90 XP)'},
-    {'key': 'bag', 'label': '🎒 Bags (100 XP)'},
-    {'key': 'gloves', 'label': '🧤 Gloves (55 XP)'},
-    {'key': 'face', 'label': '😊 Facial (45 XP)'},
-    {'key': 'preset', 'label': '🌟 Presets (120 XP)'},
+  static const List<Map<String, String>> _deskCategories = [
+    {'key': 'table_chair', 'label': 'Chairs'},
+    {'key': 'table_mat', 'label': 'Desk Mats'},
+    {'key': 'table_light', 'label': 'Lights'},
+    {'key': 'table_frame', 'label': 'Frames'},
+    {'key': 'table_prop', 'label': 'Props'},
   ];
+
+  static const List<Map<String, String>> _wardrobeCategories = [
+    {'key': 'outfit', 'label': 'Outfits (75 XP)'},
+    {'key': 'hair', 'label': 'Hair (50 XP)'},
+    {'key': 'glasses', 'label': 'Glasses (60 XP)'},
+    {'key': 'hat', 'label': 'Hats (90 XP)'},
+    {'key': 'bag', 'label': 'Bags (100 XP)'},
+    {'key': 'gloves', 'label': 'Gloves (55 XP)'},
+    {'key': 'face', 'label': 'Face (45 XP)'},
+    {'key': 'preset', 'label': 'Presets (120 XP)'},
+  ];
+
+  bool get _isDeskMode => _selectedCategory.startsWith('table_');
 
   @override
   void initState() {
@@ -624,6 +643,17 @@ class _CampusShopModalSheetState extends State<_CampusShopModalSheet> {
     _equippedTableDecor = LobbyDataService.instance.progress.tableDecor;
     _previewTableDecor = _equippedTableDecor;
     _selectedCategory = widget.initialCategory;
+    _studioTimer = Timer.periodic(const Duration(milliseconds: 140), (_) {
+      if (mounted && _isDeskMode) {
+        setState(() => _studioAnimTick++);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _studioTimer?.cancel();
+    super.dispose();
   }
 
   Color _parseHex(String hex) {
@@ -752,78 +782,238 @@ class _CampusShopModalSheetState extends State<_CampusShopModalSheet> {
     }
   }
 
-  Widget _buildTableDecorMiniPreview(LobbyTableDecorConfig decor) {
-    final chairColor = decor.chairPrimaryColor;
-    final matColor = decor.deskMatColor ?? const Color(0xFFB47846);
-    return Container(
-      width: 92,
-      height: 82,
-      decoration: BoxDecoration(
-        color: const Color(0xFF0F172A),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFFACC15).withValues(alpha: 0.5)),
-      ),
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          // Chair backrest & cushion
-          Positioned(
-            bottom: 8,
-            child: Container(
-              width: 34,
-              height: 22,
-              decoration: BoxDecoration(
-                color: chairColor,
-                borderRadius: BorderRadius.circular(6),
-                border: Border.all(color: Colors.white70, width: 1.2),
-              ),
+  Widget _buildSpriteCastDeskStudioHeader(
+    StudentLobbyProgress progress,
+    int availableXp,
+  ) {
+    final activeDeskId = assignedClassroomDeskSpotIdForStudent(
+      widget.studentId,
+      preferredDeskSpotId: progress.assignedDeskSpotId,
+    );
+    final activeDeskGeo = classroomDeskGeometryForSpotId(activeDeskId);
+    final firstName = widget.studentName.trim().isEmpty
+        ? 'Your'
+        : "${widget.studentName.trim().split(' ').first}'s";
+    final ownerPlate =
+        '★ $firstName Desk #${activeDeskGeo?.deskNumber ?? 2}';
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: const Color(0xFF1E293B),
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(
+              color: const Color(0xFFFACC15).withValues(alpha: 0.35),
             ),
           ),
-          // Desk surface
-          Positioned(
-            top: 16,
-            child: Container(
-              width: 68,
-              height: 36,
-              decoration: BoxDecoration(
-                color: const Color(0xFF8B5A2B),
-                borderRadius: BorderRadius.circular(7),
-                border: Border.all(color: const Color(0xFF5C3A1B), width: 1.5),
-              ),
-              child: Center(
-                child: Container(
-                  width: 54,
-                  height: 24,
-                  decoration: BoxDecoration(
-                    color: matColor.withValues(alpha: 0.85),
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      if (decor.miniLight != 'none')
-                        const Text('💡', style: TextStyle(fontSize: 12)),
-                      if (decor.deskFrame != 'none')
-                        const Text('🖼️', style: TextStyle(fontSize: 12)),
-                      if (decor.deskProp != 'none')
-                        Text(
-                          decor.deskProp == 'zen_bonsai'
-                              ? '🪴'
-                              : (decor.deskProp == 'gaming_laptop'
-                                  ? '💻'
-                                  : (decor.deskProp == 'trophy_mug'
-                                      ? '🏆'
-                                      : '📚')),
-                          style: const TextStyle(fontSize: 12),
+          child: Row(
+            children: [
+              if (_isDeskMode)
+                SpriteCastDeskStudioPreview(
+                  decor: _previewTableDecor,
+                  ownerLabel: ownerPlate,
+                  nightPreview: _nightDeskPreview,
+                  animTick: _studioAnimTick,
+                )
+              else
+                PixelAvatarPreview(
+                  look: _previewLook,
+                  facing: _previewFacing,
+                  animateWalk: true,
+                  scale: 1.85,
+                ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF59E0B).withValues(alpha: 0.2),
+                        borderRadius: BorderRadius.circular(99),
+                        border: Border.all(color: const Color(0xFFFACC15)),
+                      ),
+                      child: Text(
+                        widget.isFaculty
+                            ? '👑 Teacher Pass • All Unlocked'
+                            : '✨ Wallet: $availableXp XP',
+                        style: GoogleFonts.outfit(
+                          color: const Color(0xFFFDE047),
+                          fontSize: 12,
+                          fontWeight: FontWeight.w800,
                         ),
-                    ],
-                  ),
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      'Rank: ${progress.rankTitle} • Lifetime ${progress.xp} XP',
+                      style: GoogleFonts.inter(
+                        color: Colors.white70,
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    Text(
+                      'Spent: ${progress.spentXp} XP (Spending never lowers Level)',
+                      style: GoogleFonts.inter(
+                        color: Colors.white54,
+                        fontSize: 9.5,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: [
+                        if (_isDeskMode)
+                          OutlinedButton.icon(
+                            onPressed: () => setState(
+                              () => _nightDeskPreview = !_nightDeskPreview,
+                            ),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: _nightDeskPreview
+                                  ? const Color(0xFFFDE047)
+                                  : Colors.white,
+                              side: BorderSide(
+                                color: _nightDeskPreview
+                                    ? const Color(0xFFFDE047)
+                                    : Colors.white24,
+                              ),
+                              visualDensity: VisualDensity.compact,
+                            ),
+                            icon: Icon(
+                              _nightDeskPreview
+                                  ? Icons.light_mode_rounded
+                                  : Icons.dark_mode_rounded,
+                              size: 14,
+                            ),
+                            label: Text(
+                              _nightDeskPreview ? 'Day' : 'Night Glow',
+                              style: const TextStyle(fontSize: 11),
+                            ),
+                          )
+                        else
+                          OutlinedButton.icon(
+                            onPressed: () {
+                              setState(() {
+                                _previewFacing = AvatarFacing.values[
+                                    (_previewFacing.index + 1) %
+                                        AvatarFacing.values.length];
+                              });
+                            },
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: Colors.white,
+                              side: const BorderSide(color: Colors.white24),
+                              visualDensity: VisualDensity.compact,
+                            ),
+                            icon: const Icon(
+                              Icons.rotate_right_rounded,
+                              size: 14,
+                            ),
+                            label: const Text(
+                              'Turn',
+                              style: TextStyle(fontSize: 11),
+                            ),
+                          ),
+                        ElevatedButton.icon(
+                          onPressed: () =>
+                              Navigator.of(context).pop(_equippedLook),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF10B981),
+                            foregroundColor: Colors.white,
+                            visualDensity: VisualDensity.compact,
+                          ),
+                          icon: const Icon(Icons.check_circle_rounded, size: 14),
+                          label: const Text(
+                            'Done',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
               ),
+            ],
+          ),
+        ),
+        if (_isDeskMode) ...[
+          const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+            decoration: BoxDecoration(
+              color: const Color(0xFF162033),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: Colors.white12),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Icon(
+                      Icons.chair_alt_rounded,
+                      color: Color(0xFFFACC15),
+                      size: 14,
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      'My Classroom Seat (${activeDeskGeo?.shortLabel ?? "Desk"})',
+                      style: GoogleFonts.outfit(
+                        color: Colors.white,
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                SizedBox(
+                  height: 30,
+                  child: ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: kClassroomDeskGeometries.length,
+                    separatorBuilder: (_, __) => const SizedBox(width: 6),
+                    itemBuilder: (ctx, i) {
+                      final g = kClassroomDeskGeometries[i];
+                      final selected = g.spotId == activeDeskId;
+                      return ChoiceChip(
+                        label: Text('Desk #${g.deskNumber}'),
+                        selected: selected,
+                        visualDensity: VisualDensity.compact,
+                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        selectedColor: const Color(0xFFFACC15),
+                        backgroundColor: const Color(0xFF0F172A),
+                        labelStyle: GoogleFonts.outfit(
+                          color: selected ? Colors.black : Colors.white70,
+                          fontSize: 10.5,
+                          fontWeight: FontWeight.w800,
+                        ),
+                        onSelected: (_) async {
+                          HapticFeedback.selectionClick();
+                          LobbyAudioService.instance.playSitOrRest();
+                          await LobbyDataService.instance
+                              .setAssignedDeskSpotId(g.spotId);
+                        },
+                      );
+                    },
+                  ),
+                ),
+              ],
             ),
           ),
         ],
-      ),
+      ],
     );
   }
 
@@ -831,6 +1021,7 @@ class _CampusShopModalSheetState extends State<_CampusShopModalSheet> {
   Widget build(BuildContext context) {
     final media = MediaQuery.of(context);
     final items = LobbyShopService.instance.itemsForCategory(_selectedCategory);
+    final activeCategories = _isDeskMode ? _deskCategories : _wardrobeCategories;
 
     return AnimatedBuilder(
       animation: LobbyDataService.instance,
@@ -839,8 +1030,8 @@ class _CampusShopModalSheetState extends State<_CampusShopModalSheet> {
         final availableXp = progress.availableXp;
 
         return Container(
-          height: media.size.height * 0.88,
-          margin: const EdgeInsets.fromLTRB(10, 16, 10, 10),
+          height: media.size.height * 0.90,
+          margin: const EdgeInsets.fromLTRB(10, 14, 10, 10),
           decoration: BoxDecoration(
             color: const Color(0xFF0F172A),
             borderRadius: BorderRadius.circular(26),
@@ -875,7 +1066,11 @@ class _CampusShopModalSheetState extends State<_CampusShopModalSheet> {
                         borderRadius: BorderRadius.circular(12),
                         border: Border.all(color: const Color(0xFFFACC15)),
                       ),
-                      child: const Text('🛍️', style: TextStyle(fontSize: 20)),
+                      child: const Icon(
+                        Icons.storefront_rounded,
+                        color: Color(0xFFFACC15),
+                        size: 22,
+                      ),
                     ),
                     const SizedBox(width: 10),
                     Expanded(
@@ -883,16 +1078,16 @@ class _CampusShopModalSheetState extends State<_CampusShopModalSheet> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'CAMPUS SHOP • WARDROBE & TABLE DECOR',
+                            'XP MARKET • DESK STUDIO & WARDROBE',
                             style: GoogleFonts.outfit(
                               color: Colors.white,
-                              fontSize: 15.5,
+                              fontSize: 15,
                               fontWeight: FontWeight.w800,
                               letterSpacing: 0.3,
                             ),
                           ),
                           Text(
-                            'Shopkeeper Mina: "Decorate your Classroom Table Space or unlock new outfits with XP!"',
+                            'Design your own SpriteCast pixel desk or unlock outfits with earned XP!',
                             style: GoogleFonts.inter(
                               color: Colors.white70,
                               fontSize: 11,
@@ -904,146 +1099,126 @@ class _CampusShopModalSheetState extends State<_CampusShopModalSheet> {
                     IconButton(
                       onPressed: () =>
                           Navigator.of(context).pop(_equippedLook),
-                      icon: const Icon(Icons.close_rounded,
-                          color: Colors.white70),
+                      icon: const Icon(
+                        Icons.close_rounded,
+                        color: Colors.white70,
+                      ),
                     ),
                   ],
                 ),
               ),
 
-              // Unified Scrollable Body (Scrolls smoothly in both Portrait and Landscape!)
+              // 2-Mode Switch: Desk Studio vs Avatar Wardrobe
+              Padding(
+                padding: const EdgeInsets.fromLTRB(14, 10, 14, 2),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: InkWell(
+                        onTap: () {
+                          if (!_isDeskMode) {
+                            setState(() => _selectedCategory = 'table_chair');
+                          }
+                        },
+                        borderRadius: BorderRadius.circular(12),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          decoration: BoxDecoration(
+                            color: _isDeskMode
+                                ? const Color(0xFFFACC15)
+                                : const Color(0xFF1E293B),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: _isDeskMode
+                                  ? const Color(0xFFFDE047)
+                                  : Colors.white12,
+                            ),
+                          ),
+                          alignment: Alignment.center,
+                          child: Text(
+                            '🎨 Personal Desk Studio',
+                            style: GoogleFonts.outfit(
+                              color: _isDeskMode ? Colors.black : Colors.white70,
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: InkWell(
+                        onTap: () {
+                          if (_isDeskMode) {
+                            setState(() => _selectedCategory = 'outfit');
+                          }
+                        },
+                        borderRadius: BorderRadius.circular(12),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          decoration: BoxDecoration(
+                            color: !_isDeskMode
+                                ? const Color(0xFF38BDF8)
+                                : const Color(0xFF1E293B),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: !_isDeskMode
+                                  ? const Color(0xFF7DD3FC)
+                                  : Colors.white12,
+                            ),
+                          ),
+                          alignment: Alignment.center,
+                          child: Text(
+                            '👕 Avatar Wardrobe',
+                            style: GoogleFonts.outfit(
+                              color:
+                                  !_isDeskMode ? Colors.black : Colors.white70,
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              // Unified Scrollable Body
               Expanded(
                 child: CustomScrollView(
                   physics: const BouncingScrollPhysics(),
                   slivers: [
                     SliverToBoxAdapter(
                       child: Padding(
-                        padding: const EdgeInsets.fromLTRB(14, 10, 14, 8),
-                        child: Container(
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF1E293B),
-                            borderRadius: BorderRadius.circular(18),
-                            border: Border.all(color: Colors.white12),
-                          ),
-                          child: Row(
-                            children: [
-                              PixelAvatarPreview(
-                                look: _previewLook,
-                                facing: _previewFacing,
-                                animateWalk: true,
-                                scale: 1.65,
-                              ),
-                              const SizedBox(width: 8),
-                              _buildTableDecorMiniPreview(_previewTableDecor),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(
-                                          horizontal: 10, vertical: 4),
-                                      decoration: BoxDecoration(
-                                        color: const Color(0xFFF59E0B)
-                                            .withValues(alpha: 0.2),
-                                        borderRadius: BorderRadius.circular(99),
-                                        border: Border.all(
-                                            color: const Color(0xFFFACC15)),
-                                      ),
-                                      child: Text(
-                                        widget.isFaculty
-                                            ? '👑 Teacher Pass • All Unlocked'
-                                            : '✨ Wallet: $availableXp XP',
-                                        style: GoogleFonts.outfit(
-                                          color: const Color(0xFFFDE047),
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.w800,
-                                        ),
-                                      ),
-                                    ),
-                                    const SizedBox(height: 5),
-                                    Text(
-                                      'Lifetime XP: ${progress.xp} • Spent: ${progress.spentXp} XP',
-                                      style: GoogleFonts.inter(
-                                        color: Colors.white70,
-                                        fontSize: 10.5,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 6),
-                                    Wrap(
-                                      spacing: 6,
-                                      runSpacing: 6,
-                                      children: [
-                                        OutlinedButton.icon(
-                                          onPressed: () {
-                                            setState(() {
-                                              _previewFacing =
-                                                  AvatarFacing.values[
-                                                      (_previewFacing.index +
-                                                              1) %
-                                                          AvatarFacing
-                                                              .values.length];
-                                            });
-                                          },
-                                          style: OutlinedButton.styleFrom(
-                                            foregroundColor: Colors.white,
-                                            side: const BorderSide(
-                                                color: Colors.white24),
-                                            visualDensity:
-                                                VisualDensity.compact,
-                                          ),
-                                          icon: const Icon(
-                                              Icons.rotate_right_rounded,
-                                              size: 14),
-                                          label: const Text('Turn',
-                                              style: TextStyle(fontSize: 11)),
-                                        ),
-                                        ElevatedButton.icon(
-                                          onPressed: () => Navigator.of(context)
-                                              .pop(_equippedLook),
-                                          style: ElevatedButton.styleFrom(
-                                            backgroundColor:
-                                                const Color(0xFF10B981),
-                                            foregroundColor: Colors.white,
-                                            visualDensity:
-                                                VisualDensity.compact,
-                                          ),
-                                          icon: const Icon(
-                                              Icons.check_circle_rounded,
-                                              size: 14),
-                                          label: const Text('Done',
-                                              style: TextStyle(
-                                                  fontSize: 11,
-                                                  fontWeight: FontWeight.w800)),
-                                        ),
-                                      ],
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
+                        padding: const EdgeInsets.fromLTRB(14, 8, 14, 8),
+                        child: _buildSpriteCastDeskStudioHeader(
+                          progress,
+                          availableXp,
                         ),
                       ),
                     ),
                     SliverToBoxAdapter(
                       child: SizedBox(
-                        height: 40,
+                        height: 38,
                         child: ListView.separated(
                           scrollDirection: Axis.horizontal,
                           padding: const EdgeInsets.symmetric(horizontal: 14),
-                          itemCount: _shopCategories.length,
+                          itemCount: activeCategories.length,
                           separatorBuilder: (_, __) => const SizedBox(width: 8),
                           itemBuilder: (context, index) {
-                            final cat = _shopCategories[index];
+                            final cat = activeCategories[index];
                             final isSelected = _selectedCategory == cat['key'];
                             return ChoiceChip(
                               label: Text(cat['label']!),
                               selected: isSelected,
                               onSelected: (_) => setState(
-                                  () => _selectedCategory = cat['key']!),
-                              selectedColor: const Color(0xFFFACC15),
+                                () => _selectedCategory = cat['key']!,
+                              ),
+                              selectedColor: _isDeskMode
+                                  ? const Color(0xFFFACC15)
+                                  : const Color(0xFF38BDF8),
                               backgroundColor: const Color(0xFF1E293B),
                               labelStyle: GoogleFonts.inter(
                                 color:
@@ -1064,7 +1239,7 @@ class _CampusShopModalSheetState extends State<_CampusShopModalSheet> {
                           maxCrossAxisExtent: 240,
                           mainAxisSpacing: 10,
                           crossAxisSpacing: 10,
-                          childAspectRatio: 1.48,
+                          childAspectRatio: 1.32,
                         ),
                         delegate: SliverChildBuilderDelegate(
                           (context, index) {
@@ -1119,17 +1294,26 @@ class _CampusShopModalSheetState extends State<_CampusShopModalSheet> {
                                   children: [
                                     Row(
                                       children: [
-                                        Container(
-                                          width: 16,
-                                          height: 16,
-                                          decoration: BoxDecoration(
-                                            color: _parseHex(item.hexColor),
-                                            shape: BoxShape.circle,
-                                            border: Border.all(
+                                        if (item.isTableDecor)
+                                          SpriteCastDeskItemThumbnail(
+                                            category: item.category,
+                                            partId: item.partId,
+                                            size: 44,
+                                          )
+                                        else
+                                          Container(
+                                            width: 24,
+                                            height: 24,
+                                            decoration: BoxDecoration(
+                                              color: _parseHex(item.hexColor),
+                                              borderRadius:
+                                                  BorderRadius.circular(8),
+                                              border: Border.all(
                                                 color: Colors.white54,
-                                                width: 1),
+                                                width: 1.2,
+                                              ),
+                                            ),
                                           ),
-                                        ),
                                         const SizedBox(width: 8),
                                         Expanded(
                                           child: Text(
@@ -1138,7 +1322,7 @@ class _CampusShopModalSheetState extends State<_CampusShopModalSheet> {
                                             overflow: TextOverflow.ellipsis,
                                             style: GoogleFonts.outfit(
                                               color: Colors.white,
-                                              fontSize: 12,
+                                              fontSize: 11.5,
                                               fontWeight: FontWeight.w800,
                                             ),
                                           ),

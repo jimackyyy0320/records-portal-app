@@ -275,6 +275,31 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
 
   /// Enforces that students & faculty can only Sit, Nap, or Sleep on actual campus furniture
   /// ([LobbyRestSpot]), snapping onto the cushion coordinates and dismounting to `standPosition`.
+  String get _myAssignedDeskSpotId => assignedClassroomDeskSpotIdForStudent(
+        widget.session.id,
+        preferredDeskSpotId:
+            LobbyDataService.instance.progress.assignedDeskSpotId,
+      );
+
+  /// Finds the online classmate who currently owns [deskSpotId], if any.
+  RemoteLobbyPlayer? _onlineOwnerOfDesk(String deskSpotId) {
+    for (final rp in LobbyPresenceService.instance.allRemotePlayers) {
+      final theirDesk = rp.deskSpotId ??
+          assignedClassroomDeskSpotIdForStudent(rp.userId);
+      if (theirDesk == deskSpotId) return rp;
+    }
+    return null;
+  }
+
+  void _refreshZoneCacheNow() {
+    _cachedZones = buildActiveInteractiveZones(
+      LobbyDataService.instance.subjectChests,
+      room: _currentRoom,
+      localAssignedDeskSpotId: _myAssignedDeskSpotId,
+    );
+    _worldRepaintTick.value++;
+  }
+
   void _setPlayerRestState(
     PlayerRestState nextState, {
     LobbyRestSpot? snapToSpot,
@@ -318,17 +343,21 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
     // Enforce Personal Student Classroom Table Exclusive Lock!
     if (!canStudentSitAtSpot(
       spotId: spot.id,
-      isLocalPlayer: true,
+      studentId: widget.session.id,
+      preferredDeskSpotId:
+          LobbyDataService.instance.progress.assignedDeskSpotId,
       isFaculty: widget.session.isFaculty,
     )) {
+      final deskGeo = classroomDeskGeometryForSpotId(_myAssignedDeskSpotId);
+      final myDeskLabel = deskGeo?.shortLabel ?? 'your Personal Desk';
       LobbyAudioService.instance.playQuizWrong();
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
+        SnackBar(
           content: Text(
-            '🔒 This Classroom Table is reserved for a classmate! Use your Personal Table (Row 1 Center — 📌 Your Table) or the Group Study Table!',
+            '🔒 This desk is not assigned to you yet! Walk to $myDeskLabel (gold badge) or tap this desk to claim it.',
           ),
           behavior: SnackBarBehavior.floating,
-          duration: Duration(seconds: 3),
+          duration: const Duration(seconds: 3),
         ),
       );
       return;
@@ -640,7 +669,11 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
       _cachedChestCountForSolids = chests.length;
       _cached2HourWindowForSolids = current2HrWindow;
       _cachedSolids = buildLobbySolids(chests, room: _currentRoom);
-      _cachedZones = buildActiveInteractiveZones(chests, room: _currentRoom);
+      _cachedZones = buildActiveInteractiveZones(
+        chests,
+        room: _currentRoom,
+        localAssignedDeskSpotId: _myAssignedDeskSpotId,
+      );
     }
     final solids = _cachedSolids;
 
@@ -756,7 +789,11 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
       playerPos: _playerPos,
     );
     if (agentsMoved) {
-      _cachedZones = buildActiveInteractiveZones(chests, room: _currentRoom);
+      _cachedZones = buildActiveInteractiveZones(
+        chests,
+        room: _currentRoom,
+        localAssignedDeskSpotId: _myAssignedDeskSpotId,
+      );
     }
 
     LobbyPresenceService.instance.updateLocalPlayerState(
@@ -990,8 +1027,12 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
       currentLook: _playerLook,
       isFaculty: widget.session.isFaculty,
       initialCategory: initialCategory,
+      studentId: widget.session.id,
+      studentName: _playerNickname,
     );
-    if (updatedLook != null && mounted) {
+    if (!mounted) return;
+    _refreshZoneCacheNow();
+    if (updatedLook != null) {
       final safeLook = LobbyShopService.instance.sanitizeLookForUnlocked(
         updatedLook,
         isFaculty: widget.session.isFaculty,
@@ -1009,6 +1050,10 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
           forceImmediateBroadcast: true,
         );
       }
+    } else {
+      LobbyPresenceService.instance.updateLocalPlayerState(
+        forceImmediateBroadcast: true,
+      );
     }
   }
 
@@ -1088,22 +1133,86 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
         );
         if (!canStudentSitAtSpot(
           spotId: spot.id,
-          isLocalPlayer: true,
+          studentId: widget.session.id,
+          preferredDeskSpotId:
+              LobbyDataService.instance.progress.assignedDeskSpotId,
           isFaculty: widget.session.isFaculty,
         )) {
-          LobbyAudioService.instance.playQuizWrong();
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                '🔒 This Classroom Table belongs to a classmate! Walk to your Personal Table (Row 1 Center — 📌 Your Table) or the Group Study Table!',
+          final onlineOwner = _onlineOwnerOfDesk(spot.id);
+          if (onlineOwner != null) {
+            LobbyAudioService.instance.playQuizWrong();
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  '🔒 This desk belongs to ${onlineOwner.nickname}! Open the Desk Studio or claim an open desk instead.',
+                ),
+                behavior: SnackBarBehavior.floating,
+                duration: const Duration(seconds: 3),
               ),
-              behavior: SnackBarBehavior.floating,
-              duration: Duration(seconds: 3),
+            );
+            break;
+          }
+          // Desk is unoccupied — let the student claim it as their own personal desk!
+          final deskGeo = classroomDeskGeometryForSpotId(spot.id);
+          final claimLabel = deskGeo?.shortLabel ?? spot.label;
+          final claimed = await showDialog<bool>(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              backgroundColor: const Color(0xFF0F172A),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(18),
+                side: const BorderSide(color: Color(0xFFFACC15), width: 1.4),
+              ),
+              title: Text(
+                '🪑 Claim $claimLabel?',
+                style: GoogleFonts.outfit(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 17,
+                ),
+              ),
+              content: Text(
+                'Move your personal Classroom Desk & all your SpriteCast decorations to $claimLabel? Classmates will immediately see your custom desk here!',
+                style: GoogleFonts.inter(color: Colors.white70, fontSize: 13),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(ctx).pop(false),
+                  child: const Text('Cancel',
+                      style: TextStyle(color: Colors.white60)),
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFFACC15),
+                    foregroundColor: Colors.black,
+                  ),
+                  onPressed: () => Navigator.of(ctx).pop(true),
+                  child: const Text('Claim My Desk',
+                      style: TextStyle(fontWeight: FontWeight.w800)),
+                ),
+              ],
             ),
           );
+          if (claimed == true && mounted) {
+            await LobbyDataService.instance.setAssignedDeskSpotId(spot.id);
+            _refreshZoneCacheNow();
+            LobbyPresenceService.instance.updateLocalPlayerState(
+              forceImmediateBroadcast: true,
+            );
+            LobbyAudioService.instance.playShopPurchase();
+            _setPlayerRestState(PlayerRestState.sitting, snapToSpot: spot);
+            if (!mounted) break;
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('⭐ $claimLabel is now your Personal Desk!'),
+                backgroundColor: const Color(0xFF065F46),
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+          }
           break;
         }
-        final isPersonalTable = spot.id == kLocalPlayerClassroomDeskSpotId;
+        final isPersonalTable = spot.id == _myAssignedDeskSpotId;
         final isGroupStudySeat = groupStudySpaceForRoom(_currentRoom)
             .seatSpotIds
             .contains(spot.id);
@@ -1710,6 +1819,8 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
                                       showOfflineClassmates: _showOfflineBots,
                                       roomOccupancyCounts: roomOccupancyCounts,
                                       precomputedActiveZones: _cachedZones,
+                                      localAssignedDeskSpotId:
+                                          _myAssignedDeskSpotId,
                                     ),
                                   ),
                                 ),

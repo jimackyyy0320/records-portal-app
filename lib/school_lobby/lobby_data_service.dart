@@ -432,6 +432,7 @@ class StudentLobbyProgress {
   final Set<String> unlockedCosmetics;
   final List<String> answeredQuestionIds;
   final LobbyTableDecorConfig tableDecor;
+  final String? assignedDeskSpotId;
 
   const StudentLobbyProgress({
     this.xp = 0,
@@ -447,6 +448,7 @@ class StudentLobbyProgress {
     this.unlockedCosmetics = LobbyShopService.kStarterUnlockedCosmetics,
     this.answeredQuestionIds = const [],
     this.tableDecor = const LobbyTableDecorConfig(),
+    this.assignedDeskSpotId,
   });
 
   /// Spendable XP wallet in the Campus Cosmetics Shop (`xp - spentXp`).
@@ -502,6 +504,7 @@ class StudentLobbyProgress {
     Set<String>? unlockedCosmetics,
     List<String>? answeredQuestionIds,
     LobbyTableDecorConfig? tableDecor,
+    String? assignedDeskSpotId,
   }) {
     return StudentLobbyProgress(
       xp: xp ?? this.xp,
@@ -519,6 +522,7 @@ class StudentLobbyProgress {
       unlockedCosmetics: unlockedCosmetics ?? this.unlockedCosmetics,
       answeredQuestionIds: answeredQuestionIds ?? this.answeredQuestionIds,
       tableDecor: tableDecor ?? this.tableDecor,
+      assignedDeskSpotId: assignedDeskSpotId ?? this.assignedDeskSpotId,
     );
   }
 
@@ -581,6 +585,9 @@ class StudentLobbyProgress {
       unlockedCosmetics: unlocked,
       answeredQuestionIds: answered,
       tableDecor: decor,
+      assignedDeskSpotId: json['assignedDeskSpotId']?.toString().trim().isNotEmpty == true
+          ? json['assignedDeskSpotId'].toString().trim()
+          : null,
     );
   }
 
@@ -598,6 +605,7 @@ class StudentLobbyProgress {
         'unlockedCosmetics': unlockedCosmetics.toList(),
         'answeredQuestionIds': answeredQuestionIds,
         'tableDecor': tableDecor.toJson(),
+        if (assignedDeskSpotId != null) 'assignedDeskSpotId': assignedDeskSpotId,
       };
 }
 
@@ -1659,6 +1667,18 @@ class LobbyDataService extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Assigns/claims a personal Classroom Desk (`rest_classroom_r1_c1`..`rest_classroom_r3_c4`)
+  /// for the active student and persists it locally + to the cloud so each student
+  /// owns their own seat rather than sharing a single hardcoded desk.
+  Future<void> setAssignedDeskSpotId(String deskSpotId) async {
+    final clean = deskSpotId.trim();
+    if (!clean.startsWith('rest_classroom_r')) return;
+    if (_progress.assignedDeskSpotId == clean) return;
+    _progress = _progress.copyWith(assignedDeskSpotId: clean);
+    await _saveProgress();
+    notifyListeners();
+  }
+
   /// Story Mode ("Chronicles of the Sovereign"): Awards XP and unlocks RPG Badges
   /// when a student earns a Charter Seal or completes all 7 Seals on the Altar of the Sovereign!
   Future<EarnedStudentBadge?> awardSovereignCharterSealReward({
@@ -1866,6 +1886,8 @@ class LobbyDataService extends ChangeNotifier {
               localProgress.tableDecor.deskProp != 'none'
           ? localProgress.tableDecor
           : cloud.tableDecor,
+      assignedDeskSpotId:
+          localProgress.assignedDeskSpotId ?? cloud.assignedDeskSpotId,
     );
 
     SovereignCampaignSave? mergedCampaign = localCampaign;

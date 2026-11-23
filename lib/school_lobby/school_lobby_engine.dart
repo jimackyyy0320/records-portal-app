@@ -7,9 +7,11 @@ import 'package:flutter/services.dart';
 import 'lobby_agency_agents.dart';
 import 'lobby_data_service.dart';
 import 'lobby_presence_service.dart';
+import 'lobby_shop_service.dart';
 import 'pixelfx_engine.dart';
 import 'school_lobby_avatar.dart';
 import 'school_lobby_config.dart';
+import 'spritecast_engine.dart';
 
 /// Recycled from TinyFloor `Navigation.ts`:
 /// Walkable tile bitmap + 8-direction A* pathfinding + line-of-sight string-pulling (`straighten`).
@@ -328,6 +330,7 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
   final bool showOfflineClassmates;
   final Map<LobbyRoomId, int> roomOccupancyCounts;
   final List<InteractiveZone>? precomputedActiveZones;
+  final String? localAssignedDeskSpotId;
 
   const SchoolLobbyCanvasPainter({
     super.repaint,
@@ -358,11 +361,61 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
     this.showOfflineClassmates = false,
     this.roomOccupancyCounts = const {},
     this.precomputedActiveZones,
+    this.localAssignedDeskSpotId,
   });
 
   List<InteractiveZone> get _resolvedActiveZones =>
       precomputedActiveZones ??
-      buildActiveInteractiveZones(subjectChests, room: currentRoom);
+      buildActiveInteractiveZones(
+        subjectChests,
+        room: currentRoom,
+        localAssignedDeskSpotId: localAssignedDeskSpotId,
+      );
+
+  /// Maps every claimed/assigned Classroom personal desk (`spotId`) to its owner's
+  /// SpriteCast [LobbyTableDecorConfig] and nameplate—rendering BOTH the local student
+  /// AND every online classmate on their own distinct desk!
+  Map<String, ({LobbyTableDecorConfig decor, String label, bool isLocal})>
+      _resolvedClassroomDeskOwners() {
+    final map = <String,
+        ({LobbyTableDecorConfig decor, String label, bool isLocal})>{};
+    if (currentRoom != LobbyRoomId.classroom) return map;
+
+    // 1. Online classmates' personal desks (synced via LobbyPresenceService)
+    for (final rp in remotePlayers) {
+      if (rp.isFaculty) continue;
+      final spotId = rp.deskSpotId ??
+          assignedClassroomDeskSpotIdForStudent(rp.userId);
+      final geo = classroomDeskGeometryForSpotId(spotId);
+      if (geo == null) continue;
+      final first = rp.nickname.trim().isEmpty
+          ? 'Classmate'
+          : rp.nickname.trim().split(' ').first;
+      map[spotId] = (
+        decor: rp.tableDecor,
+        label: '$first • #${geo.deskNumber}',
+        isLocal: false,
+      );
+    }
+
+    // 2. Local student's personal desk (always wins on local view)
+    if (!isFaculty) {
+      final mySpotId =
+          localAssignedDeskSpotId ?? kLocalPlayerClassroomDeskSpotId;
+      final myGeo = classroomDeskGeometryForSpotId(mySpotId);
+      if (myGeo != null) {
+        final first = playerName.trim().isEmpty
+            ? 'Your'
+            : "${playerName.trim().split(' ').first}'s";
+        map[mySpotId] = (
+          decor: LobbyDataService.instance.progress.tableDecor,
+          label: '★ $first Desk #${myGeo.deskNumber}',
+          isLocal: true,
+        );
+      }
+    }
+    return map;
+  }
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -396,10 +449,30 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
 
     // 6. Build Y-sorted renderables (`depthForY(y) = y` from `office.ts`)
     final drawables = <_YSortedDrawable>[];
+    final classroomDeskOwners = _resolvedClassroomDeskOwners();
 
     // 6a. Furniture pieces (non-rug) — y-sorted by the bottom base of each sprite
     for (final piece in roomPieces) {
       if (piece.isFloorRug) continue;
+      // In the Classroom, skip the static default TinyFloor chair sprite at any
+      // personal desk owned by a student so our SpriteCast split-layer chair
+      // (`seat.py` base + foreground backrest) replaces it with zero ghosting!
+      if (currentRoom == LobbyRoomId.classroom &&
+          piece.spriteKey.startsWith('chair-') &&
+          classroomDeskOwners.isNotEmpty) {
+        var replacedByCustomChair = false;
+        for (final spotId in classroomDeskOwners.keys) {
+          final geo = classroomDeskGeometryForSpotId(spotId);
+          if (geo != null &&
+              (Offset(piece.x + 16, piece.y + 12) - geo.chairCenter).distance <
+                  28.0) {
+            replacedByCustomChair = true;
+            break;
+          }
+        }
+        if (replacedByCustomChair) continue;
+      }
+
       final frameRect = assets.itemFrames[piece.spriteKey];
       final frameHeight = frameRect?.height ?? 32.0;
       final pieceSortY =
@@ -410,6 +483,64 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
           draw: (c) => _drawFurniturePiece(c, piece, pixelPaint),
         ),
       );
+    }
+
+    // 6a-2. SpriteCast Personal Classroom Desks & `seat.py` Split-Layer Chairs!
+    if (currentRoom == LobbyRoomId.classroom) {
+      for (final geo in kClassroomDeskGeometries) {
+        final owner = classroomDeskOwners[geo.spotId];
+        if (owner == null) {
+          // Subtle unclaimed desk tag so students know they can claim any open desk
+          drawables.add(
+            _YSortedDrawable(
+              sortY: geo.deskRect.bottom + 2.0,
+              draw: (c) => _drawOpenDeskSeatTag(c, geo),
+            ),
+          );
+          continue;
+        }
+        // Tabletop SpriteCast pixel props, mat, stepped light pool & owner nameplate
+        drawables.add(
+          _YSortedDrawable(
+            sortY: geo.deskRect.bottom + 4.0,
+            draw: (c) => SpriteCastEngine.drawPersonalDeskOverlay(
+              c,
+              deskRect: geo.deskRect,
+              decor: owner.decor,
+              ownerLabel: owner.label,
+              isLocalOwner: owner.isLocal,
+              px: 1.9,
+              animTick: animTick,
+              isDarkMode: isDarkMode,
+            ),
+          ),
+        );
+        // Chair Base & Seat Cushion (UNDER seated student)
+        drawables.add(
+          _YSortedDrawable(
+            sortY: geo.chairCenter.dy - 4.0,
+            draw: (c) => SpriteCastEngine.drawPixelDeskChairBase(
+              c,
+              geo.chairCenter,
+              chairStyle: owner.decor.chairStyle,
+              px: 2.0,
+            ),
+          ),
+        );
+        // Chair Sculpted Backrest Front Piece (`seat.py` — OVER seated student at y+38)
+        drawables.add(
+          _YSortedDrawable(
+            sortY: geo.chairCenter.dy + 44.0,
+            draw: (c) => SpriteCastEngine.drawPixelDeskChairBackrestFront(
+              c,
+              geo.chairCenter,
+              chairStyle: owner.decor.chairStyle,
+              px: 2.0,
+              animTick: animTick,
+            ),
+          ),
+        );
+      }
     }
 
     // 6b. NPCs in this room (walking & interactive via LobbyAgencyAgentsService)
@@ -673,6 +804,38 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
 
     // 3. Render Guided Walk Paths (`walkPathsForRoom(currentRoom)`) with `floor-sheet.png` tiles + directional arrows!
     _paintGuidedWalkPaths(canvas, pixelPaint);
+
+    // 3b. SpriteCast Ground Detailing (`ground.py` meadow tufts/wildflowers/sunk rain puddles
+    //     in the Campus Courtyard, and stepped sunlit window shafts in indoor campus rooms!)
+    if (currentRoom == LobbyRoomId.park) {
+      final pathExclusions = <Rect>[
+        ...walkPathsForRoom(currentRoom).map((w) => w.rect),
+        const Rect.fromLTWH(618, 398, 300, 224), // Central Koi Pond exclusion
+      ];
+      SpriteCastEngine.drawSpriteCastMeadowDetails(
+        canvas,
+        const Rect.fromLTWH(32, 96, kLobbyWorldWidth - 64, kLobbyWorldHeight - 128),
+        animTick: animTick,
+        isDarkMode: isDarkMode,
+        excludedPaths: pathExclusions,
+      );
+    } else {
+      // Stepped daylight/moonlight shafts beneath north-wall windows
+      final windowSunXs = currentRoom == LobbyRoomId.classroom
+          ? const <double>[134, 412, 1020, 1320]
+          : (currentRoom == LobbyRoomId.canteen
+              ? const <double>[520, 1040]
+              : const <double>[220, 740, 1220]);
+      for (final wx in windowSunXs) {
+        SpriteCastEngine.drawSteppedWindowSunbeam(
+          canvas,
+          Offset(wx, 68),
+          width: 78,
+          length: 118,
+          isDarkMode: isDarkMode,
+        );
+      }
+    }
 
     // 4. Night / Dark Mode warm ambient light pools
     if (isDarkMode) {
@@ -990,11 +1153,6 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
   }
 
   void _paintZoneFloorDecals(Canvas canvas) {
-    // 0. If in Classroom, render the student's Personal Table Space Decor & Desk Ownership Tags!
-    if (currentRoom == LobbyRoomId.classroom) {
-      _paintPersonalClassroomTableDecor(canvas);
-    }
-
     // 1. Render all room directional signposts (`floorSignpostsForRoom(currentRoom)`)
     for (final post in floorSignpostsForRoom(currentRoom)) {
       _drawFloorPlaque(
@@ -1062,153 +1220,35 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
     }
   }
 
-  /// Renders the local student's custom Table Space decorations (`LobbyTableDecorConfig`)
-  /// on their Personal Classroom Table (`x: 480, y: 324`, chair `x: 544, y: 404`), plus
-  /// ownership plaques so every student knows which table is theirs!
-  void _paintPersonalClassroomTableDecor(Canvas canvas) {
-    final decor = LobbyDataService.instance.progress.tableDecor;
-    const deskRect = Rect.fromLTWH(488, 326, 112, 46);
-    const chairCenter = Offset(544, 404);
-
-    // 1. Custom Chair Cushion tint around the personal chair (`decor.chairPrimaryColor`)
-    final chairColor = decor.chairPrimaryColor;
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        Rect.fromCenter(center: chairCenter, width: 34, height: 26),
-        const Radius.circular(7),
-      ),
-      Paint()..color = chairColor.withValues(alpha: 0.78),
-    );
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        Rect.fromCenter(center: chairCenter, width: 34, height: 26),
-        const Radius.circular(7),
-      ),
-      Paint()
-        ..color = Colors.white.withValues(alpha: 0.65)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.4,
-    );
-
-    // 2. Desk Mat overlay on top of the student's personal desk (`decor.deskMatColor`)
-    final matColor = decor.deskMatColor;
-    if (matColor != null) {
-      final matRect = RRect.fromRectAndRadius(
-        Rect.fromCenter(center: deskRect.center, width: 90, height: 34),
-        const Radius.circular(5),
-      );
-      canvas.drawRRect(
-        matRect,
-        Paint()..color = matColor.withValues(alpha: 0.80),
-      );
-      canvas.drawRRect(
-        matRect,
-        Paint()
-          ..color = Colors.white.withValues(alpha: 0.55)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 1.2,
-      );
-    }
-
-    // 3. Mini Light (`fairy_warm`, `banker_brass`, `neon_strip`, `starlight_lantern`)
-    if (decor.miniLight != 'none') {
-      Color lightColor = const Color(0xFFFBBF24);
-      String lightIcon = '🪔';
-      if (decor.miniLight == 'fairy_warm') {
-        lightColor = const Color(0xFFFDE047);
-        lightIcon = '✨';
-      } else if (decor.miniLight == 'neon_strip') {
-        lightColor = const Color(0xFF06B6D4);
-        lightIcon = '🌈';
-      } else if (decor.miniLight == 'starlight_lantern') {
-        lightColor = const Color(0xFFC084FC);
-        lightIcon = '🏮';
-      }
-      final lampPos = Offset(deskRect.left + 18, deskRect.top + 15);
-      final glowShader = ui.Gradient.radial(
-        lampPos,
-        38,
-        [
-          lightColor.withValues(alpha: 0.50),
-          lightColor.withValues(alpha: 0.0),
-        ],
-      );
-      canvas.drawCircle(lampPos, 38, Paint()..shader = glowShader);
-      final tp = TextPainter(
-        text: TextSpan(text: lightIcon, style: const TextStyle(fontSize: 12)),
-        textDirection: TextDirection.ltr,
-      )..layout();
-      tp.paint(canvas, Offset(lampPos.dx - tp.width / 2, lampPos.dy - tp.height / 2));
-    }
-
-    // 4. Desk Frame (`gold_cert`, `pixel_portrait`, `holo_plaque`)
-    if (decor.deskFrame != 'none') {
-      String frameIcon = '🖼️';
-      if (decor.deskFrame == 'gold_cert') frameIcon = '🏆';
-      if (decor.deskFrame == 'holo_plaque') frameIcon = '💠';
-      final framePos = Offset(deskRect.center.dx, deskRect.top + 13);
-      final tp = TextPainter(
-        text: TextSpan(text: frameIcon, style: const TextStyle(fontSize: 12)),
-        textDirection: TextDirection.ltr,
-      )..layout();
-      tp.paint(
-          canvas, Offset(framePos.dx - tp.width / 2, framePos.dy - tp.height / 2));
-    }
-
-    // 5. Table Prop (`textbooks_stack`, `zen_bonsai`, `gaming_laptop`, `trophy_mug`)
-    if (decor.deskProp != 'none') {
-      String propIcon = '📚';
-      if (decor.deskProp == 'zen_bonsai') propIcon = '🪴';
-      if (decor.deskProp == 'gaming_laptop') propIcon = '💻';
-      if (decor.deskProp == 'trophy_mug') propIcon = '☕';
-      final propPos = Offset(deskRect.right - 18, deskRect.top + 15);
-      final tp = TextPainter(
-        text: TextSpan(text: propIcon, style: const TextStyle(fontSize: 12)),
-        textDirection: TextDirection.ltr,
-      )..layout();
-      tp.paint(canvas, Offset(propPos.dx - tp.width / 2, propPos.dy - tp.height / 2));
-    }
-
-    // 6. Floating Ownership Badge above the player's Personal Classroom Table
-    final ownerLabel = playerName.trim().isEmpty
-        ? '📌 Your Personal Table'
-        : '📌 ${playerName.split(' ').first}\'s Table';
+  /// Renders a subtle pixel seat badge on unclaimed Classroom personal desks
+  /// so students can spot and claim open desks across all 10 seats.
+  void _drawOpenDeskSeatTag(Canvas canvas, ClassroomDeskGeometry geo) {
     final tp = TextPainter(
       text: TextSpan(
-        text: ownerLabel,
+        text: 'Desk #${geo.deskNumber} • Open',
         style: const TextStyle(
-          color: Color(0xFFFEF08A),
-          fontSize: 8.5,
-          fontWeight: FontWeight.w900,
+          color: Color(0xFF94A3B8),
+          fontSize: 7.5,
+          fontWeight: FontWeight.w800,
         ),
       ),
       textDirection: TextDirection.ltr,
     )..layout();
-    final badgeRect = RRect.fromRectAndRadius(
+    final pill = RRect.fromRectAndRadius(
       Rect.fromCenter(
-        center: Offset(deskRect.center.dx, deskRect.top - 10),
-        width: tp.width + 12,
-        height: tp.height + 5,
+        center: Offset(geo.deskRect.center.dx, geo.deskRect.top - 8),
+        width: tp.width + 10,
+        height: tp.height + 4,
       ),
-      const Radius.circular(8),
+      const Radius.circular(5),
     );
     canvas.drawRRect(
-      badgeRect,
-      Paint()..color = const Color(0xFF0F172A).withValues(alpha: 0.90),
-    );
-    canvas.drawRRect(
-      badgeRect,
-      Paint()
-        ..color = const Color(0xFFF59E0B)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.4,
+      pill,
+      Paint()..color = SpriteCastPalette.ink.withValues(alpha: 0.62),
     );
     tp.paint(
       canvas,
-      Offset(
-        badgeRect.center.dx - tp.width / 2,
-        badgeRect.center.dy - tp.height / 2,
-      ),
+      Offset(pill.center.dx - tp.width / 2, pill.center.dy - tp.height / 2),
     );
   }
 
@@ -1567,7 +1607,42 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
   ) {
     final src = assets.itemFrames[piece.spriteKey];
     if (src == null) return;
-    final dst = Rect.fromLTWH(piece.x, piece.y, src.width, src.height);
+    final isOutdoorPlant =
+        currentRoom == LobbyRoomId.park && piece.spriteKey.startsWith('plant-');
+    final swayX = isOutdoorPlant
+        ? SpriteCastEngine.windSwayPx(
+            animTick,
+            (piece.x.round() * 7 + piece.y.round()),
+            px: 1.0,
+          )
+        : 0.0;
+    final dst = Rect.fromLTWH(piece.x + swayX, piece.y, src.width, src.height);
+
+    // SpriteCast 5-step grounded contact shadow under standing floor furniture
+    final isWallOrSmallTopProp = piece.isFloorRug ||
+        piece.y <= 36.0 ||
+        piece.spriteKey.startsWith('wall-') ||
+        piece.spriteKey.startsWith('window-') ||
+        piece.spriteKey.startsWith('ours-') ||
+        piece.spriteKey.startsWith('laptop-') ||
+        piece.spriteKey == 'microphone';
+    if (!isWallOrSmallTopProp && src.width >= 28 && src.height >= 28) {
+      SpriteCastEngine.drawSteppedContactShadow(
+        canvas,
+        Rect.fromLTWH(
+          piece.x + 3,
+          piece.y + src.height - 10,
+          src.width - 6,
+          10,
+        ),
+        castDx: 4.5,
+        castDy: 3.0,
+        strength: isDarkMode ? 0.85 : 0.62,
+        oval: piece.spriteKey.startsWith('plant-') ||
+            piece.spriteKey.startsWith('egg-chair'),
+      );
+    }
+
     canvas.drawImageRect(assets.floorItems, src, dst, pixelPaint);
   }
 
@@ -2386,6 +2461,20 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
       restState: playerRestState,
       pixelPaint: pixelPaint,
     );
+
+    // SpriteCast `"feet in the grass"` foreground strip in Campus Park grass areas
+    if (currentRoom == LobbyRoomId.park && !playerRestState.isResting) {
+      final onPath =
+          walkPathsForRoom(currentRoom).any((w) => w.rect.contains(playerPos));
+      if (!onPath) {
+        SpriteCastEngine.drawFootOcclusionGrassStrip(
+          canvas,
+          Offset(playerPos.dx, playerPos.dy + 2),
+          animTick: animTick,
+          px: 2.0,
+        );
+      }
+    }
 
     final baseRole = isFaculty ? 'Teacher' : 'Student';
     final roleWithRest = playerRestState.isResting
