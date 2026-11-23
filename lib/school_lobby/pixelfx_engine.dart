@@ -28,6 +28,106 @@ const List<int> kBayer4x4 = <int>[
   15, 7, 13, 5,
 ];
 
+/// Authentic Game Boy Advance (GBA) native screen resolution (`240×160`)
+/// used by `Chronicles of the Sovereign` `pixelfx` frame buffers.
+const int kGbaFxFrameWidth = 240;
+const int kGbaFxFrameHeight = 160;
+
+/// Extracts pixel coordinates inside a `PixelFxFrame` for contiguous clusters
+/// (or individual cells) of [targetChar] inside an ASCII overworld tilemap.
+///
+/// When [clusterCentroids] is `true`, adjacent matching tiles are merged into
+/// a single centroid coordinate (ideal for `'T'` Tribunal Hall roofs or `'U'`
+/// Unrest Zone patches). When `false`, every matching tile center is returned
+/// (ideal for `'B'` Bahay-Pulungan lanterns).
+List<Offset> extractMapTileFxPoints(
+  List<String> asciiMap,
+  String targetChar, {
+  int frameWidth = kGbaFxFrameWidth,
+  int frameHeight = kGbaFxFrameHeight,
+  bool clusterCentroids = true,
+}) {
+  final rows = asciiMap.length;
+  if (rows == 0) return const <Offset>[];
+  final cols = asciiMap.first.length;
+  if (cols == 0) return const <Offset>[];
+
+  if (!clusterCentroids) {
+    final pts = <Offset>[];
+    for (var r = 0; r < rows; r++) {
+      final line = asciiMap[r];
+      for (var c = 0; c < line.length; c++) {
+        if (line[c] == targetChar) {
+          pts.add(
+            Offset(
+              ((c + 0.5) / cols) * frameWidth,
+              ((r + 0.5) / rows) * frameHeight,
+            ),
+          );
+        }
+      }
+    }
+    return pts;
+  }
+
+  final visited = List<List<bool>>.generate(
+    rows,
+    (_) => List<bool>.filled(cols, false),
+  );
+  final centroids = <Offset>[];
+
+  for (var r = 0; r < rows; r++) {
+    final line = asciiMap[r];
+    for (var c = 0; c < cols && c < line.length; c++) {
+      if (visited[r][c] || line[c] != targetChar) continue;
+      // Flood-fill 4-connected cluster
+      final queue = <List<int>>[
+        <int>[r, c]
+      ];
+      visited[r][c] = true;
+      var sumC = 0.0;
+      var sumR = 0.0;
+      var count = 0;
+
+      while (queue.isNotEmpty) {
+        final cur = queue.removeLast();
+        final cr = cur[0];
+        final cc = cur[1];
+        sumC += cc + 0.5;
+        sumR += cr + 0.5;
+        count++;
+
+        const dirs = <List<int>>[
+          <int>[-1, 0],
+          <int>[1, 0],
+          <int>[0, -1],
+          <int>[0, 1],
+        ];
+        for (final d in dirs) {
+          final nr = cr + d[0];
+          final nc = cc + d[1];
+          if (nr < 0 || nr >= rows || nc < 0 || nc >= cols) continue;
+          if (visited[nr][nc]) continue;
+          if (nc < asciiMap[nr].length && asciiMap[nr][nc] == targetChar) {
+            visited[nr][nc] = true;
+            queue.add(<int>[nr, nc]);
+          }
+        }
+      }
+
+      if (count > 0) {
+        centroids.add(
+          Offset(
+            ((sumC / count) / cols) * frameWidth,
+            ((sumR / count) / rows) * frameHeight,
+          ),
+        );
+      }
+    }
+  }
+  return centroids;
+}
+
 /// Deterministic seeded PRNG (`mulberry32`) used by `pixelfx` effects.
 class PixelFxRng {
   int _state;
@@ -720,27 +820,62 @@ class PixelFxController {
 
   /// Draws the current state of the effect onto `frame`.
   void draw(PixelFxFrame frame) {
+    _drawWithOrigin(frame, options.x, options.y, _elapsedTime);
+  }
+
+  /// Draws a pure loop effect onto `frame` anchored at an arbitrary landmark
+  /// coordinate `(x, y)` with an optional [phaseOffset] (in seconds) so a single
+  /// `PixelFxController` can drive multiple wall torches, searchlights, or
+  /// Unrest Zone ripples without allocating extra controllers.
+  void drawAt(
+    PixelFxFrame frame,
+    double x,
+    double y, {
+    double phaseOffset = 0.0,
+  }) {
+    _drawWithOrigin(frame, x, y, _elapsedTime + phaseOffset);
+  }
+
+  /// Draws a pure loop effect across every landmark point in [points],
+  /// staggering each emitter's animation phase deterministically.
+  void drawAtPoints(
+    PixelFxFrame frame,
+    List<Offset> points, {
+    double phaseStep = 0.65,
+  }) {
+    for (var i = 0; i < points.length; i++) {
+      final pt = points[i];
+      _drawWithOrigin(frame, pt.dx, pt.dy, _elapsedTime + i * phaseStep);
+    }
+  }
+
+  void _drawWithOrigin(
+    PixelFxFrame frame,
+    double cx,
+    double cy,
+    double t,
+  ) {
     switch (preset) {
       case PixelFxPreset.bookshelfPortalAura:
-        _drawBookshelfPortalAura(frame, _elapsedTime);
+        _drawBookshelfPortalAura(frame, cx, cy, t);
         break;
       case PixelFxPreset.ambientCampusMotes:
-        _drawAmbientCampusMotes(frame, _elapsedTime);
+        _drawAmbientCampusMotes(frame, t);
         break;
       case PixelFxPreset.unrestZoneRipples:
-        _drawUnrestZoneRipples(frame, _elapsedTime);
+        _drawUnrestZoneRipples(frame, cx, cy, t);
         break;
       case PixelFxPreset.astrolabePulse:
-        _drawAstrolabePulse(frame, _elapsedTime);
+        _drawAstrolabePulse(frame, cx, cy, t);
         break;
       case PixelFxPreset.torchFlicker:
-        _drawTorchFlicker(frame, _elapsedTime);
+        _drawTorchFlicker(frame, cx, cy, t);
         break;
       case PixelFxPreset.curfewSearchlight:
-        _drawCurfewSearchlight(frame, _elapsedTime);
+        _drawCurfewSearchlight(frame, cx, cy, t);
         break;
       case PixelFxPreset.peoplePowerRibbons:
-        _drawPeoplePowerRibbons(frame, _elapsedTime);
+        _drawPeoplePowerRibbons(frame, t);
         break;
       default:
         _drawSimulatedEffect(frame);
@@ -752,9 +887,12 @@ class PixelFxController {
   //  PURE STATELESS LOOP EFFECTS (`draw(frame, t, opts)`)
   // ─────────────────────────────────────────────────────────────────────────
 
-  void _drawBookshelfPortalAura(PixelFxFrame frame, double t) {
-    final cx = options.x;
-    final cy = options.y;
+  void _drawBookshelfPortalAura(
+    PixelFxFrame frame,
+    double cx,
+    double cy,
+    double t,
+  ) {
     final pulse = 0.5 + 0.5 * math.sin(t * 3.4);
 
     // Soft sovereign gold + kalayaan cyan radial glow in the light buffer
@@ -799,10 +937,10 @@ class PixelFxController {
     final h = frame.height;
     final pal = options.palette ?? const [0xFFFDE047, 0xFF38BDF8, 0xFF6EE7B7];
 
-    for (var i = 0; i < 18; i++) {
+    for (var i = 0; i < 24; i++) {
       final hx = PixelFxRng.hash2d(i, 1, options.seed);
       final hy = PixelFxRng.hash2d(i, 2, options.seed);
-      final speed = 0.04 + (i % 4) * 0.015;
+      final speed = 0.035 + (i % 4) * 0.014;
       final px =
           (((hx + t * speed * 0.5 + math.sin(t + i) * 0.03) % 1.0) * w).round();
       final py =
@@ -811,30 +949,47 @@ class PixelFxController {
       final col = pal[i % pal.length];
       frame.setPixel(px, py, col, dither: 0.45 + 0.5 * twinkle);
       if (twinkle > 0.72) {
-        frame.addLight(px, py, col, 0.35);
+        frame.addLight(px, py, col, 0.38);
       }
     }
   }
 
-  void _drawUnrestZoneRipples(PixelFxFrame frame, double t) {
-    final cx = options.x;
-    final cy = options.y;
-    for (var i = 0; i < 5; i++) {
-      final wave = ((t * 1.4 + i * 0.2) % 1.0);
-      final r = 3.0 + wave * 11.0;
-      final alpha = (1.0 - wave).clamp(0.0, 1.0);
+  void _drawUnrestZoneRipples(
+    PixelFxFrame frame,
+    double cx,
+    double cy,
+    double t,
+  ) {
+    // Rising golden civic-unrest ripples + rustling grass dust motes over 'U' patches
+    for (var i = 0; i < 4; i++) {
+      final wave = ((t * 1.15 + i * 0.25) % 1.0);
+      final r = 2.5 + wave * 12.5;
+      final alpha = (1.0 - wave).clamp(0.0, 1.0) * 0.85;
       for (var a = 0; a < 8; a++) {
-        final ang = a * (math.pi / 4.0) + i * 0.4;
+        final ang = a * (math.pi / 4.0) + i * 0.45;
         final px = (cx + math.cos(ang) * r).round();
-        final py = (cy + math.sin(ang) * r * 0.6).round();
+        final py = (cy + math.sin(ang) * r * 0.55).round();
         frame.setPixel(px, py, 0xCCFBBF24, dither: alpha);
+        if (wave < 0.45 && a.isEven) {
+          frame.addLight(px, py, 0xFFF59E0B, 0.28 * alpha);
+        }
       }
+    }
+    // Floating rustle motes
+    for (var m = 0; m < 3; m++) {
+      final rise = (t * 0.9 + m * 0.33) % 1.0;
+      final mx = (cx + math.sin(t * 3.2 + m * 2.1) * 9.0).round();
+      final my = (cy + 3.0 - rise * 10.0).round();
+      frame.setPixel(mx, my, 0xEEFEF08A, dither: 1.0 - rise);
     }
   }
 
-  void _drawAstrolabePulse(PixelFxFrame frame, double t) {
-    final cx = options.x;
-    final cy = options.y;
+  void _drawAstrolabePulse(
+    PixelFxFrame frame,
+    double cx,
+    double cy,
+    double t,
+  ) {
     frame.addRadialLight(cx, cy, 18.0, 0xFFD97706, 0.45);
     for (var i = 0; i < 12; i++) {
       final a = (i / 12.0) * math.pi * 2.0 + t * 1.8;
@@ -846,46 +1001,58 @@ class PixelFxController {
     frame.drawSparkle(cx.round(), cy.round(), 3, 0xFFFFFFFF, 0xFFFACC15);
   }
 
-  void _drawTorchFlicker(PixelFxFrame frame, double t) {
-    final cx = options.x;
-    final cy = options.y;
+  void _drawTorchFlicker(
+    PixelFxFrame frame,
+    double cx,
+    double cy,
+    double t,
+  ) {
     final flicker = 0.82 + 0.18 * math.sin(t * 17.0) * math.cos(t * 11.0);
-    frame.addRadialLight(cx, cy, 22.0 * flicker, 0xFFF97316, 0.65);
-    frame.drawDisc(cx, cy, 3.5 * flicker, 0xFFFDE047,
-        glowColor: 0xFFEA580C, glowRadius: 10);
-    for (var i = 0; i < 5; i++) {
-      final rise = ((t * 2.2 + i * 0.21) % 1.0);
-      final px = (cx + math.sin(t * 6.0 + i) * 3.0).round();
-      final py = (cy - rise * 12.0).round();
+    frame.addRadialLight(cx, cy, 18.0 * flicker, 0xFFF97316, 0.52);
+    frame.drawDisc(cx, cy, 2.4 * flicker, 0xFFFDE047,
+        glowColor: 0xFFEA580C, glowRadius: 8);
+    for (var i = 0; i < 4; i++) {
+      final rise = ((t * 2.1 + i * 0.24) % 1.0);
+      final px = (cx + math.sin(t * 6.0 + i) * 2.5).round();
+      final py = (cy - rise * 9.0).round();
       frame.setPixel(px, py, rise < 0.5 ? 0xFFFDE047 : 0xFFEF4444,
           dither: 1.0 - rise);
     }
   }
 
-  void _drawCurfewSearchlight(PixelFxFrame frame, double t) {
-    final cx = options.x;
-    final cy = options.y;
-    final sweep = math.sin(t * 1.5) * 26.0;
+  void _drawCurfewSearchlight(
+    PixelFxFrame frame,
+    double cx,
+    double cy,
+    double t,
+  ) {
+    final sweep = math.sin(t * 1.35) * 32.0;
+    final originY = (cy - 12).round();
     final tx = (cx + sweep).round();
-    final ty = (cy + 24).round();
-    frame.drawLine(cx.round(), (cy - 18).round(), tx, ty, 0x88F87171,
+    final ty = (cy + 34).round();
+    frame.drawLine(cx.round(), originY, tx, ty, 0x77F87171,
         glowColor: 0xFFEF4444);
-    frame.addRadialLight(tx.toDouble(), ty.toDouble(), 12.0, 0xFFEF4444, 0.5);
+    frame.drawLine(cx.round(), originY, tx - 4, ty, 0x44FCA5A5);
+    frame.drawLine(cx.round(), originY, tx + 4, ty, 0x44FCA5A5);
+    frame.addRadialLight(tx.toDouble(), ty.toDouble(), 13.0, 0xFFEF4444, 0.48);
   }
 
   void _drawPeoplePowerRibbons(PixelFxFrame frame, double t) {
     final w = frame.width;
     final h = frame.height;
-    for (var i = 0; i < 22; i++) {
+    for (var i = 0; i < 28; i++) {
       final hx = PixelFxRng.hash2d(i, 10, options.seed);
       final hy = PixelFxRng.hash2d(i, 20, options.seed);
-      final fall = (hy + t * (0.12 + (i % 3) * 0.04)) % 1.0;
-      final sway = math.sin(t * 2.8 + i) * 5.0;
+      final fall = (hy + t * (0.11 + (i % 3) * 0.035)) % 1.0;
+      final sway = math.sin(t * 2.6 + i) * 6.0;
       final px = ((hx * w) + sway).round().clamp(1, w - 2);
       final py = (fall * h).round().clamp(1, h - 2);
       final col = i % 3 == 0 ? 0xFFFEF08A : 0xFFFACC15;
       frame.setPixel(px, py, col);
       frame.setPixel(px + 1, py, col);
+      if (i.isEven) {
+        frame.setPixel(px, py + 1, 0xFFF59E0B, dither: 0.7);
+      }
       frame.addLight(px, py, 0xFFF59E0B, 0.35);
     }
   }

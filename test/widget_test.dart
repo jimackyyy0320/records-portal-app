@@ -25,6 +25,7 @@ import 'package:student_portal_app/school_lobby/school_lobby_config.dart';
 import 'package:student_portal_app/school_lobby/school_lobby_engine.dart';
 import 'package:student_portal_app/school_lobby/pixelfx_engine.dart';
 import 'package:student_portal_app/school_lobby/sovereign_story_data.dart';
+import 'package:student_portal_app/school_lobby/sovereign_story_screen.dart';
 import 'package:student_portal_app/theme/portal_theme.dart';
 
 void main() {
@@ -1181,6 +1182,71 @@ void main() {
       expect(masterBadge, isNotNull);
       expect(masterBadge!.id, 'badge_master_historian');
       expect(masterBadge.badgeIcon, '👑');
+    },
+  );
+
+  test(
+    'Part 1/6: 240x160 GBA PixelFxFrame, Multi-Emitter Landmarks & Unrest Zone Tile Extraction across all 7 Acts',
+    () {
+      // 1. Verify authentic 240x160 GBA PixelFxFrame dimensions
+      expect(kGbaFxFrameWidth, 240);
+      expect(kGbaFxFrameHeight, 160);
+      final gbaFrame = createFrame(kGbaFxFrameWidth, kGbaFxFrameHeight);
+      expect(gbaFrame.colorBuffer.length, 240 * 160);
+      expect(gbaFrame.lightBuffer.length, 240 * 160);
+
+      // 2. Verify every one of the 7 Acts extracts valid Tribunal ('T'), Bahay ('B'), and Unrest ('U') points
+      for (final act in kSovereignActs) {
+        final tribunalPts = extractMapTileFxPoints(
+          act.asciiMap,
+          'T',
+          clusterCentroids: true,
+        );
+        final bahayPts = extractMapTileFxPoints(
+          act.asciiMap,
+          'B',
+          clusterCentroids: false,
+        );
+        final unrestPts = extractMapTileFxPoints(
+          act.asciiMap,
+          'U',
+          clusterCentroids: true,
+        );
+        expect(tribunalPts.length, 1,
+            reason: '${act.romanNumeral} must have 1 unified Tribunal Hall span');
+        expect(bahayPts, isNotEmpty,
+            reason: '${act.romanNumeral} must have at least 1 Bahay-Pulungan');
+        expect(unrestPts, isNotEmpty,
+            reason: '${act.romanNumeral} must have at least 1 Unrest Zone cluster');
+      }
+
+      // 3. Verify localized multi-emitter points for Torch Flicker (Act II & III) and Curfew Searchlight (Act VI)
+      final act2Torches = computeActAmbientEmitterPoints(kSovereignActs[1]);
+      expect(act2Torches.length, greaterThanOrEqualTo(3));
+      final act6Searchlights = computeActAmbientEmitterPoints(kSovereignActs[5]);
+      expect(act6Searchlights.length, 3);
+
+      // 4. Verify multi-emitter drawAtPoints renders both Unrest ripples and localized Torches into 240x160 frame
+      final unrestFx = createFx(
+        PixelFxPreset.unrestZoneRipples,
+        const PixelFxOptions(x: 120, y: 80, seed: 202),
+      );
+      unrestFx.update(0.35);
+      final act1UnrestPts = extractMapTileFxPoints(
+        kSovereignActs.first.asciiMap,
+        'U',
+        clusterCentroids: true,
+      );
+      unrestFx.drawAtPoints(clearFrame(gbaFrame), act1UnrestPts);
+      expect(compositeFrame(gbaFrame).any((px) => px != 0), isTrue);
+
+      final torchFx = createFx(
+        PixelFxPreset.torchFlicker,
+        const PixelFxOptions(x: 120, y: 80, seed: 997),
+      );
+      torchFx.update(0.25);
+      torchFx.drawAtPoints(clearFrame(gbaFrame), act2Torches);
+      expect(compositeFrame(gbaFrame).any((px) => px != 0), isTrue);
     },
   );
 }

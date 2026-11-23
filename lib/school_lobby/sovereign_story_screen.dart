@@ -34,6 +34,71 @@ class _FloatingJuiceText {
   });
 }
 
+/// Computes localized `patch-gg/pixelfx` emitter coordinates inside a `240×160`
+/// GBA frame anchored to actual landmarks (`T` Tribunal Hall pillars, `B`
+/// Bahay-Pulungan doorways, `U` Unrest Zone centroids, or watchtower walls).
+List<Offset> computeActAmbientEmitterPoints(
+  SovereignActConfig act, {
+  int frameWidth = kGbaFxFrameWidth,
+  int frameHeight = kGbaFxFrameHeight,
+}) {
+  final preset = act.palette.ambientFx;
+  final map = act.asciiMap;
+
+  if (preset == PixelFxPreset.torchFlicker) {
+    final pts = <Offset>[];
+    final tribunalCenters = extractMapTileFxPoints(
+      map,
+      'T',
+      frameWidth: frameWidth,
+      frameHeight: frameHeight,
+      clusterCentroids: true,
+    );
+    for (final c in tribunalCenters) {
+      // Two flanking brass torches outside the Tribunal Hall doorway
+      pts.add(Offset((c.dx - 22.0).clamp(8.0, frameWidth - 8.0), c.dy + 10.0));
+      pts.add(Offset((c.dx + 22.0).clamp(8.0, frameWidth - 8.0), c.dy + 10.0));
+    }
+    final bahayPts = extractMapTileFxPoints(
+      map,
+      'B',
+      frameWidth: frameWidth,
+      frameHeight: frameHeight,
+      clusterCentroids: false,
+    );
+    for (final b in bahayPts) {
+      pts.add(Offset(b.dx, (b.dy + 6.0).clamp(8.0, frameHeight - 8.0)));
+    }
+    return pts.isNotEmpty
+        ? pts
+        : <Offset>[Offset(frameWidth * 0.5, frameHeight * 0.35)];
+  }
+
+  if (preset == PixelFxPreset.curfewSearchlight) {
+    // Watchtower sweeping searchlights flanking the Citadel and central plaza
+    return <Offset>[
+      Offset(frameWidth * 0.22, frameHeight * 0.20),
+      Offset(frameWidth * 0.78, frameHeight * 0.20),
+      Offset(frameWidth * 0.50, frameHeight * 0.44),
+    ];
+  }
+
+  if (preset == PixelFxPreset.unrestZoneRipples) {
+    final unrestPts = extractMapTileFxPoints(
+      map,
+      'U',
+      frameWidth: frameWidth,
+      frameHeight: frameHeight,
+      clusterCentroids: true,
+    );
+    return unrestPts.isNotEmpty
+        ? unrestPts
+        : <Offset>[Offset(frameWidth * 0.5, frameHeight * 0.5)];
+  }
+
+  return <Offset>[Offset(frameWidth * 0.5, frameHeight * 0.5)];
+}
+
 /// **Chronicles of the Sovereign: A LeafGreen-Style RPG for Philippine Governance**
 ///
 /// Triggered by stepping through the glowing bookshelf at the back of the 2D Virtual
@@ -83,16 +148,26 @@ class _SovereignStoryScreenState extends State<SovereignStoryScreen> {
   double _swirlTransitionProgress = 1.0; // Starts with entry swirl!
   bool _swirlActive = true;
 
-  // `patch-gg/pixelfx` frame buffers & controllers
-  late final PixelFxFrame _overworldFxFrame = createFrame(160, 112);
+  // `patch-gg/pixelfx` frame buffers & controllers (Authentic 240×160 GBA Resolution)
+  late final PixelFxFrame _overworldFxFrame =
+      createFrame(kGbaFxFrameWidth, kGbaFxFrameHeight);
+  late final PixelFxFrame _titleFxFrame =
+      createFrame(kGbaFxFrameWidth, kGbaFxFrameHeight);
   late final PixelFxFrame _battleFxFrame = createFrame(160, 96);
   late final PixelFxFrame _swirlFxFrame = createFrame(120, 84);
 
   late PixelFxController _ambientFxCtrl;
+  late PixelFxController _titleFxCtrl;
   late PixelFxController _unrestFxCtrl;
   late PixelFxController _swirlFxCtrl;
   PixelFxController? _overworldBurstFxCtrl;
   PixelFxController? _battleActiveFxCtrl;
+
+  List<Offset> _actAmbientEmitterPoints = const <Offset>[];
+  List<Offset> _actUnrestFxPoints = const <Offset>[];
+
+  double _tileToFxX(int col) => ((col + 0.5) / 20.0) * _overworldFxFrame.width;
+  double _tileToFxY(int row) => ((row + 0.5) / 14.0) * _overworldFxFrame.height;
 
   // Turn-Based Debate Battle state
   DebateOpponentSpec? _activeOpponent;
@@ -120,16 +195,21 @@ class _SovereignStoryScreenState extends State<SovereignStoryScreen> {
     _initDoctrinePp();
     _ambientFxCtrl = createFx(
       PixelFxPreset.ambientCampusMotes,
-      const PixelFxOptions(x: 80, y: 56, seed: 101),
+      const PixelFxOptions(x: 120, y: 80, seed: 101),
+    );
+    _titleFxCtrl = createFx(
+      PixelFxPreset.ambientCampusMotes,
+      const PixelFxOptions(x: 120, y: 80, seed: 303),
     );
     _unrestFxCtrl = createFx(
       PixelFxPreset.unrestZoneRipples,
-      const PixelFxOptions(x: 40, y: 40, seed: 202),
+      const PixelFxOptions(x: 60, y: 60, seed: 202),
     );
     _swirlFxCtrl = createFx(
       PixelFxPreset.gbaBattleSwirl,
       const PixelFxOptions(x: 60, y: 42, seed: 777),
     );
+    _syncActAmbientFx();
 
     LobbyAudioService.instance.playGbaEncounterSwirl();
     _loadCampaignProgress();
@@ -164,10 +244,22 @@ class _SovereignStoryScreenState extends State<SovereignStoryScreen> {
     _ambientFxCtrl = createFx(
       _currentAct.palette.ambientFx,
       PixelFxOptions(
-        x: 80,
-        y: 56,
+        x: _overworldFxFrame.width * 0.5,
+        y: _overworldFxFrame.height * 0.5,
         seed: _currentAct.actNumber * 997,
       ),
+    );
+    _actAmbientEmitterPoints = computeActAmbientEmitterPoints(
+      _currentAct,
+      frameWidth: _overworldFxFrame.width,
+      frameHeight: _overworldFxFrame.height,
+    );
+    _actUnrestFxPoints = extractMapTileFxPoints(
+      _currentAct.asciiMap,
+      'U',
+      frameWidth: _overworldFxFrame.width,
+      frameHeight: _overworldFxFrame.height,
+      clusterCentroids: true,
     );
   }
 
@@ -198,8 +290,12 @@ class _SovereignStoryScreenState extends State<SovereignStoryScreen> {
     if (_shellState == _StoryShellState.paused) return;
 
     _idleTime += dt;
-    _ambientFxCtrl.update(dt);
-    _unrestFxCtrl.update(dt);
+    if (_shellState == _StoryShellState.title) {
+      _titleFxCtrl.update(dt);
+    } else {
+      _ambientFxCtrl.update(dt);
+      _unrestFxCtrl.update(dt);
+    }
 
     if (_swirlActive) {
       _swirlFxCtrl.update(dt);
@@ -381,8 +477,8 @@ class _SovereignStoryScreenState extends State<SovereignStoryScreen> {
             _overworldBurstFxCtrl = createFx(
               PixelFxPreset.rivalExclamationPop,
               PixelFxOptions(
-                x: (e.col * 8 + 4).toDouble(),
-                y: (e.row * 8 + 4).toDouble(),
+                x: _tileToFxX(e.col),
+                y: _tileToFxY(e.row),
                 seed: DateTime.now().millisecondsSinceEpoch & 0xFFFF,
               ),
             );
@@ -494,8 +590,8 @@ class _SovereignStoryScreenState extends State<SovereignStoryScreen> {
         _overworldBurstFxCtrl = createFx(
           PixelFxPreset.bahayPulunganHeal,
           PixelFxOptions(
-            x: (_alonCol * 8 + 4).toDouble(),
-            y: (_alonRow * 8 + 4).toDouble(),
+            x: _tileToFxX(_alonCol),
+            y: _tileToFxY(_alonRow),
             seed: DateTime.now().millisecondsSinceEpoch & 0xFFFF,
           ),
         );
@@ -526,8 +622,8 @@ class _SovereignStoryScreenState extends State<SovereignStoryScreen> {
         _overworldBurstFxCtrl = createFx(
           PixelFxPreset.astrolabePulse,
           PixelFxOptions(
-            x: (entity.col * 8 + 4).toDouble(),
-            y: (entity.row * 8 + 4).toDouble(),
+            x: _tileToFxX(entity.col),
+            y: _tileToFxY(entity.row),
             seed: DateTime.now().millisecondsSinceEpoch & 0xFFFF,
           ),
         );
@@ -1189,11 +1285,11 @@ class _SovereignStoryScreenState extends State<SovereignStoryScreen> {
     return Stack(
       fit: StackFit.expand,
       children: [
-        // Live `pixelfx` Archipelago Backdrop
+        // Live `pixelfx` Archipelago Backdrop (Dedicated 240×160 GBA Frame)
         CustomPaint(
           painter: _TitleBackdropPainter(
-            fxFrame: _overworldFxFrame,
-            fxController: _ambientFxCtrl,
+            fxFrame: _titleFxFrame,
+            fxController: _titleFxCtrl,
             time: _idleTime,
           ),
         ),
@@ -1635,56 +1731,229 @@ class _SovereignStoryScreenState extends State<SovereignStoryScreen> {
           ),
         ),
 
-        // Main 16×16 Tilemap Viewport + Controls Overlay
+        // Main Aspect-Locked 20×14 GBA Viewport + Dedicated Non-Overlapping GBA Controls
         Expanded(
           child: Stack(
             fit: StackFit.expand,
             children: [
-              // 16-Bit GBA Tilemap + Alon + Umalo + NPCs + `pixelfx` layer
               LayoutBuilder(
-                builder: (context, constraints) {
-                  return GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onTapUp: (d) {
-                      _focusNode.requestFocus();
-                      if (_dialogueQueue.isNotEmpty) {
-                        _advanceDialogue();
-                        return;
-                      }
-                      // Tap tile to step toward it
-                      final boardW = constraints.maxWidth;
-                      final boardH = constraints.maxHeight;
-                      final tileW = boardW / 20.0;
-                      final tileH = boardH / 14.0;
-                      final tappedCol = (d.localPosition.dx / tileW).floor();
-                      final tappedRow = (d.localPosition.dy / tileH).floor();
-                      final dx = tappedCol - _alonCol;
-                      final dy = tappedRow - _alonRow;
-                      if (dx == 0 && dy == 0) {
-                        _interactFacingOrNearest();
-                      } else if (dx.abs() >= dy.abs()) {
-                        _moveAlon(dx.sign, 0, dx > 0 ? 'right' : 'left');
-                      } else {
-                        _moveAlon(0, dy.sign, dy > 0 ? 'down' : 'up');
-                      }
-                    },
-                    child: CustomPaint(
-                      size: Size(constraints.maxWidth, constraints.maxHeight),
-                      painter: _SovereignOverworldPainter(
-                        act: act,
-                        save: _save,
-                        alonCol: _alonCol,
-                        alonRow: _alonRow,
-                        alonFacing: _alonFacing,
-                        stepAnimFrame: _stepAnimFrame,
-                        idleTime: _idleTime,
-                        alertedRivalId: _alertedRivalEntityId,
-                        fxFrame: _overworldFxFrame,
-                        ambientFx: _ambientFxCtrl,
-                        unrestFx: _unrestFxCtrl,
-                        burstFx: _overworldBurstFxCtrl,
+                builder: (context, outer) {
+                  final isLandscape = outer.maxWidth > outer.maxHeight * 1.12;
+
+                  Widget buildMapScreen() {
+                    return Center(
+                      child: AspectRatio(
+                        aspectRatio: 20.0 / 14.0,
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: Color(act.palette.shadowTone),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
+                              color: Color(act.charterSealColor)
+                                  .withValues(alpha: 0.78),
+                              width: 2.2,
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Color(act.charterSealColor)
+                                    .withValues(alpha: 0.22),
+                                blurRadius: 18,
+                              ),
+                            ],
+                          ),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(8),
+                            child: LayoutBuilder(
+                              builder: (context, mapBox) {
+                                return GestureDetector(
+                                  behavior: HitTestBehavior.opaque,
+                                  onTapUp: (d) {
+                                    _focusNode.requestFocus();
+                                    if (_dialogueQueue.isNotEmpty) {
+                                      _advanceDialogue();
+                                      return;
+                                    }
+                                    final tileW = mapBox.maxWidth / 20.0;
+                                    final tileH = mapBox.maxHeight / 14.0;
+                                    final tappedCol =
+                                        (d.localPosition.dx / tileW)
+                                            .floor()
+                                            .clamp(0, 19);
+                                    final tappedRow =
+                                        (d.localPosition.dy / tileH)
+                                            .floor()
+                                            .clamp(0, 13);
+                                    final dx = tappedCol - _alonCol;
+                                    final dy = tappedRow - _alonRow;
+                                    if (dx == 0 && dy == 0) {
+                                      _interactFacingOrNearest();
+                                    } else if (dx.abs() >= dy.abs()) {
+                                      _moveAlon(
+                                          dx.sign, 0, dx > 0 ? 'right' : 'left');
+                                    } else {
+                                      _moveAlon(
+                                          0, dy.sign, dy > 0 ? 'down' : 'up');
+                                    }
+                                  },
+                                  child: CustomPaint(
+                                    size: Size(
+                                        mapBox.maxWidth, mapBox.maxHeight),
+                                    painter: _SovereignOverworldPainter(
+                                      act: act,
+                                      save: _save,
+                                      alonCol: _alonCol,
+                                      alonRow: _alonRow,
+                                      alonFacing: _alonFacing,
+                                      stepAnimFrame: _stepAnimFrame,
+                                      idleTime: _idleTime,
+                                      tribunalUnlocked: allNodesSolved,
+                                      alertedRivalId: _alertedRivalEntityId,
+                                      fxFrame: _overworldFxFrame,
+                                      ambientFx: _ambientFxCtrl,
+                                      unrestFx: _unrestFxCtrl,
+                                      burstFx: _overworldBurstFxCtrl,
+                                      ambientEmitterPoints:
+                                          _actAmbientEmitterPoints,
+                                      unrestFxPoints: _actUnrestFxPoints,
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                        ),
                       ),
-                    ),
+                    );
+                  }
+
+                  if (isLandscape) {
+                    // Landscape GBA Console: Left D-Pad Grip | Aspect-Locked 20×14 Screen | Right A/ACT Grip
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 8),
+                      child: Row(
+                        children: [
+                          SizedBox(
+                            width: 126,
+                            child: Center(
+                              child: _GbaDirectionalPad(
+                                onDirection: (dc, dr, dir) =>
+                                    _moveAlon(dc, dr, dir),
+                              ),
+                            ),
+                          ),
+                          Expanded(
+                            child: Padding(
+                              padding:
+                                  const EdgeInsets.symmetric(horizontal: 6),
+                              child: buildMapScreen(),
+                            ),
+                          ),
+                          SizedBox(
+                            width: 126,
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                _GbaRoundButton(
+                                  label: 'A',
+                                  sublabel: 'Interact',
+                                  color: const Color(0xFF10B981),
+                                  onTap: _interactFacingOrNearest,
+                                ),
+                                const SizedBox(height: 14),
+                                _GbaRoundButton(
+                                  label: 'ACT',
+                                  sublabel: 'Switch Era',
+                                  color: const Color(0xFF0284C7),
+                                  onTap: () => setState(() =>
+                                      _shellState = _StoryShellState.title),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  }
+
+                  // Portrait GBA SP Console: Aspect-Locked 20×14 Screen above Dedicated Control Deck
+                  return Column(
+                    children: [
+                      Expanded(
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(10, 10, 10, 8),
+                          child: buildMapScreen(),
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.fromLTRB(18, 12, 18, 14),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF0B1120),
+                          border: Border(
+                            top: BorderSide(
+                              color: Color(act.charterSealColor)
+                                  .withValues(alpha: 0.45),
+                              width: 1.5,
+                            ),
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            _GbaDirectionalPad(
+                              onDirection: (dc, dr, dir) =>
+                                  _moveAlon(dc, dr, dir),
+                            ),
+                            Expanded(
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    'SOVEREIGN',
+                                    style: GoogleFonts.outfit(
+                                      color: Colors.white38,
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w900,
+                                      letterSpacing: 2.0,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    'GBA • PIXELFX',
+                                    style: GoogleFonts.inter(
+                                      color: Color(act.charterSealColor)
+                                          .withValues(alpha: 0.75),
+                                      fontSize: 8.5,
+                                      fontWeight: FontWeight.w800,
+                                      letterSpacing: 1.2,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                _GbaRoundButton(
+                                  label: 'ACT',
+                                  sublabel: 'Switch Era',
+                                  color: const Color(0xFF0284C7),
+                                  onTap: () => setState(() =>
+                                      _shellState = _StoryShellState.title),
+                                ),
+                                const SizedBox(width: 10),
+                                _GbaRoundButton(
+                                  label: 'A',
+                                  sublabel: 'Interact',
+                                  color: const Color(0xFF10B981),
+                                  onTap: _interactFacingOrNearest,
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   );
                 },
               ),
@@ -1782,42 +2051,6 @@ class _SovereignStoryScreenState extends State<SovereignStoryScreen> {
                     ),
                   ),
                 ),
-
-              // On-Screen GBA D-Pad + A/B Action Buttons (when dialogue is closed)
-              if (_dialogueQueue.isEmpty) ...[
-                Positioned(
-                  left: 14,
-                  bottom: 14,
-                  child: _GbaDirectionalPad(
-                    onDirection: (dc, dr, dir) => _moveAlon(dc, dr, dir),
-                  ),
-                ),
-                Positioned(
-                  right: 14,
-                  bottom: 14,
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      // B Button: Next/Prev Act Quick Travel
-                      _GbaRoundButton(
-                        label: 'ACT',
-                        sublabel: 'Switch Era',
-                        color: const Color(0xFF0284C7),
-                        onTap: () => setState(
-                            () => _shellState = _StoryShellState.title),
-                      ),
-                      const SizedBox(width: 10),
-                      // A Button: Interact / Talk / Inspect
-                      _GbaRoundButton(
-                        label: 'A',
-                        sublabel: 'Interact',
-                        color: const Color(0xFF10B981),
-                        onTap: _interactFacingOrNearest,
-                      ),
-                    ],
-                  ),
-                ),
-              ],
             ],
           ),
         ),
@@ -2640,19 +2873,74 @@ class _TitleBackdropPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final rect = Offset.zero & size;
+    // 1. GBA Twilight-to-Emerald Archipelago Sky
     canvas.drawRect(
       rect,
       Paint()
         ..shader = const LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          colors: [Color(0xFF070B14), Color(0xFF0F2942), Color(0xFF064E3B)],
+          colors: [
+            Color(0xFF050A14),
+            Color(0xFF0F2942),
+            Color(0xFF0D4A43),
+            Color(0xFF064E3B),
+          ],
+          stops: [0.0, 0.42, 0.78, 1.0],
         ).createShader(rect),
     );
 
+    // 2. Crisp Pixel Starfield
+    final starPaint = Paint();
+    for (var i = 0; i < 36; i++) {
+      final sx = PixelFxRng.hash2d(i, 7, 1898) * size.width;
+      final sy = PixelFxRng.hash2d(i, 13, 1898) * size.height * 0.55;
+      final twinkle = 0.35 + 0.65 * (0.5 + 0.5 * math.sin(time * 2.4 + i * 1.9));
+      starPaint.color = const Color(0xFFFEF08A).withValues(alpha: twinkle * 0.75);
+      final pxSize = (i % 4 == 0) ? 3.0 : 2.0;
+      canvas.drawRect(Rect.fromLTWH(sx, sy, pxSize, pxSize), starPaint);
+    }
+
+    // 3. Rising Golden Philippine Sun Glow behind distant island ridge
+    final sunCenter = Offset(size.width * 0.5, size.height * 0.76);
+    final sunPulse = 1.0 + 0.05 * math.sin(time * 1.8);
+    canvas.drawCircle(
+      sunCenter,
+      math.min(size.width, size.height) * 0.28 * sunPulse,
+      Paint()
+        ..shader = RadialGradient(
+          colors: [
+            const Color(0xFFFACC15).withValues(alpha: 0.38),
+            const Color(0xFFF59E0B).withValues(alpha: 0.14),
+            Colors.transparent,
+          ],
+        ).createShader(
+          Rect.fromCircle(
+            center: sunCenter,
+            radius: math.min(size.width, size.height) * 0.34,
+          ),
+        ),
+    );
+
+    // 4. Stepped 16-Bit Archipelago Mountain Silhouette along bottom horizon
+    final ridgePath = Path()
+      ..moveTo(0, size.height)
+      ..lineTo(0, size.height * 0.84)
+      ..lineTo(size.width * 0.14, size.height * 0.76)
+      ..lineTo(size.width * 0.28, size.height * 0.82)
+      ..lineTo(size.width * 0.44, size.height * 0.73)
+      ..lineTo(size.width * 0.58, size.height * 0.79)
+      ..lineTo(size.width * 0.76, size.height * 0.71)
+      ..lineTo(size.width * 0.90, size.height * 0.79)
+      ..lineTo(size.width, size.height * 0.75)
+      ..lineTo(size.width, size.height)
+      ..close();
+    canvas.drawPath(ridgePath, Paint()..color = const Color(0xFF041C1B));
+
+    // 5. Dedicated 240×160 `patch-gg/pixelfx` Atmospheric Motes Layer
     clearFrame(fxFrame);
     fxController.draw(fxFrame);
-    renderPixelFxFrameToCanvas(canvas, fxFrame, rect, opacity: 0.75);
+    renderPixelFxFrameToCanvas(canvas, fxFrame, rect, opacity: 0.78);
   }
 
   @override
@@ -2703,11 +2991,14 @@ class _SovereignOverworldPainter extends CustomPainter {
   final String alonFacing;
   final int stepAnimFrame;
   final double idleTime;
+  final bool tribunalUnlocked;
   final String? alertedRivalId;
   final PixelFxFrame fxFrame;
   final PixelFxController ambientFx;
   final PixelFxController unrestFx;
   final PixelFxController? burstFx;
+  final List<Offset> ambientEmitterPoints;
+  final List<Offset> unrestFxPoints;
 
   const _SovereignOverworldPainter({
     required this.act,
@@ -2717,12 +3008,22 @@ class _SovereignOverworldPainter extends CustomPainter {
     required this.alonFacing,
     required this.stepAnimFrame,
     required this.idleTime,
+    required this.tribunalUnlocked,
     required this.alertedRivalId,
     required this.fxFrame,
     required this.ambientFx,
     required this.unrestFx,
     this.burstFx,
+    this.ambientEmitterPoints = const <Offset>[],
+    this.unrestFxPoints = const <Offset>[],
   });
+
+  String _charAt(int c, int r) {
+    if (r < 0 || r >= act.asciiMap.length) return '#';
+    final rowStr = act.asciiMap[r];
+    if (c < 0 || c >= rowStr.length) return '#';
+    return rowStr[c];
+  }
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -2732,106 +3033,123 @@ class _SovereignOverworldPainter extends CustomPainter {
     final tileH = size.height / rows;
     final pal = act.palette;
 
-    // 1. Draw 16×16 Tilemap Grid
+    // Track contiguous Tribunal Hall ('T') horizontal spans and Bahay-Pulungan ('B') tiles
+    // so we render unified 2.5D GBA architectural buildings in Pass 2!
+    final tribunalSpans = <List<int>>[]; // [row, startCol, endCol]
+    final bahayTiles = <List<int>>[]; // [col, row]
+
     for (var r = 0; r < rows; r++) {
-      final rowStr = r < act.asciiMap.length ? act.asciiMap[r] : '';
+      var c = 0;
+      while (c < cols) {
+        if (_charAt(c, r) == 'T') {
+          final startC = c;
+          while (c + 1 < cols && _charAt(c + 1, r) == 'T') {
+            c++;
+          }
+          tribunalSpans.add(<int>[r, startC, c]);
+        }
+        c++;
+      }
+    }
+
+    // PASS 1: Base Terrain, Roads, Animated Shoreline Water, Layered Tall Grass & Era Obstacles
+    for (var r = 0; r < rows; r++) {
       for (var c = 0; c < cols; c++) {
-        final ch = c < rowStr.length ? rowStr[c] : '#';
-        final rect = Rect.fromLTWH(c * tileW, r * tileH, tileW + 0.5, tileH + 0.5);
-        final checker = (r + c).isEven;
+        final ch = _charAt(c, r);
+        final rect =
+            Rect.fromLTWH(c * tileW, r * tileH, tileW + 0.6, tileH + 0.6);
+
+        if (ch == 'B') {
+          bahayTiles.add(<int>[c, r]);
+        }
 
         switch (ch) {
           case '#':
-            canvas.drawRect(rect, Paint()..color = Color(pal.wallOrTree));
-            // Pixel tree/wall crown bevel
-            canvas.drawRect(
-              Rect.fromLTWH(
-                  rect.left + tileW * 0.15,
-                  rect.top + tileH * 0.12,
-                  tileW * 0.7,
-                  tileH * 0.65),
-              Paint()
-                ..color = Color.lerp(
-                    Color(pal.wallOrTree), Colors.white, checker ? 0.12 : 0.06)!,
+            _drawEraObstacleTile(
+              canvas,
+              rect: rect,
+              col: c,
+              row: r,
+              pal: pal,
             );
             break;
           case '~':
-            final wave = 0.5 + 0.5 * math.sin(idleTime * 3.0 + c + r);
-            canvas.drawRect(
-              rect,
-              Paint()
-                ..color = Color.lerp(Color(pal.waterOrAccentTile),
-                    const Color(0xFF38BDF8), wave * 0.25)!,
+            _drawWaterTile(
+              canvas,
+              rect: rect,
+              col: c,
+              row: r,
+              pal: pal,
             );
             break;
           case '=':
-            canvas.drawRect(rect, Paint()..color = Color(pal.roadTile));
-            canvas.drawRect(
-              Rect.fromLTWH(rect.left + 2, rect.top + 2, tileW - 4, tileH - 4),
-              Paint()
-                ..color = Colors.black.withValues(alpha: 0.08)
-                ..style = PaintingStyle.stroke
-                ..strokeWidth = 1.0,
+          case 'B':
+          case 'T':
+            _drawRoadTile(
+              canvas,
+              rect: rect,
+              col: c,
+              row: r,
+              pal: pal,
             );
             break;
           case 'U':
-            // Unrest Zone (Tall Grass)
-            canvas.drawRect(
-              rect,
-              Paint()
-                ..color =
-                    Color(checker ? pal.groundPrimary : pal.groundSecondary),
-            );
-            final sway = math.sin(idleTime * 4.2 + c * 0.9 + r) * 2.0;
-            final grassPaint = Paint()..color = Color(pal.unrestGrass);
-            canvas.drawRect(
-              Rect.fromLTWH(rect.left + tileW * 0.2 + sway,
-                  rect.top + tileH * 0.25, 3, tileH * 0.55),
-              grassPaint,
-            );
-            canvas.drawRect(
-              Rect.fromLTWH(rect.left + tileW * 0.6 + sway,
-                  rect.top + tileH * 0.18, 3, tileH * 0.62),
-              grassPaint,
-            );
-            break;
-          case 'B':
-            // Bahay-Pulungan (Terracotta PokéCenter Roof)
-            canvas.drawRect(rect, Paint()..color = Color(pal.roadTile));
-            canvas.drawRRect(
-              RRect.fromRectAndRadius(
-                Rect.fromLTWH(
-                    rect.left + 2, rect.top + 2, tileW - 4, tileH - 4),
-                const Radius.circular(4),
-              ),
-              Paint()..color = Color(pal.bahayRoof),
-            );
-            break;
-          case 'T':
-            // Tribunal Hall (Gym)
-            canvas.drawRect(rect, Paint()..color = Color(pal.roadTile));
-            canvas.drawRRect(
-              RRect.fromRectAndRadius(
-                Rect.fromLTWH(
-                    rect.left + 1, rect.top + 1, tileW - 2, tileH - 2),
-                const Radius.circular(4),
-              ),
-              Paint()..color = Color(pal.tribunalRoof),
+            _drawUnrestGrassTile(
+              canvas,
+              rect: rect,
+              col: c,
+              row: r,
+              pal: pal,
             );
             break;
           default:
-            canvas.drawRect(
-              rect,
-              Paint()
-                ..color =
-                    Color(checker ? pal.groundPrimary : pal.groundSecondary),
+            _drawOrganicGroundTile(
+              canvas,
+              rect: rect,
+              col: c,
+              row: r,
+              pal: pal,
             );
             break;
+        }
+
+        // Cast 2.5D GBA drop shadow onto walkable tiles directly south of '#' / 'B' / 'T'
+        if (ch == '.' || ch == '=' || ch == 'U') {
+          final north = _charAt(c, r - 1);
+          if (north == '#' || north == 'B' || north == 'T') {
+            canvas.drawRect(
+              Rect.fromLTWH(rect.left, rect.top, tileW + 0.5, tileH * 0.24),
+              Paint()..color = Color(pal.shadowTone).withValues(alpha: 0.32),
+            );
+          }
         }
       }
     }
 
-    // 2. Draw Map Entities (Bahay Historians, Puzzle Nodes, Rival Mateo, Bosses)
+    // PASS 2: Unified 2.5D GBA Architectural Landmarks ('B' Bahay-Pulungan & 'T' Tribunal Hall)
+    for (final span in tribunalSpans) {
+      _drawTribunalHallBuilding(
+        canvas,
+        row: span[0],
+        startCol: span[1],
+        endCol: span[2],
+        tileW: tileW,
+        tileH: tileH,
+        pal: pal,
+      );
+    }
+    for (final b in bahayTiles) {
+      _drawBahayPulunganSanctuary(
+        canvas,
+        col: b[0],
+        row: b[1],
+        tileW: tileW,
+        tileH: tileH,
+        pal: pal,
+      );
+    }
+
+    // PASS 3: Map Entities (Bahay Historians, Puzzle Nodes, Rival Mateo, Bosses)
     for (final e in act.entities) {
       if (e.role == 'rival' && save.defeatedEntityIds.contains(e.id)) {
         continue;
@@ -2909,7 +3227,7 @@ class _SovereignOverworldPainter extends CustomPainter {
       }
     }
 
-    // 3. Draw Alon ("Ang Tagapag-ingat") + Umalo the Tarsier on Shoulder!
+    // PASS 4: Alon ("Ang Tagapag-ingat") + Umalo the Tarsier on Shoulder!
     final alonCx = (alonCol + 0.5) * tileW;
     final alonCy = (alonRow + 0.5) * tileH;
     _drawPixelCharacterSprite(
@@ -2923,9 +3241,21 @@ class _SovereignOverworldPainter extends CustomPainter {
       showTarsier: true,
     );
 
-    // 4. Composite `patch-gg/pixelfx` Procedural Layer (Ambient + Burst VFX)
+    // PASS 5: Composite 240×160 `patch-gg/pixelfx` Multi-Emitter Layer
+    // (Unrest Zone Ripples on actual 'U' clusters + Landmark Ambient FX + Burst FX)
     clearFrame(fxFrame);
-    ambientFx.draw(fxFrame);
+    if (unrestFxPoints.isNotEmpty) {
+      unrestFx.drawAtPoints(fxFrame, unrestFxPoints, phaseStep: 0.45);
+    }
+    final isLocalizedAmbient =
+        ambientFx.preset == PixelFxPreset.torchFlicker ||
+            ambientFx.preset == PixelFxPreset.curfewSearchlight ||
+            ambientFx.preset == PixelFxPreset.unrestZoneRipples;
+    if (isLocalizedAmbient && ambientEmitterPoints.isNotEmpty) {
+      ambientFx.drawAtPoints(fxFrame, ambientEmitterPoints, phaseStep: 0.75);
+    } else {
+      ambientFx.draw(fxFrame);
+    }
     if (burstFx != null) {
       burstFx!.draw(fxFrame);
     }
@@ -2933,7 +3263,618 @@ class _SovereignOverworldPainter extends CustomPainter {
       canvas,
       fxFrame,
       Offset.zero & size,
-      opacity: 0.85,
+      opacity: 0.88,
+    );
+  }
+
+  void _drawOrganicGroundTile(
+    Canvas canvas, {
+    required Rect rect,
+    required int col,
+    required int row,
+    required SovereignEraPalette pal,
+  }) {
+    final h1 = PixelFxRng.hash2d(col, row, act.actNumber * 31 + 7);
+    final h2 = PixelFxRng.hash2d(col, row, act.actNumber * 53 + 19);
+    final baseCol = Color.lerp(
+      Color(pal.groundPrimary),
+      Color(pal.groundSecondary),
+      h1 * 0.38,
+    )!;
+    canvas.drawRect(rect, Paint()..color = baseCol);
+
+    final accentPaint = Paint()
+      ..color = Color(pal.groundSecondary).withValues(alpha: 0.72);
+    final highlightPaint = Paint()
+      ..color = Color.lerp(Color(pal.groundPrimary), Colors.white, 0.22)!
+          .withValues(alpha: 0.55);
+
+    if (act.actNumber == 1 || act.actNumber == 4) {
+      // Grass blades, clover flecks & coastal pebbles
+      if (h1 > 0.35) {
+        final gx = rect.left + rect.width * (0.20 + h2 * 0.55);
+        final gy = rect.top + rect.height * (0.28 + h1 * 0.45);
+        canvas.drawRect(Rect.fromLTWH(gx, gy, 2.2, 4.0), accentPaint);
+        canvas.drawRect(Rect.fromLTWH(gx + 3.0, gy + 1.2, 2.0, 2.8), highlightPaint);
+      }
+      if (h2 > 0.78) {
+        // Tiny pixel wildflower / shell accent
+        canvas.drawRect(
+          Rect.fromLTWH(
+            rect.left + rect.width * 0.65,
+            rect.top + rect.height * 0.32,
+            2.6,
+            2.6,
+          ),
+          Paint()..color = const Color(0xFFFEF08A).withValues(alpha: 0.75),
+        );
+      }
+    } else if (act.actNumber == 2 || act.actNumber == 3) {
+      // Colonial stone courtyard flagstone seams
+      final mortar = Paint()
+        ..color = Color(pal.shadowTone).withValues(alpha: 0.22)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 0.9;
+      canvas.drawRect(rect.deflate(0.8), mortar);
+      if (h1 > 0.55) {
+        canvas.drawRect(
+          Rect.fromLTWH(rect.left + 3, rect.top + 3, rect.width * 0.35, 2.0),
+          highlightPaint,
+        );
+      }
+    } else {
+      // Wartime / Martial Law / EDSA concrete & asphalt micro-grain
+      if (h1 > 0.42) {
+        canvas.drawRect(
+          Rect.fromLTWH(
+            rect.left + rect.width * h2 * 0.7,
+            rect.top + rect.height * h1 * 0.7,
+            3.0,
+            1.8,
+          ),
+          accentPaint,
+        );
+      }
+      if (h2 > 0.70) {
+        canvas.drawRect(
+          Rect.fromLTWH(
+            rect.left + rect.width * 0.25,
+            rect.top + rect.height * 0.68,
+            rect.width * 0.38,
+            1.2,
+          ),
+          Paint()..color = Color(pal.shadowTone).withValues(alpha: 0.26),
+        );
+      }
+    }
+  }
+
+  void _drawRoadTile(
+    Canvas canvas, {
+    required Rect rect,
+    required int col,
+    required int row,
+    required SovereignEraPalette pal,
+  }) {
+    final roadColor = Color(pal.roadTile);
+    canvas.drawRect(rect, Paint()..color = roadColor);
+
+    final edgePaint = Paint()
+      ..color = Color(pal.shadowTone).withValues(alpha: 0.34);
+    final hiPaint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.26);
+
+    // Beveled GBA road borders wherever road touches non-road tiles
+    bool isRoad(String ch) => ch == '=' || ch == 'B' || ch == 'T';
+    if (!isRoad(_charAt(col, row - 1))) {
+      canvas.drawRect(Rect.fromLTWH(rect.left, rect.top, rect.width, 2.0), hiPaint);
+    }
+    if (!isRoad(_charAt(col, row + 1))) {
+      canvas.drawRect(
+        Rect.fromLTWH(rect.left, rect.bottom - 2.2, rect.width, 2.2),
+        edgePaint,
+      );
+    }
+    if (!isRoad(_charAt(col - 1, row))) {
+      canvas.drawRect(Rect.fromLTWH(rect.left, rect.top, 2.0, rect.height), hiPaint);
+    }
+    if (!isRoad(_charAt(col + 1, row))) {
+      canvas.drawRect(
+        Rect.fromLTWH(rect.right - 2.2, rect.top, 2.2, rect.height),
+        edgePaint,
+      );
+    }
+
+    // Era-specific road detailing
+    final seam = Paint()..color = Color(pal.shadowTone).withValues(alpha: 0.16);
+    if (act.actNumber == 1) {
+      // Coastal boardwalk / sandy packed trail planks
+      canvas.drawRect(
+        Rect.fromLTWH(rect.left + 2, rect.top + rect.height * 0.35, rect.width - 4, 1.3),
+        seam,
+      );
+      canvas.drawRect(
+        Rect.fromLTWH(rect.left + 2, rect.top + rect.height * 0.72, rect.width - 4, 1.3),
+        seam,
+      );
+    } else if (act.actNumber == 7) {
+      // EDSA Highway of Gold dashed avenue lane markers
+      if (col == 9 || col == 10) {
+        canvas.drawRect(
+          Rect.fromCenter(
+            center: rect.center,
+            width: 2.6,
+            height: rect.height * 0.52,
+          ),
+          Paint()..color = const Color(0xFFFACC15).withValues(alpha: 0.85),
+        );
+      }
+    } else {
+      // Staggered cobblestone / plaza paver courses
+      final offset = row.isEven ? rect.width * 0.5 : rect.width * 0.25;
+      canvas.drawRect(
+        Rect.fromLTWH(rect.left + 1, rect.top + rect.height * 0.5, rect.width - 2, 1.0),
+        seam,
+      );
+      canvas.drawRect(
+        Rect.fromLTWH(rect.left + offset, rect.top + 1, 1.0, rect.height * 0.5),
+        seam,
+      );
+    }
+  }
+
+  void _drawWaterTile(
+    Canvas canvas, {
+    required Rect rect,
+    required int col,
+    required int row,
+    required SovereignEraPalette pal,
+  }) {
+    final wave = 0.5 + 0.5 * math.sin(idleTime * 2.8 + col * 0.8 + row * 0.6);
+    final deep = Color(pal.waterOrAccentTile);
+    final shallow = Color.lerp(deep, const Color(0xFF38BDF8), 0.35)!;
+    canvas.drawRect(
+      rect,
+      Paint()..color = Color.lerp(deep, shallow, wave * 0.45)!,
+    );
+
+    // Animated pixel wave crests
+    final crestShift = math.sin(idleTime * 2.2 + row + col * 0.5) * 2.2;
+    canvas.drawRect(
+      Rect.fromLTWH(
+        rect.left + rect.width * 0.18 + crestShift,
+        rect.top + rect.height * 0.32,
+        rect.width * 0.42,
+        2.0,
+      ),
+      Paint()..color = const Color(0xFFBAE6FD).withValues(alpha: 0.65),
+    );
+    canvas.drawRect(
+      Rect.fromLTWH(
+        rect.left + rect.width * 0.34 - crestShift,
+        rect.top + rect.height * 0.68,
+        rect.width * 0.36,
+        1.8,
+      ),
+      Paint()..color = const Color(0xFFE0F2FE).withValues(alpha: 0.48),
+    );
+
+    // Frothy white shoreline foam along edges bordering land
+    final foamPaint = Paint()
+      ..color = const Color(0xFFE0F2FE).withValues(alpha: 0.65 + 0.25 * wave);
+    if (_charAt(col + 1, row) != '~') {
+      canvas.drawRect(
+        Rect.fromLTWH(rect.right - 3.0, rect.top, 3.0, rect.height),
+        foamPaint,
+      );
+    }
+    if (_charAt(col - 1, row) != '~') {
+      canvas.drawRect(
+        Rect.fromLTWH(rect.left, rect.top, 3.0, rect.height),
+        foamPaint,
+      );
+    }
+    if (_charAt(col, row + 1) != '~') {
+      canvas.drawRect(
+        Rect.fromLTWH(rect.left, rect.bottom - 3.0, rect.width, 3.0),
+        foamPaint,
+      );
+    }
+    if (_charAt(col, row - 1) != '~') {
+      canvas.drawRect(
+        Rect.fromLTWH(rect.left, rect.top, rect.width, 3.0),
+        foamPaint,
+      );
+    }
+  }
+
+  void _drawUnrestGrassTile(
+    Canvas canvas, {
+    required Rect rect,
+    required int col,
+    required int row,
+    required SovereignEraPalette pal,
+  }) {
+    // Rich dark LeafGreen tall-grass turf bed
+    canvas.drawRect(
+      rect,
+      Paint()
+        ..color = Color.lerp(Color(pal.groundPrimary), Color(pal.shadowTone), 0.28)!,
+    );
+    final sway = math.sin(idleTime * 3.8 + col * 0.85 + row * 0.6) * 1.8;
+    final darkBlade = Paint()
+      ..color = Color.lerp(Color(pal.unrestGrass), Color(pal.shadowTone), 0.38)!;
+    final midBlade = Paint()..color = Color(pal.unrestGrass);
+    final tipBlade = Paint()
+      ..color = Color.lerp(Color(pal.unrestGrass), const Color(0xFFFEF08A), 0.36)!;
+
+    // 3 staggered pixel tall-grass tufts (back row + front row)
+    for (var i = 0; i < 3; i++) {
+      final bx = rect.left + rect.width * (0.14 + i * 0.30);
+      final by = rect.top + rect.height * (i.isEven ? 0.22 : 0.34);
+      final bh = rect.height * 0.56;
+      // Shadow base
+      canvas.drawRect(Rect.fromLTWH(bx, by + bh * 0.45, 3.8, bh * 0.55), darkBlade);
+      // Swaying mid blade
+      canvas.drawRect(Rect.fromLTWH(bx + sway * 0.7, by + 2.0, 3.2, bh * 0.75), midBlade);
+      // Sunlit tip
+      canvas.drawRect(Rect.fromLTWH(bx + sway, by, 2.8, 2.6), tipBlade);
+    }
+  }
+
+  void _drawEraObstacleTile(
+    Canvas canvas, {
+    required Rect rect,
+    required int col,
+    required int row,
+    required SovereignEraPalette pal,
+  }) {
+    final baseColor = Color(pal.wallOrTree);
+    final dark = Color(pal.shadowTone);
+    final hi = Color.lerp(baseColor, Colors.white, 0.24)!;
+    final mid = Color.lerp(baseColor, Colors.white, 0.11)!;
+
+    if (act.actNumber == 1) {
+      // Act I: Tropical Palm & Banyan Canopy (or coastal rocks by water)
+      canvas.drawRect(rect, Paint()..color = Color(pal.groundPrimary));
+      final nearWater = _charAt(col - 1, row) == '~' || _charAt(col, row - 1) == '~';
+      if (nearWater) {
+        // Coastal boulder outcrop
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(rect.deflate(2.0), const Radius.circular(5)),
+          Paint()..color = const Color(0xFF475569),
+        );
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(
+            Rect.fromLTWH(rect.left + 3, rect.top + 3, rect.width * 0.58, rect.height * 0.45),
+            const Radius.circular(3),
+          ),
+          Paint()..color = const Color(0xFF94A3B8),
+        );
+      } else {
+        // Trunk shadow & base
+        canvas.drawRect(
+          Rect.fromLTWH(rect.left + rect.width * 0.38, rect.top + rect.height * 0.55,
+              rect.width * 0.24, rect.height * 0.40),
+          Paint()..color = const Color(0xFF78350F),
+        );
+        // Chunky GBA LeafGreen 3-tier pixel tree crown
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(
+            Rect.fromLTWH(rect.left + 1.5, rect.top + 1.5, rect.width - 3, rect.height * 0.78),
+            const Radius.circular(6),
+          ),
+          Paint()..color = dark,
+        );
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(
+            Rect.fromLTWH(rect.left + 2.8, rect.top + 2.5, rect.width - 5.6, rect.height * 0.66),
+            const Radius.circular(5),
+          ),
+          Paint()..color = baseColor,
+        );
+        canvas.drawRect(
+          Rect.fromLTWH(rect.left + rect.width * 0.22, rect.top + rect.height * 0.16,
+              rect.width * 0.44, rect.height * 0.26),
+          Paint()..color = hi,
+        );
+      }
+      return;
+    }
+
+    if (act.actNumber == 2 || act.actNumber == 3) {
+      // Act II Intramuros Adobe Battlements / Act III Barasoain Brick Walls
+      canvas.drawRect(rect, Paint()..color = dark);
+      canvas.drawRect(rect.deflate(1.0), Paint()..color = baseColor);
+      // Staggered stone/brick courses
+      final courseH = rect.height / 3.0;
+      for (var k = 0; k < 3; k++) {
+        final y = rect.top + k * courseH;
+        canvas.drawRect(Rect.fromLTWH(rect.left + 1, y, rect.width - 2, 1.2), Paint()..color = dark);
+        final splitX = rect.left + (k.isEven ? rect.width * 0.5 : rect.width * 0.25);
+        canvas.drawRect(Rect.fromLTWH(splitX, y, 1.2, courseH), Paint()..color = dark);
+      }
+      // Top stone coping / battlement crenel
+      canvas.drawRect(
+        Rect.fromLTWH(rect.left + 1.5, rect.top + 1.5, rect.width - 3, rect.height * 0.22),
+        Paint()..color = hi,
+      );
+      return;
+    }
+
+    if (act.actNumber == 4) {
+      // Act IV Neoclassical Trimmed Hedges & Marble Balustrade
+      canvas.drawRect(rect, Paint()..color = dark);
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(rect.deflate(1.2), const Radius.circular(3)),
+        Paint()..color = baseColor,
+      );
+      canvas.drawRect(
+        Rect.fromLTWH(rect.left + 2.5, rect.top + 2.5, rect.width - 5, rect.height * 0.28),
+        Paint()..color = hi,
+      );
+      canvas.drawRect(
+        Rect.fromLTWH(rect.left + 2.5, rect.bottom - 4.0, rect.width - 5, 2.2),
+        Paint()..color = const Color(0xFFE2E8F0).withValues(alpha: 0.72),
+      );
+      return;
+    }
+
+    if (act.actNumber == 5) {
+      // Act V Wartime Sandbag & Bamboo Barricades
+      canvas.drawRect(rect, Paint()..color = dark);
+      final bagColor = Color.lerp(baseColor, const Color(0xFFA8A29E), 0.35)!;
+      for (var rowIdx = 0; rowIdx < 2; rowIdx++) {
+        final by = rect.top + 2.0 + rowIdx * (rect.height * 0.44);
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(
+            Rect.fromLTWH(rect.left + 2.0, by, rect.width * 0.46, rect.height * 0.38),
+            const Radius.circular(3),
+          ),
+          Paint()..color = bagColor,
+        );
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(
+            Rect.fromLTWH(rect.left + rect.width * 0.50, by, rect.width * 0.44, rect.height * 0.38),
+            const Radius.circular(3),
+          ),
+          Paint()..color = mid,
+        );
+      }
+      return;
+    }
+
+    if (act.actNumber == 6) {
+      // Act VI Martial Law Brutalist Concrete Blocks with Red Curfew Stripe
+      canvas.drawRect(rect, Paint()..color = dark);
+      canvas.drawRect(rect.deflate(1.2), Paint()..color = baseColor);
+      canvas.drawRect(
+        Rect.fromLTWH(rect.left + 2, rect.top + 2, rect.width - 4, rect.height * 0.22),
+        Paint()..color = hi,
+      );
+      if ((col + row).isEven) {
+        canvas.drawRect(
+          Rect.fromLTWH(rect.left + 2, rect.bottom - 5.0, rect.width - 4, 2.4),
+          Paint()..color = const Color(0xFFEF4444).withValues(alpha: 0.75),
+        );
+      }
+      return;
+    }
+
+    // Act VII: EDSA Concrete Highway Median + Yellow People Power Ribbon Accent
+    canvas.drawRect(rect, Paint()..color = dark);
+    canvas.drawRect(rect.deflate(1.2), Paint()..color = baseColor);
+    canvas.drawRect(
+      Rect.fromLTWH(rect.left + 2, rect.top + 2, rect.width - 4, rect.height * 0.25),
+      Paint()..color = hi,
+    );
+    if ((col + row) % 2 == 0) {
+      final sway = math.sin(idleTime * 3.5 + col) * 1.4;
+      canvas.drawRect(
+        Rect.fromLTWH(rect.left + rect.width * 0.38 + sway, rect.top + 3.0, 3.6, rect.height * 0.42),
+        Paint()..color = const Color(0xFFFACC15),
+      );
+    }
+  }
+
+  void _drawBahayPulunganSanctuary(
+    Canvas canvas, {
+    required int col,
+    required int row,
+    required double tileW,
+    required double tileH,
+    required SovereignEraPalette pal,
+  }) {
+    final left = col * tileW;
+    final top = row * tileH;
+    final darkOutline = Paint()
+      ..color = const Color(0xFF0F172A)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.4;
+
+    // 1. 2.5D Cream/Timbered Sanctuary Wall Facade
+    final wallRect = Rect.fromLTWH(
+      left + tileW * 0.08,
+      top + tileH * 0.34,
+      tileW * 0.84,
+      tileH * 0.62,
+    );
+    canvas.drawRect(wallRect, Paint()..color = const Color(0xFFFEF3C7));
+    canvas.drawRect(wallRect, darkOutline);
+
+    // 2. Arched Wooden Doorway + Glowing Warm Windows
+    final doorRect = Rect.fromLTWH(
+      left + tileW * 0.39,
+      top + tileH * 0.54,
+      tileW * 0.22,
+      tileH * 0.42,
+    );
+    canvas.drawRect(doorRect, Paint()..color = const Color(0xFF78350F));
+    final winPaint = Paint()..color = const Color(0xFFFDE047);
+    canvas.drawRect(
+      Rect.fromLTWH(left + tileW * 0.16, top + tileH * 0.56, tileW * 0.16, tileH * 0.22),
+      winPaint,
+    );
+    canvas.drawRect(
+      Rect.fromLTWH(left + tileW * 0.68, top + tileH * 0.56, tileW * 0.16, tileH * 0.22),
+      winPaint,
+    );
+
+    // 3. Overhanging Pitched Terracotta Shingled Roof (2.5D Pop)
+    final roofRect = RRect.fromRectAndRadius(
+      Rect.fromLTWH(
+        left + tileW * 0.02,
+        top - tileH * 0.10,
+        tileW * 0.96,
+        tileH * 0.52,
+      ),
+      const Radius.circular(3.5),
+    );
+    final roofColor = Color(pal.bahayRoof);
+    canvas.drawRRect(roofRect, Paint()..color = roofColor);
+    // Sunlit ridge highlight
+    canvas.drawRect(
+      Rect.fromLTWH(left + tileW * 0.08, top - tileH * 0.05, tileW * 0.84, tileH * 0.12),
+      Paint()..color = Color.lerp(roofColor, Colors.white, 0.28)!,
+    );
+    // Eaves shadow band
+    canvas.drawRect(
+      Rect.fromLTWH(left + tileW * 0.04, top + tileH * 0.34, tileW * 0.92, tileH * 0.08),
+      Paint()..color = Color.lerp(roofColor, Colors.black, 0.35)!,
+    );
+    canvas.drawRRect(roofRect, darkOutline);
+
+    // 4. Crisp Emerald/White PokéCenter-style Sanctuary '+' Emblem on Gable
+    final cx = left + tileW * 0.50;
+    final cy = top + tileH * 0.14;
+    canvas.drawCircle(Offset(cx, cy), math.min(tileW, tileH) * 0.16,
+        Paint()..color = const Color(0xFF065F46));
+    canvas.drawRect(
+      Rect.fromCenter(center: Offset(cx, cy), width: tileW * 0.18, height: 2.2),
+      Paint()..color = const Color(0xFF6EE7B7),
+    );
+    canvas.drawRect(
+      Rect.fromCenter(center: Offset(cx, cy), width: 2.2, height: tileH * 0.18),
+      Paint()..color = const Color(0xFF6EE7B7),
+    );
+  }
+
+  void _drawTribunalHallBuilding(
+    Canvas canvas, {
+    required int row,
+    required int startCol,
+    required int endCol,
+    required double tileW,
+    required double tileH,
+    required SovereignEraPalette pal,
+  }) {
+    final spanCols = endCol - startCol + 1;
+    final left = startCol * tileW;
+    final top = row * tileH;
+    final width = spanCols * tileW;
+    final height = tileH;
+    final roofColor = Color(pal.tribunalRoof);
+    final accent = Color(pal.uiAccent);
+    final darkOutline = Paint()
+      ..color = const Color(0xFF0F172A)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.6;
+
+    // 1. Raised Stone Foundation & Steps
+    final baseRect = Rect.fromLTWH(
+      left + 2,
+      top + height * 0.22,
+      width - 4,
+      height * 0.78,
+    );
+    canvas.drawRect(
+      baseRect,
+      Paint()..color = Color.lerp(Color(pal.roadTile), Color(pal.shadowTone), 0.18)!,
+    );
+    canvas.drawRect(baseRect, darkOutline);
+
+    // 2. Classical Vertical Columns flanking the central sanctuary door
+    final colCount = spanCols >= 5 ? 6 : 4;
+    final colPaint = Paint()..color = const Color(0xFFF8FAFC);
+    final colShadow = Paint()..color = const Color(0xFF94A3B8);
+    for (var i = 0; i < colCount; i++) {
+      final frac = (i + 0.5) / colCount;
+      // Leave central doorway open
+      if ((frac - 0.5).abs() < 0.16) continue;
+      final cx = left + width * frac;
+      canvas.drawRect(
+        Rect.fromLTWH(cx - 3.0, top + height * 0.26, 6.0, height * 0.66),
+        colPaint,
+      );
+      canvas.drawRect(
+        Rect.fromLTWH(cx + 1.2, top + height * 0.26, 1.8, height * 0.66),
+        colShadow,
+      );
+    }
+
+    // 3. Central Sanctuary Archway: Glowing Golden Open Gate (Unlocked) vs. Iron Bars (Locked)
+    final doorW = tileW * 0.66;
+    final doorH = height * 0.62;
+    final doorRect = Rect.fromLTWH(
+      left + (width - doorW) * 0.5,
+      top + height - doorH,
+      doorW,
+      doorH,
+    );
+    if (tribunalUnlocked) {
+      final glow = 0.65 + 0.35 * math.sin(idleTime * 4.2);
+      canvas.drawRect(
+        doorRect,
+        Paint()
+          ..color = Color.lerp(const Color(0xFFF59E0B), const Color(0xFFFEF08A), glow)!,
+      );
+      canvas.drawRect(
+        doorRect.deflate(2.5),
+        Paint()..color = Colors.white.withValues(alpha: 0.75 * glow),
+      );
+    } else {
+      canvas.drawRect(doorRect, Paint()..color = const Color(0xFF1E293B));
+      final barPaint = Paint()
+        ..color = const Color(0xFF64748B)
+        ..strokeWidth = 1.4;
+      for (var b = 1; b <= 3; b++) {
+        final bx = doorRect.left + (doorRect.width * b / 4.0);
+        canvas.drawLine(Offset(bx, doorRect.top), Offset(bx, doorRect.bottom), barPaint);
+      }
+      // Amber pixel padlock indicator
+      canvas.drawRect(
+        Rect.fromCenter(center: doorRect.center, width: 7.0, height: 6.0),
+        Paint()..color = const Color(0xFFF59E0B),
+      );
+    }
+    canvas.drawRect(doorRect, darkOutline);
+
+    // 4. Grand 2.5D Triangular Pediment Roof spanning the full Tribunal width
+    final pediment = Path()
+      ..moveTo(left - 2.0, top + height * 0.30)
+      ..lineTo(left + width * 0.5, top - height * 0.36)
+      ..lineTo(left + width + 2.0, top + height * 0.30)
+      ..close();
+    canvas.drawPath(pediment, Paint()..color = roofColor);
+    canvas.drawPath(pediment, darkOutline);
+
+    // Cornice gold trim bar
+    canvas.drawRect(
+      Rect.fromLTWH(left - 1.0, top + height * 0.24, width + 2.0, 3.0),
+      Paint()..color = accent,
+    );
+
+    // Pediment Seal Crest
+    final crestCenter = Offset(left + width * 0.5, top + height * 0.04);
+    canvas.drawCircle(
+      crestCenter,
+      math.min(tileW, tileH) * 0.16,
+      Paint()..color = tribunalUnlocked ? const Color(0xFFFACC15) : accent,
+    );
+    canvas.drawCircle(
+      crestCenter,
+      math.min(tileW, tileH) * 0.08,
+      Paint()..color = Colors.white,
     );
   }
 
