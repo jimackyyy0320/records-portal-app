@@ -1479,9 +1479,9 @@ void main() {
           <div class="slide-body"><p>Legislative, Executive, and Judicial.</p></div>
         </section>
       ''';
-      final extracted = ReviewerOutlineExtractor.extractToTxt(
-        sampleHtml,
-        documentTitle: 'PPG Week 3',
+      final extracted = ReviewerOutlineExtractor.extractOutline(
+        rawHtml: sampleHtml,
+        reviewerTitle: 'PPG Week 3',
       );
       expect(extracted.contains('[PART 1 OF 2]'), isTrue);
       expect(extracted.contains('[PART 2 OF 2]'), isTrue);
