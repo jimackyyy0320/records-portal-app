@@ -1249,4 +1249,66 @@ void main() {
       expect(compositeFrame(gbaFrame).any((px) => px != 0), isTrue);
     },
   );
+
+  test(
+    'Part 2/6: Smooth GBA Tile Interpolation, Wall-Bump Rebound, 4-Dir Facing & Puzzle Prop Mapping',
+    () {
+      // 1. Verify smooth 150ms tile-to-tile glide interpolation
+      final motion = AlonOverworldMotionState(col: 5, row: 11, facing: 'up');
+      expect(motion.isMoving, isFalse);
+      motion.startMoveTo(6, 11, 'right');
+      expect(motion.isMoving, isTrue);
+      expect(motion.facing, 'right');
+      expect(motion.stepAnimFrame, 1);
+
+      motion.tick(0.075); // Halfway through 150ms step
+      expect(motion.visualCol, greaterThan(5.0));
+      expect(motion.visualCol, lessThan(6.0));
+      expect(motion.visualRow, 11.0);
+
+      motion.tick(0.10); // Completed step
+      expect(motion.isMoving, isFalse);
+      expect(motion.visualCol, 6.0);
+
+      // 2. Verify directional wall-bump rebound offset
+      motion.triggerWallBump('up');
+      expect(motion.isBumping, isTrue);
+      motion.tick(0.07);
+      expect(motion.bumpPixelOffset.dy, lessThan(0.0));
+      motion.tick(0.10);
+      expect(motion.isBumping, isFalse);
+      expect(motion.bumpPixelOffset, Offset.zero);
+
+      // 3. Verify immediate snapTo for Act transitions & Bahay-Pulungan respawn
+      motion.snapTo(9, 12, facing: 'down');
+      expect(motion.visualCol, 9.0);
+      expect(motion.visualRow, 12.0);
+      expect(motion.isMoving, isFalse);
+
+      // 4. Verify 4-directional AvatarFacing mapping
+      expect(parseStoryFacing('up'), AvatarFacing.up);
+      expect(parseStoryFacing('down'), AvatarFacing.down);
+      expect(parseStoryFacing('left'), AvatarFacing.left);
+      expect(parseStoryFacing('right'), AvatarFacing.right);
+
+      // 5. Verify every Puzzle Node across all 7 Acts resolves to a bespoke pixel prop
+      final propMap = <String, SovereignPuzzlePropKind>{};
+      for (final act in kSovereignActs) {
+        for (final entity
+            in act.entities.where((e) => e.role == 'puzzle_node')) {
+          propMap[entity.id] = resolvePuzzleNodePropKind(entity, act.actNumber);
+        }
+      }
+      expect(propMap.length, greaterThanOrEqualTo(14));
+      expect(propMap['act1_umalohokan'], SovereignPuzzlePropKind.bronzeBell);
+      expect(propMap['act1_babaylan'], SovereignPuzzlePropKind.sanduguanCup);
+      expect(propMap['act2_audiencia'], SovereignPuzzlePropKind.waxScroll);
+      expect(propMap['act4_suffragist'], SovereignPuzzlePropKind.ballotBox);
+      expect(propMap['act6_press_clause_1'],
+          SovereignPuzzlePropKind.printingPress);
+      expect(
+          propMap['act6_press_clause_2'], SovereignPuzzlePropKind.habeasShield);
+      expect(propMap['act7_edsa_citizens'], SovereignPuzzlePropKind.edsaFlowers);
+    },
+  );
 }

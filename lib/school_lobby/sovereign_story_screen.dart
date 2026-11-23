@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -8,6 +9,7 @@ import '../models/portal_models.dart';
 import 'lobby_audio_service.dart';
 import 'lobby_data_service.dart';
 import 'pixelfx_engine.dart';
+import 'school_lobby_avatar.dart';
 import 'sovereign_story_data.dart';
 
 enum _StoryShellState {
@@ -99,6 +101,184 @@ List<Offset> computeActAmbientEmitterPoints(
   return <Offset>[Offset(frameWidth * 0.5, frameHeight * 0.5)];
 }
 
+/// Converts a Story Mode cardinal direction string (`'up'`, `'down'`, `'left'`,
+/// `'right'`) into the Virtual School's [AvatarFacing] enum.
+AvatarFacing parseStoryFacing(String facing) {
+  switch (facing) {
+    case 'up':
+      return AvatarFacing.up;
+    case 'left':
+      return AvatarFacing.left;
+    case 'right':
+      return AvatarFacing.right;
+    case 'down':
+    default:
+      return AvatarFacing.down;
+  }
+}
+
+/// Distinct 16-bit GBA pixel-art shrine/prop types rendered for inanimate
+/// `puzzle_node` entities instead of human bodies.
+enum SovereignPuzzlePropKind {
+  bronzeBell,
+  sanduguanCup,
+  waxScroll,
+  charterQuill,
+  ballotBox,
+  bambooLantern,
+  printingPress,
+  habeasShield,
+  edsaFlowers,
+}
+
+/// Maps each Act's `puzzle_node` entity to its historically accurate pixel prop.
+SovereignPuzzlePropKind resolvePuzzleNodePropKind(
+  SovereignMapEntity entity,
+  int actNumber,
+) {
+  final id = entity.id.toLowerCase();
+  if (id.contains('umalohokan')) return SovereignPuzzlePropKind.bronzeBell;
+  if (id.contains('babaylan')) return SovereignPuzzlePropKind.sanduguanCup;
+  if (id.contains('cabeza') ||
+      id.contains('audiencia') ||
+      id.contains('jones_law')) {
+    return SovereignPuzzlePropKind.waxScroll;
+  }
+  if (id.contains('suffragist')) return SovereignPuzzlePropKind.ballotBox;
+  if (id.contains('mabini') ||
+      id.contains('church_state') ||
+      id.contains('munoz_palma')) {
+    return SovereignPuzzlePropKind.charterQuill;
+  }
+  if (id.contains('relief') || id.contains('nonconscription')) {
+    return SovereignPuzzlePropKind.bambooLantern;
+  }
+  if (id.contains('press_clause_1')) {
+    return SovereignPuzzlePropKind.printingPress;
+  }
+  if (id.contains('press_clause_2')) {
+    return SovereignPuzzlePropKind.habeasShield;
+  }
+  if (id.contains('edsa')) return SovereignPuzzlePropKind.edsaFlowers;
+  switch (actNumber) {
+    case 1:
+      return SovereignPuzzlePropKind.bronzeBell;
+    case 2:
+      return SovereignPuzzlePropKind.waxScroll;
+    case 3:
+      return SovereignPuzzlePropKind.charterQuill;
+    case 4:
+      return SovereignPuzzlePropKind.ballotBox;
+    case 5:
+      return SovereignPuzzlePropKind.bambooLantern;
+    case 6:
+      return SovereignPuzzlePropKind.habeasShield;
+    default:
+      return SovereignPuzzlePropKind.edsaFlowers;
+  }
+}
+
+/// Smooth GBA LeafGreen tile-to-tile movement interpolator (`150ms` glide +
+/// 4-frame foot cycle + `140ms` wall-bump directional rebound).
+class AlonOverworldMotionState {
+  static const double kTileMoveDurationSec = 0.15;
+  static const double kWallBumpDurationSec = 0.14;
+
+  int col;
+  int row;
+  String facing;
+  int stepAnimFrame = 0;
+
+  double _fromCol;
+  double _fromRow;
+  double visualCol;
+  double visualRow;
+  double moveProgress = 1.0;
+
+  String? _bumpFacing;
+  double _bumpProgress = 1.0;
+
+  AlonOverworldMotionState({
+    this.col = 5,
+    this.row = 11,
+    this.facing = 'up',
+  })  : _fromCol = col.toDouble(),
+        _fromRow = row.toDouble(),
+        visualCol = col.toDouble(),
+        visualRow = row.toDouble();
+
+  bool get isMoving => moveProgress < 1.0;
+  bool get canAcceptNextStep => moveProgress >= 0.65;
+  bool get isBumping => _bumpProgress < 1.0;
+
+  /// Directional pixel nudge (`<= 4.0 px`) when bumping against walls or locked gates.
+  Offset get bumpPixelOffset {
+    if (_bumpProgress >= 1.0 || _bumpFacing == null) return Offset.zero;
+    final mag = math.sin(_bumpProgress * math.pi) * 4.0;
+    switch (_bumpFacing) {
+      case 'up':
+        return Offset(0, -mag);
+      case 'down':
+        return Offset(0, mag);
+      case 'left':
+        return Offset(-mag, 0);
+      case 'right':
+        return Offset(mag, 0);
+      default:
+        return Offset.zero;
+    }
+  }
+
+  void snapTo(int newCol, int newRow, {String facing = 'up'}) {
+    col = newCol;
+    row = newRow;
+    this.facing = facing;
+    _fromCol = newCol.toDouble();
+    _fromRow = newRow.toDouble();
+    visualCol = newCol.toDouble();
+    visualRow = newRow.toDouble();
+    moveProgress = 1.0;
+    _bumpFacing = null;
+    _bumpProgress = 1.0;
+  }
+
+  void startMoveTo(int newCol, int newRow, String newFacing) {
+    facing = newFacing;
+    stepAnimFrame = (stepAnimFrame + 1) % 4;
+    _fromCol = visualCol;
+    _fromRow = visualRow;
+    col = newCol;
+    row = newRow;
+    moveProgress = 0.0;
+    _bumpProgress = 1.0;
+  }
+
+  void triggerWallBump(String newFacing) {
+    facing = newFacing;
+    stepAnimFrame = (stepAnimFrame + 1) % 4;
+    _bumpFacing = newFacing;
+    _bumpProgress = 0.0;
+  }
+
+  void tick(double dt) {
+    if (moveProgress < 1.0) {
+      moveProgress = (moveProgress + dt / kTileMoveDurationSec).clamp(0.0, 1.0);
+      // Smooth GBA ease-out interpolation across the tile
+      final eased = 1.0 - math.pow(1.0 - moveProgress, 2.2).toDouble();
+      visualCol = _fromCol + (col - _fromCol) * eased;
+      visualRow = _fromRow + (row - _fromRow) * eased;
+    } else {
+      visualCol = col.toDouble();
+      visualRow = row.toDouble();
+    }
+
+    if (_bumpProgress < 1.0) {
+      _bumpProgress =
+          (_bumpProgress + dt / kWallBumpDurationSec).clamp(0.0, 1.0);
+    }
+  }
+}
+
 /// **Chronicles of the Sovereign: A LeafGreen-Style RPG for Philippine Governance**
 ///
 /// Triggered by stepping through the glowing bookshelf at the back of the 2D Virtual
@@ -124,13 +304,16 @@ class _SovereignStoryScreenState extends State<SovereignStoryScreen> {
   SovereignCampaignSave _save = const SovereignCampaignSave();
   bool _loadingSave = true;
 
-  // Overworld state (20 cols × 14 rows of 16×16 pixel tiles)
+  // Overworld state (20 cols × 14 rows of 16×16 pixel tiles + smooth 150ms GBA glide)
   int _actIndex = 0; // 0..6 (Act I .. Act VII)
-  int _alonCol = 5;
-  int _alonRow = 11;
-  String _alonFacing = 'up';
-  int _stepAnimFrame = 0;
+  final AlonOverworldMotionState _motion = AlonOverworldMotionState();
+  ui.Image? _alonSpriteSheet;
   double _idleTime = 0.0;
+
+  int get _alonCol => _motion.col;
+  int get _alonRow => _motion.row;
+  String get _alonFacing => _motion.facing;
+  int get _stepAnimFrame => _motion.stepAnimFrame;
 
   // Rival Mateo `[!]` alert state
   String? _alertedRivalEntityId;
@@ -228,13 +411,24 @@ class _SovereignStoryScreenState extends State<SovereignStoryScreen> {
 
   Future<void> _loadCampaignProgress() async {
     final loaded = await SovereignCampaignSave.load(widget.session.id);
+    ui.Image? resolvedSheet;
+    try {
+      final savedLook = await AvatarSpriteCache.instance.loadSavedLook(
+        widget.session.id,
+        isFaculty: widget.session.isFaculty,
+      );
+      resolvedSheet =
+          await AvatarSpriteCache.instance.resolveLookSpriteSheet(savedLook);
+    } catch (_) {
+      resolvedSheet = null;
+    }
     if (!mounted) return;
     setState(() {
       _save = loaded;
-      _actIndex = (loaded.currentActNumber - 1).clamp(0, kSovereignActs.length - 1);
-      _alonCol = _currentAct.spawnCol;
-      _alonRow = _currentAct.spawnRow;
-      _alonFacing = 'up';
+      _alonSpriteSheet = resolvedSheet;
+      _actIndex =
+          (loaded.currentActNumber - 1).clamp(0, kSovereignActs.length - 1);
+      _motion.snapTo(_currentAct.spawnCol, _currentAct.spawnRow, facing: 'up');
       _loadingSave = false;
     });
     _syncActAmbientFx();
@@ -290,6 +484,7 @@ class _SovereignStoryScreenState extends State<SovereignStoryScreen> {
     if (_shellState == _StoryShellState.paused) return;
 
     _idleTime += dt;
+    _motion.tick(dt);
     if (_shellState == _StoryShellState.title) {
       _titleFxCtrl.update(dt);
     } else {
@@ -361,9 +556,7 @@ class _SovereignStoryScreenState extends State<SovereignStoryScreen> {
     _triggerGbaSwirlTransition(() {
       setState(() {
         _actIndex = targetIdx;
-        _alonCol = _currentAct.spawnCol;
-        _alonRow = _currentAct.spawnRow;
-        _alonFacing = 'up';
+        _motion.snapTo(_currentAct.spawnCol, _currentAct.spawnRow, facing: 'up');
         _shellState = _StoryShellState.overworld;
         _alertedRivalEntityId = null;
       });
@@ -421,18 +614,15 @@ class _SovereignStoryScreenState extends State<SovereignStoryScreen> {
     if (_dialogueQueue.isNotEmpty || _rivalAlertTimer > 0 || _swirlActive) {
       return;
     }
-
-    setState(() {
-      _alonFacing = facing;
-      _stepAnimFrame = (_stepAnimFrame + 1) % 4;
-    });
+    if (!_motion.canAcceptNextStep) return;
 
     final nextCol = _alonCol + dCol;
     final nextRow = _alonRow + dRow;
 
-    // If an NPC/Boss/Node stands on the target tile, interact with them directly!
+    // If an NPC/Boss/Node stands on the target tile, face & interact with them directly!
     final blockingEntity = _entityAt(nextCol, nextRow);
     if (blockingEntity != null) {
+      setState(() => _motion.triggerWallBump(facing));
       _interactWithEntity(blockingEntity);
       return;
     }
@@ -440,12 +630,14 @@ class _SovereignStoryScreenState extends State<SovereignStoryScreen> {
     final tile = _tileAt(nextCol, nextRow);
     if (tile == '#' || tile == '~') {
       HapticFeedback.selectionClick();
+      setState(() => _motion.triggerWallBump(facing));
       return;
     }
 
     // Check Tribunal Hall ('T') puzzle lock
     if (tile == 'T' && !_areAllActPuzzleNodesSolved(_currentAct)) {
       LobbyAudioService.instance.playQuizWrong();
+      setState(() => _motion.triggerWallBump(facing));
       _showDialogue(
         speaker: 'Tribunal Hall Gate (Locked)',
         subtitle: _currentAct.zoneTitle,
@@ -459,8 +651,7 @@ class _SovereignStoryScreenState extends State<SovereignStoryScreen> {
 
     LobbyAudioService.instance.playStep();
     setState(() {
-      _alonCol = nextCol;
-      _alonRow = nextRow;
+      _motion.startMoveTo(nextCol, nextRow, facing);
     });
 
     // 1. Check if Rival Mateo spots Alon within 4 tiles (`[!]` GBA Line-of-Sight)!
@@ -969,8 +1160,7 @@ class _SovereignStoryScreenState extends State<SovereignStoryScreen> {
         unawaited(_save.persist(widget.session.id));
         setState(() {
           _shellState = _StoryShellState.overworld;
-          _alonCol = _currentAct.spawnCol;
-          _alonRow = _currentAct.spawnRow;
+          _motion.snapTo(_currentAct.spawnCol, _currentAct.spawnRow, facing: 'up');
           _battleBusy = false;
         });
         _showDialogue(
@@ -1801,10 +1991,13 @@ class _SovereignStoryScreenState extends State<SovereignStoryScreen> {
                                     painter: _SovereignOverworldPainter(
                                       act: act,
                                       save: _save,
-                                      alonCol: _alonCol,
-                                      alonRow: _alonRow,
+                                      alonVisualCol: _motion.visualCol,
+                                      alonVisualRow: _motion.visualRow,
+                                      alonBumpOffset: _motion.bumpPixelOffset,
+                                      alonIsMoving: _motion.isMoving,
                                       alonFacing: _alonFacing,
                                       stepAnimFrame: _stepAnimFrame,
+                                      alonSpriteSheet: _alonSpriteSheet,
                                       idleTime: _idleTime,
                                       tribunalUnlocked: allNodesSolved,
                                       alertedRivalId: _alertedRivalEntityId,
@@ -2986,10 +3179,13 @@ class _GbaSwirlOverlayPainter extends CustomPainter {
 class _SovereignOverworldPainter extends CustomPainter {
   final SovereignActConfig act;
   final SovereignCampaignSave save;
-  final int alonCol;
-  final int alonRow;
+  final double alonVisualCol;
+  final double alonVisualRow;
+  final Offset alonBumpOffset;
+  final bool alonIsMoving;
   final String alonFacing;
   final int stepAnimFrame;
+  final ui.Image? alonSpriteSheet;
   final double idleTime;
   final bool tribunalUnlocked;
   final String? alertedRivalId;
@@ -3003,10 +3199,13 @@ class _SovereignOverworldPainter extends CustomPainter {
   const _SovereignOverworldPainter({
     required this.act,
     required this.save,
-    required this.alonCol,
-    required this.alonRow,
+    required this.alonVisualCol,
+    required this.alonVisualRow,
+    required this.alonBumpOffset,
+    required this.alonIsMoving,
     required this.alonFacing,
     required this.stepAnimFrame,
+    required this.alonSpriteSheet,
     required this.idleTime,
     required this.tribunalUnlocked,
     required this.alertedRivalId,
@@ -3149,7 +3348,25 @@ class _SovereignOverworldPainter extends CustomPainter {
       );
     }
 
-    // PASS 3: Map Entities (Bahay Historians, Puzzle Nodes, Rival Mateo, Bosses)
+    // PASS 2.5: Rival Mateo 4-Tile Directional GBA Sightline Telegraph on Floor
+    for (final e in act.entities) {
+      if (e.role == 'rival' && !save.defeatedEntityIds.contains(e.id)) {
+        _drawRivalSightlineTelegraph(
+          canvas,
+          rival: e,
+          tileW: tileW,
+          tileH: tileH,
+          isAlerted: alertedRivalId == e.id,
+        );
+      }
+    }
+
+    // PASS 3 & 4: Y-Depth-Sorted Entities (Puzzle Props, Historians, Rival, Bosses) & Alon + Umalo
+    final alonCx = (alonVisualCol + 0.5) * tileW + alonBumpOffset.dx;
+    final alonCy = (alonVisualRow + 0.5) * tileH + alonBumpOffset.dy;
+
+    final drawQueue = <({double sortY, VoidCallback draw})>[];
+
     for (final e in act.entities) {
       if (e.role == 'rival' && save.defeatedEntityIds.contains(e.id)) {
         continue;
@@ -3160,86 +3377,118 @@ class _SovereignOverworldPainter extends CustomPainter {
           e.role == 'puzzle_node' && save.activatedPuzzleNodeIds.contains(e.id);
       final isDefeatedBoss = save.defeatedEntityIds.contains(e.id);
 
-      _drawPixelCharacterSprite(
-        canvas,
-        center: Offset(cx, cy),
-        tileW: tileW,
-        tileH: tileH,
-        primaryColor: isSolvedNode || isDefeatedBoss
-            ? const Color(0xFF34D399)
-            : Color(e.color),
-        hatColor: e.role == 'rival'
-            ? const Color(0xFFEF4444)
-            : const Color(0xFFFACC15),
-        idlePhase: idleTime + e.col * 0.5,
-        showTarsier: false,
-      );
+      drawQueue.add((
+        sortY: cy,
+        draw: () {
+          if (e.role == 'puzzle_node') {
+            _drawPuzzleNodePropSprite(
+              canvas,
+              center: Offset(cx, cy),
+              tileW: tileW,
+              tileH: tileH,
+              propKind: resolvePuzzleNodePropKind(e, act.actNumber),
+              accentColor: Color(e.color),
+              isSolved: isSolvedNode,
+              idlePhase: idleTime + e.col * 0.4,
+            );
+          } else {
+            _drawGbaCharacterSprite(
+              canvas,
+              center: Offset(cx, cy),
+              tileW: tileW,
+              tileH: tileH,
+              facing: e.facing,
+              primaryColor: isDefeatedBoss
+                  ? const Color(0xFF34D399)
+                  : Color(e.color),
+              role: e.role,
+              spriteRole: e.battleSpec?.spriteRole ?? e.role,
+              idlePhase: idleTime + e.col * 0.5,
+              stepFrame: 0,
+              isMoving: false,
+            );
+          }
 
-      // Rival `[!]` alert bubble above head
-      if (alertedRivalId == e.id) {
-        final alertRect = RRect.fromRectAndRadius(
-          Rect.fromCenter(
-              center: Offset(cx, cy - tileH * 0.95), width: 28, height: 20),
-          const Radius.circular(5),
-        );
-        canvas.drawRRect(alertRect, Paint()..color = const Color(0xFFEF4444));
-        final tp = TextPainter(
-          text: const TextSpan(
-            text: '[!]',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 11,
-              fontWeight: FontWeight.w900,
-            ),
-          ),
-          textDirection: TextDirection.ltr,
-        )..layout();
-        tp.paint(canvas,
-            Offset(cx - tp.width / 2, cy - tileH * 0.95 - tp.height / 2));
-      } else {
-        // Compact Overhead Name Tag
-        final shortName = e.name.split('(').first.trim();
-        final tp = TextPainter(
-          text: TextSpan(
-            text: isSolvedNode ? '✓ $shortName' : shortName,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 8.5,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-          textDirection: TextDirection.ltr,
-        )..layout();
-        final pill = RRect.fromRectAndRadius(
-          Rect.fromCenter(
-            center: Offset(cx, cy - tileH * 0.72),
-            width: tp.width + 8,
-            height: tp.height + 3,
-          ),
-          const Radius.circular(5),
-        );
-        canvas.drawRRect(
-          pill,
-          Paint()..color = const Color(0xD90F172A),
-        );
-        tp.paint(canvas,
-            Offset(cx - tp.width / 2, cy - tileH * 0.72 - tp.height / 2));
-      }
+          // Rival `[!]` alert bubble above head
+          if (alertedRivalId == e.id) {
+            final alertRect = RRect.fromRectAndRadius(
+              Rect.fromCenter(
+                  center: Offset(cx, cy - tileH * 0.98), width: 30, height: 20),
+              const Radius.circular(5),
+            );
+            canvas.drawRRect(
+                alertRect, Paint()..color = const Color(0xFFEF4444));
+            canvas.drawRRect(
+              alertRect,
+              Paint()
+                ..color = Colors.white
+                ..style = PaintingStyle.stroke
+                ..strokeWidth = 1.4,
+            );
+            final tp = TextPainter(
+              text: const TextSpan(
+                text: '[!]',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              textDirection: TextDirection.ltr,
+            )..layout();
+            tp.paint(canvas,
+                Offset(cx - tp.width / 2, cy - tileH * 0.98 - tp.height / 2));
+          } else {
+            // Compact Overhead Name Tag
+            final shortName = e.name.split('(').first.trim();
+            final tp = TextPainter(
+              text: TextSpan(
+                text: isSolvedNode ? '✓ $shortName' : shortName,
+                style: TextStyle(
+                  color: isSolvedNode
+                      ? const Color(0xFF6EE7B7)
+                      : Colors.white,
+                  fontSize: 8.5,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              textDirection: TextDirection.ltr,
+            )..layout();
+            final pillY = cy - tileH * (e.role == 'puzzle_node' ? 0.68 : 0.80);
+            final pill = RRect.fromRectAndRadius(
+              Rect.fromCenter(
+                center: Offset(cx, pillY),
+                width: tp.width + 8,
+                height: tp.height + 3,
+              ),
+              const Radius.circular(5),
+            );
+            canvas.drawRRect(
+              pill,
+              Paint()..color = const Color(0xD90F172A),
+            );
+            tp.paint(canvas, Offset(cx - tp.width / 2, pillY - tp.height / 2));
+          }
+        },
+      ));
     }
 
-    // PASS 4: Alon ("Ang Tagapag-ingat") + Umalo the Tarsier on Shoulder!
-    final alonCx = (alonCol + 0.5) * tileW;
-    final alonCy = (alonRow + 0.5) * tileH;
-    _drawPixelCharacterSprite(
-      canvas,
-      center: Offset(alonCx, alonCy),
-      tileW: tileW,
-      tileH: tileH,
-      primaryColor: const Color(0xFF38BDF8),
-      hatColor: Color(act.alonHatOrBadgeColor),
-      idlePhase: idleTime * 2.0 + stepAnimFrame,
-      showTarsier: true,
-    );
+    drawQueue.add((
+      sortY: alonCy,
+      draw: () {
+        _drawAlonWithEraAttireAndUmalo(
+          canvas,
+          center: Offset(alonCx, alonCy),
+          tileW: tileW,
+          tileH: tileH,
+        );
+      },
+    ));
+
+    drawQueue.sort((a, b) => a.sortY.compareTo(b.sortY));
+    for (final item in drawQueue) {
+      item.draw();
+    }
 
     // PASS 5: Composite 240×160 `patch-gg/pixelfx` Multi-Emitter Layer
     // (Unrest Zone Ripples on actual 'U' clusters + Landmark Ambient FX + Burst FX)
@@ -3878,80 +4127,950 @@ class _SovereignOverworldPainter extends CustomPainter {
     );
   }
 
-  void _drawPixelCharacterSprite(
+  void _drawRivalSightlineTelegraph(
+    Canvas canvas, {
+    required SovereignMapEntity rival,
+    required double tileW,
+    required double tileH,
+    required bool isAlerted,
+  }) {
+    var dc = 0;
+    var dr = 0;
+    switch (rival.facing) {
+      case 'up':
+        dr = -1;
+        break;
+      case 'down':
+        dr = 1;
+        break;
+      case 'left':
+        dc = -1;
+        break;
+      case 'right':
+        dc = 1;
+        break;
+    }
+    if (dc == 0 && dr == 0) return;
+
+    final pulse = 0.5 + 0.5 * math.sin(idleTime * (isAlerted ? 12.0 : 4.0));
+    for (var step = 1; step <= 4; step++) {
+      final tc = rival.col + dc * step;
+      final tr = rival.row + dr * step;
+      final tile = _charAt(tc, tr);
+      if (tile == '#' || tile == '~') break;
+
+      final rect = Rect.fromLTWH(tc * tileW, tr * tileH, tileW, tileH);
+      final fade = (1.0 - (step - 1) * 0.18).clamp(0.25, 1.0);
+      canvas.drawRect(
+        rect.deflate(2.0),
+        Paint()
+          ..color = const Color(0xFFEF4444)
+              .withValues(alpha: (isAlerted ? 0.34 : 0.14 + 0.08 * pulse) * fade),
+      );
+      // Directional chevron pip in center of tile
+      final c = rect.center;
+      final chevPaint = Paint()
+        ..color = const Color(0xFFFCA5A5).withValues(alpha: 0.72 * fade)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.6;
+      final p = Path();
+      final r = math.min(tileW, tileH) * 0.14;
+      if (rival.facing == 'left') {
+        p
+          ..moveTo(c.dx + r, c.dy - r)
+          ..lineTo(c.dx - r * 0.6, c.dy)
+          ..lineTo(c.dx + r, c.dy + r);
+      } else if (rival.facing == 'right') {
+        p
+          ..moveTo(c.dx - r, c.dy - r)
+          ..lineTo(c.dx + r * 0.6, c.dy)
+          ..lineTo(c.dx - r, c.dy + r);
+      } else if (rival.facing == 'up') {
+        p
+          ..moveTo(c.dx - r, c.dy + r)
+          ..lineTo(c.dx, c.dy - r * 0.6)
+          ..lineTo(c.dx + r, c.dy + r);
+      } else {
+        p
+          ..moveTo(c.dx - r, c.dy - r)
+          ..lineTo(c.dx, c.dy + r * 0.6)
+          ..lineTo(c.dx + r, c.dy - r);
+      }
+      canvas.drawPath(p, chevPaint);
+    }
+  }
+
+  void _drawAlonWithEraAttireAndUmalo(
     Canvas canvas, {
     required Offset center,
     required double tileW,
     required double tileH,
-    required Color primaryColor,
-    required Color hatColor,
-    required double idlePhase,
-    required bool showTarsier,
   }) {
-    final bob = math.sin(idlePhase * 3.2) * 1.6;
-    final w = math.min(tileW, tileH) * 0.78;
-    final h = w * 1.25;
+    final baseUnit = math.min(tileW, tileH);
+    final bob = alonIsMoving
+        ? (stepAnimFrame.isOdd ? -1.8 : 0.0)
+        : math.sin(idleTime * 3.6) * 0.9;
 
     // Ground shadow
     canvas.drawOval(
       Rect.fromCenter(
-          center: Offset(center.dx, center.dy + h * 0.35),
-          width: w * 0.85,
-          height: h * 0.25),
+        center: Offset(center.dx, center.dy + tileH * 0.36),
+        width: baseUnit * 0.74,
+        height: baseUnit * 0.24,
+      ),
       Paint()..color = Colors.black.withValues(alpha: 0.45),
     );
 
-    // Dark pixel outline body
-    final bodyRect = RRect.fromRectAndRadius(
-      Rect.fromCenter(
-          center: Offset(center.dx, center.dy + bob),
-          width: w * 0.72,
-          height: h * 0.62),
-      const Radius.circular(3),
+    if (alonSpriteSheet != null) {
+      // Render student's actual Virtual School pixel-art sprite sheet with 4-dir facing & walk cycle!
+      final facingEnum = parseStoryFacing(alonFacing);
+      final frameIdx = computeCharacterFrameIndex(
+        facing: facingEnum,
+        isWalking: alonIsMoving,
+        stepFrame: alonIsMoving
+            ? (stepAnimFrame * 2) % kCharFramesPerDirection
+            : ((idleTime * 4).floor() % kCharFramesPerDirection),
+      );
+      final src = Rect.fromLTWH(
+        frameIdx * kCharFrameWidth,
+        0,
+        kCharFrameWidth,
+        kCharFrameHeight,
+      );
+      final drawH = tileH * 1.48;
+      final drawW = drawH * (kCharFrameWidth / kCharFrameHeight);
+      final dst = Rect.fromLTWH(
+        center.dx - drawW * 0.5,
+        center.dy + tileH * 0.38 - drawH + bob * 0.5,
+        drawW,
+        drawH,
+      );
+      canvas.drawImageRect(
+        alonSpriteSheet!,
+        src,
+        dst,
+        Paint()..filterQuality = FilterQuality.none,
+      );
+      // Overlay Era Attire Accessory on Alon's head/torso
+      _drawAlonEraAccessoryOverlay(
+        canvas,
+        headCenter: Offset(center.dx, dst.top + drawH * 0.34),
+        torsoCenter: Offset(center.dx, dst.top + drawH * 0.64),
+        unit: baseUnit,
+      );
+    } else {
+      // Crisp 4-Directional 16-Bit GBA LeafGreen Protagonist Sprite fallback
+      _drawGbaCharacterSprite(
+        canvas,
+        center: center,
+        tileW: tileW,
+        tileH: tileH,
+        facing: alonFacing,
+        primaryColor: const Color(0xFF0284C7),
+        role: 'alon',
+        spriteRole: 'alon',
+        idlePhase: idleTime * 2.0,
+        stepFrame: stepAnimFrame,
+        isMoving: alonIsMoving,
+      );
+      _drawAlonEraAccessoryOverlay(
+        canvas,
+        headCenter: Offset(center.dx, center.dy - baseUnit * 0.44 + bob),
+        torsoCenter: Offset(center.dx, center.dy - baseUnit * 0.04 + bob),
+        unit: baseUnit,
+      );
+    }
+
+    // Perched Umalo the Tarsier + Bamboo Scroll beside Alon's shoulder!
+    final tarsierSide = alonFacing == 'left' ? -1.0 : 1.0;
+    _drawUmaloTarsierSprite(
+      canvas,
+      center: Offset(
+        center.dx + tarsierSide * baseUnit * 0.44,
+        center.dy - baseUnit * 0.22 + bob * 0.8,
+      ),
+      unit: baseUnit,
+      facingRight: alonFacing != 'left',
     );
-    canvas.drawRRect(bodyRect, Paint()..color = primaryColor);
-    canvas.drawRRect(
-      bodyRect,
+  }
+
+  void _drawAlonEraAccessoryOverlay(
+    Canvas canvas, {
+    required Offset headCenter,
+    required Offset torsoCenter,
+    required double unit,
+  }) {
+    final accent = Color(act.alonHatOrBadgeColor);
+    final outline = Paint()
+      ..color = const Color(0xFF0F172A)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.0;
+
+    switch (act.actNumber) {
+      case 1:
+        // Act I: Woven Crimson Putong Headband + Gold Knot
+        final band = Rect.fromCenter(
+          center: Offset(headCenter.dx, headCenter.dy - unit * 0.08),
+          width: unit * 0.56,
+          height: unit * 0.14,
+        );
+        canvas.drawRect(band, Paint()..color = accent);
+        canvas.drawRect(band, outline);
+        canvas.drawRect(
+          Rect.fromCenter(
+              center: Offset(headCenter.dx + unit * 0.22, headCenter.dy - unit * 0.08),
+              width: 3.0,
+              height: 3.0),
+          Paint()..color = const Color(0xFFFACC15),
+        );
+        break;
+      case 2:
+        // Act II: Ivory Camisa de Chino Collar + Blue Pañuelo Kerchief
+        canvas.drawRect(
+          Rect.fromCenter(
+            center: Offset(torsoCenter.dx, torsoCenter.dy - unit * 0.10),
+            width: unit * 0.44,
+            height: unit * 0.11,
+          ),
+          Paint()..color = const Color(0xFFF8FAFC),
+        );
+        canvas.drawRect(
+          Rect.fromCenter(
+            center: Offset(torsoCenter.dx, torsoCenter.dy - unit * 0.02),
+            width: unit * 0.30,
+            height: unit * 0.10,
+          ),
+          Paint()..color = accent,
+        );
+        break;
+      case 3:
+        // Act III: Diagonal Crimson-and-Gold Malolos Delegate Sash
+        canvas.drawLine(
+          Offset(torsoCenter.dx - unit * 0.20, torsoCenter.dy - unit * 0.14),
+          Offset(torsoCenter.dx + unit * 0.20, torsoCenter.dy + unit * 0.16),
+          Paint()
+            ..color = accent
+            ..strokeWidth = 3.2,
+        );
+        break;
+      case 4:
+        // Act IV: Commonwealth Scholar Tie + 1937 Suffrage Rosette Pin
+        canvas.drawRect(
+          Rect.fromCenter(
+            center: Offset(torsoCenter.dx, torsoCenter.dy),
+            width: 3.0,
+            height: unit * 0.26,
+          ),
+          Paint()..color = accent,
+        );
+        canvas.drawCircle(
+          Offset(torsoCenter.dx - unit * 0.14, torsoCenter.dy - unit * 0.06),
+          2.2,
+          Paint()..color = const Color(0xFFEC4899),
+        );
+        break;
+      case 5:
+        // Act V: Wartime Sepia Messenger Cloak Clasp + Brass Lantern Pin
+        canvas.drawRect(
+          Rect.fromCenter(
+            center: Offset(torsoCenter.dx, torsoCenter.dy - unit * 0.08),
+            width: unit * 0.48,
+            height: 3.2,
+          ),
+          Paint()..color = const Color(0xFF78350F),
+        );
+        canvas.drawCircle(
+          Offset(torsoCenter.dx, torsoCenter.dy - unit * 0.08),
+          2.2,
+          Paint()..color = const Color(0xFFFACC15),
+        );
+        break;
+      case 6:
+        // Act VI: Student Press Armband + Chronicle Badge
+        canvas.drawRect(
+          Rect.fromCenter(
+            center: Offset(torsoCenter.dx - unit * 0.22, torsoCenter.dy),
+            width: 4.0,
+            height: 4.5,
+          ),
+          Paint()..color = accent,
+        );
+        break;
+      default:
+        // Act VII: Golden EDSA People Power Ribbon + Glowing Astrolabe Crest
+        canvas.drawCircle(
+          Offset(torsoCenter.dx, torsoCenter.dy - unit * 0.02),
+          3.0,
+          Paint()..color = const Color(0xFFFACC15),
+        );
+        canvas.drawRect(
+          Rect.fromCenter(
+            center: Offset(headCenter.dx, headCenter.dy - unit * 0.10),
+            width: unit * 0.54,
+            height: unit * 0.12,
+          ),
+          Paint()..color = const Color(0xFFFACC15),
+        );
+        break;
+    }
+  }
+
+  void _drawUmaloTarsierSprite(
+    Canvas canvas, {
+    required Offset center,
+    required double unit,
+    required bool facingRight,
+  }) {
+    final s = (unit * 0.34).clamp(5.5, 13.0);
+    final hop = math.sin(idleTime * 5.2) * 1.3;
+    final c = Offset(center.dx, center.dy + hop);
+    final outline = Paint()
+      ..color = const Color(0xFF0F172A)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.1;
+
+    // 1. Curled Tarsier Tail behind body
+    final tailDir = facingRight ? -1.0 : 1.0;
+    final tailPath = Path()
+      ..moveTo(c.dx + tailDir * s * 0.3, c.dy + s * 0.35)
+      ..quadraticBezierTo(
+        c.dx + tailDir * s * 0.95,
+        c.dy + s * 0.55,
+        c.dx + tailDir * s * 0.78,
+        c.dy - s * 0.12,
+      );
+    canvas.drawPath(
+      tailPath,
       Paint()
-        ..color = const Color(0xFF0F172A)
+        ..color = const Color(0xFF92400E)
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.6,
+        ..strokeWidth = 1.8,
     );
 
-    // Head
-    final headRect = RRect.fromRectAndRadius(
-      Rect.fromCenter(
-          center: Offset(center.dx, center.dy - h * 0.32 + bob),
-          width: w * 0.68,
-          height: w * 0.62),
-      const Radius.circular(3),
+    // 2. Miniature Bamboo Scroll (Saligang Tala) on Umalo's back
+    final scrollRect = Rect.fromCenter(
+      center: Offset(c.dx + tailDir * s * 0.34, c.dy + s * 0.08),
+      width: s * 0.34,
+      height: s * 0.72,
     );
-    canvas.drawRRect(headRect, Paint()..color = const Color(0xFFFDE68A));
-    canvas.drawRRect(
-      headRect,
-      Paint()
-        ..color = const Color(0xFF0F172A)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.4,
+    canvas.drawRect(scrollRect, Paint()..color = const Color(0xFFFDE68A));
+    canvas.drawRect(scrollRect, outline);
+
+    // 3. Round Tarsier Ears
+    canvas.drawCircle(
+      Offset(c.dx - s * 0.44, c.dy - s * 0.36),
+      s * 0.24,
+      Paint()..color = const Color(0xFFB45309),
+    );
+    canvas.drawCircle(
+      Offset(c.dx + s * 0.44, c.dy - s * 0.36),
+      s * 0.24,
+      Paint()..color = const Color(0xFFB45309),
     );
 
-    // Era Attire Hat / Putong / Sash Band
+    // 4. Cinnamon-Brown Body & Head
+    final body = RRect.fromRectAndRadius(
+      Rect.fromCenter(
+          center: Offset(c.dx, c.dy + s * 0.25), width: s * 0.78, height: s * 0.58),
+      const Radius.circular(3),
+    );
+    canvas.drawRRect(body, Paint()..color = const Color(0xFFB45309));
+    canvas.drawRRect(body, outline);
+
+    final head = RRect.fromRectAndRadius(
+      Rect.fromCenter(
+          center: Offset(c.dx, c.dy - s * 0.14), width: s * 0.92, height: s * 0.72),
+      const Radius.circular(4),
+    );
+    canvas.drawRRect(head, Paint()..color = const Color(0xFFD97706));
+    canvas.drawRRect(head, outline);
+
+    // 5. Iconic Oversized Luminous Amber Tarsier Eyes + Dark Pupils + Catchlight
+    final eyeY = c.dy - s * 0.15;
+    final eyeR = s * 0.21;
+    for (final dx in <double>[-s * 0.22, s * 0.22]) {
+      canvas.drawCircle(
+        Offset(c.dx + dx, eyeY),
+        eyeR,
+        Paint()..color = const Color(0xFFFEF08A),
+      );
+      canvas.drawCircle(
+        Offset(c.dx + dx + (facingRight ? 0.5 : -0.5), eyeY),
+        eyeR * 0.52,
+        Paint()..color = const Color(0xFF0F172A),
+      );
+      canvas.drawCircle(
+        Offset(c.dx + dx - 0.5, eyeY - 0.6),
+        math.max(0.7, eyeR * 0.24),
+        Paint()..color = Colors.white,
+      );
+    }
+  }
+
+  void _drawGbaCharacterSprite(
+    Canvas canvas, {
+    required Offset center,
+    required double tileW,
+    required double tileH,
+    required String facing,
+    required Color primaryColor,
+    required String role,
+    required String spriteRole,
+    required double idlePhase,
+    required int stepFrame,
+    required bool isMoving,
+  }) {
+    final unit = math.min(tileW, tileH);
+    final bob = isMoving
+        ? (stepFrame.isOdd ? -1.8 : 0.0)
+        : math.sin(idlePhase * 3.0) * 1.1;
+    final outline = Paint()
+      ..color = const Color(0xFF0F172A)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.3;
+
+    // 1. Ground Shadow
+    canvas.drawOval(
+      Rect.fromCenter(
+        center: Offset(center.dx, center.dy + unit * 0.38),
+        width: unit * 0.68,
+        height: unit * 0.22,
+      ),
+      Paint()..color = Colors.black.withValues(alpha: 0.44),
+    );
+
+    // 2. Stepping Pixel Boots / Legs (alternating stride on stepFrame)
+    final leftStride = isMoving ? (stepFrame == 1 ? -2.2 : (stepFrame == 3 ? 1.8 : 0.0)) : 0.0;
+    final rightStride = -leftStride;
+    final bootPaint = Paint()..color = const Color(0xFF1E293B);
     canvas.drawRect(
       Rect.fromCenter(
-          center: Offset(center.dx, center.dy - h * 0.48 + bob),
-          width: w * 0.74,
-          height: 4.5),
-      Paint()..color = hatColor,
+        center: Offset(center.dx - unit * 0.14, center.dy + unit * 0.28 + leftStride),
+        width: unit * 0.18,
+        height: unit * 0.18,
+      ),
+      bootPaint,
+    );
+    canvas.drawRect(
+      Rect.fromCenter(
+        center: Offset(center.dx + unit * 0.14, center.dy + unit * 0.28 + rightStride),
+        width: unit * 0.18,
+        height: unit * 0.18,
+      ),
+      bootPaint,
     );
 
-    // Umalo the Tarsier + Bamboo Scroll on Alon's right shoulder!
-    if (showTarsier) {
-      final tx = center.dx + w * 0.44;
-      final ty = center.dy - h * 0.16 + bob;
+    // 3. Role-Specific Tunic / Suit / Historical Robe Torso + Sleeves
+    Color coatColor = primaryColor;
+    Color hairColor = const Color(0xFF1E293B);
+    Color skinColor = const Color(0xFFF3C69F);
+    if (spriteRole == 'rival') {
+      coatColor = const Color(0xFFB91C1C);
+      hairColor = const Color(0xFF0F172A);
+    } else if (spriteRole == 'quezon') {
+      coatColor = const Color(0xFFF1F5F9);
+      hairColor = const Color(0xFF475569);
+    } else if (spriteRole == 'laurel') {
+      coatColor = const Color(0xFFFEF3C7);
+      hairColor = const Color(0xFF334155);
+    } else if (spriteRole == 'calderon') {
+      coatColor = const Color(0xFF1E293B);
+      hairColor = const Color(0xFF0F172A);
+    } else if (spriteRole == 'governor') {
+      coatColor = const Color(0xFF1D4ED8);
+      hairColor = const Color(0xFF78350F);
+      skinColor = const Color(0xFFFDE68A);
+    } else if (spriteRole == 'magistrate') {
+      coatColor = const Color(0xFF18181B);
+      hairColor = const Color(0xFF94A3B8);
+    } else if (role == 'bahay_historian') {
+      coatColor = const Color(0xFF047857);
+      hairColor = const Color(0xFF451A03);
+    }
+
+    final torsoRect = RRect.fromRectAndRadius(
+      Rect.fromCenter(
+        center: Offset(center.dx, center.dy + unit * 0.02 + bob),
+        width: unit * 0.56,
+        height: unit * 0.44,
+      ),
+      const Radius.circular(3),
+    );
+    canvas.drawRRect(torsoRect, Paint()..color = coatColor);
+    canvas.drawRRect(torsoRect, outline);
+
+    // Coat shading & lapels / belt / sash details
+    if (spriteRole == 'governor' || spriteRole == 'commissioner') {
+      // Gold epaulettes & sash
+      canvas.drawRect(
+        Rect.fromLTWH(torsoRect.left + 1, torsoRect.top + 1, 5.0, 3.0),
+        Paint()..color = const Color(0xFFFACC15),
+      );
+      canvas.drawRect(
+        Rect.fromLTWH(torsoRect.right - 6, torsoRect.top + 1, 5.0, 3.0),
+        Paint()..color = const Color(0xFFFACC15),
+      );
+      canvas.drawLine(
+        Offset(torsoRect.left + 3, torsoRect.top + 2),
+        Offset(torsoRect.right - 3, torsoRect.bottom - 2),
+        Paint()
+          ..color = spriteRole == 'governor'
+              ? const Color(0xFFEF4444)
+              : const Color(0xFFFACC15)
+          ..strokeWidth = 2.4,
+      );
+    } else if (spriteRole == 'rival' || spriteRole == 'quezon' || spriteRole == 'calderon') {
+      // Crisp shirt V-collar & tie
+      canvas.drawRect(
+        Rect.fromCenter(
+          center: Offset(center.dx, torsoRect.top + unit * 0.12),
+          width: unit * 0.14,
+          height: unit * 0.20,
+        ),
+        Paint()..color = Colors.white,
+      );
+      canvas.drawRect(
+        Rect.fromCenter(
+          center: Offset(center.dx, torsoRect.top + unit * 0.16),
+          width: 2.2,
+          height: unit * 0.18,
+        ),
+        Paint()
+          ..color = spriteRole == 'rival'
+              ? const Color(0xFFFACC15)
+              : const Color(0xFF0F172A),
+      );
+    } else if (spriteRole == 'magistrate') {
+      // Crimson judicial trim
+      canvas.drawRect(
+        Rect.fromCenter(
+          center: Offset(center.dx, torsoRect.center.dy),
+          width: unit * 0.14,
+          height: torsoRect.height - 2,
+        ),
+        Paint()..color = const Color(0xFFDC2626),
+      );
+    } else if (role == 'bahay_historian') {
+      // Cream apron & green sanctuary cross
+      canvas.drawRect(
+        Rect.fromCenter(
+          center: Offset(center.dx, torsoRect.center.dy + 2),
+          width: unit * 0.30,
+          height: torsoRect.height * 0.68,
+        ),
+        Paint()..color = const Color(0xFFFEF3C7),
+      );
+    }
+
+    // Arms on sides
+    final armSwing = isMoving ? leftStride * 0.7 : 0.0;
+    canvas.drawRect(
+      Rect.fromCenter(
+        center: Offset(torsoRect.left - 1.5, torsoRect.center.dy + armSwing),
+        width: unit * 0.14,
+        height: unit * 0.28,
+      ),
+      Paint()..color = coatColor,
+    );
+    canvas.drawRect(
+      Rect.fromCenter(
+        center: Offset(torsoRect.right + 1.5, torsoRect.center.dy - armSwing),
+        width: unit * 0.14,
+        height: unit * 0.28,
+      ),
+      Paint()..color = coatColor,
+    );
+
+    // 4. 4-Directional Head, Hair & Expressive Pixel Face
+    final headRect = RRect.fromRectAndRadius(
+      Rect.fromCenter(
+        center: Offset(center.dx, center.dy - unit * 0.36 + bob),
+        width: unit * 0.54,
+        height: unit * 0.46,
+      ),
+      const Radius.circular(4),
+    );
+    canvas.drawRRect(headRect, Paint()..color = skinColor);
+    canvas.drawRRect(headRect, outline);
+
+    if (facing == 'up') {
+      // Facing Away: full back-of-head hair silhouette
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromLTWH(
+            headRect.left + 1,
+            headRect.top + 1,
+            headRect.width - 2,
+            headRect.height * 0.78,
+          ),
+          const Radius.circular(3),
+        ),
+        Paint()..color = hairColor,
+      );
+    } else {
+      // Hair crown cap
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromLTWH(
+            headRect.left,
+            headRect.top - 1,
+            headRect.width,
+            headRect.height * 0.40,
+          ),
+          const Radius.circular(3),
+        ),
+        Paint()..color = hairColor,
+      );
+
+      // Expressive GBA pixel eyes shifted cleanly for 'left', 'right', or 'down'
+      final eyePaint = Paint()..color = const Color(0xFF0F172A);
+      final eyeY = headRect.top + headRect.height * 0.56;
+      if (facing == 'left') {
+        canvas.drawRect(
+          Rect.fromCenter(
+              center: Offset(headRect.left + headRect.width * 0.28, eyeY),
+              width: 2.6,
+              height: 3.6),
+          eyePaint,
+        );
+      } else if (facing == 'right') {
+        canvas.drawRect(
+          Rect.fromCenter(
+              center: Offset(headRect.left + headRect.width * 0.72, eyeY),
+              width: 2.6,
+              height: 3.6),
+          eyePaint,
+        );
+      } else {
+        canvas.drawRect(
+          Rect.fromCenter(
+              center: Offset(headRect.left + headRect.width * 0.32, eyeY),
+              width: 2.6,
+              height: 3.6),
+          eyePaint,
+        );
+        canvas.drawRect(
+          Rect.fromCenter(
+              center: Offset(headRect.left + headRect.width * 0.68, eyeY),
+              width: 2.6,
+              height: 3.6),
+          eyePaint,
+        );
+        // Spectacles for Pres. Jose P. Laurel / moustache for Felipe Calderón
+        if (spriteRole == 'laurel') {
+          final glass = Paint()
+            ..color = const Color(0xFF38BDF8)
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 1.0;
+          canvas.drawCircle(
+              Offset(headRect.left + headRect.width * 0.32, eyeY), 2.8, glass);
+          canvas.drawCircle(
+              Offset(headRect.left + headRect.width * 0.68, eyeY), 2.8, glass);
+        } else if (spriteRole == 'calderon') {
+          canvas.drawRect(
+            Rect.fromCenter(
+              center: Offset(center.dx, headRect.bottom - 3.2),
+              width: unit * 0.24,
+              height: 2.0,
+            ),
+            Paint()..color = const Color(0xFF1E293B),
+          );
+        }
+      }
+    }
+
+    // 5. Historical Headgear / Role Insignia
+    if (spriteRole == 'datu') {
+      // Gold & Crimson Putong Crown
+      canvas.drawRect(
+        Rect.fromCenter(
+          center: Offset(center.dx, headRect.top + 2.5),
+          width: headRect.width + 3,
+          height: 5.0,
+        ),
+        Paint()..color = const Color(0xFFDC2626),
+      );
+      canvas.drawRect(
+        Rect.fromCenter(
+          center: Offset(center.dx, headRect.top + 2.5),
+          width: 6.0,
+          height: 5.0,
+        ),
+        Paint()..color = const Color(0xFFFACC15),
+      );
+    } else if (spriteRole == 'governor') {
+      // Spanish Plumed Bicorne Hat
+      final bicorne = Path()
+        ..moveTo(headRect.left - 4, headRect.top + 2)
+        ..lineTo(center.dx, headRect.top - 7)
+        ..lineTo(headRect.right + 4, headRect.top + 2)
+        ..close();
+      canvas.drawPath(bicorne, Paint()..color = const Color(0xFF1E3A8A));
+      canvas.drawPath(bicorne, outline);
+      canvas.drawCircle(Offset(center.dx, headRect.top - 6), 2.6,
+          Paint()..color = const Color(0xFFFACC15));
+    } else if (spriteRole == 'rival') {
+      // Spiky dark hair tufts + red headband
+      canvas.drawRect(
+        Rect.fromCenter(
+          center: Offset(center.dx, headRect.top + 1.5),
+          width: headRect.width + 1,
+          height: 3.0,
+        ),
+        Paint()..color = const Color(0xFFEF4444),
+      );
+    } else if (spriteRole == 'commissioner') {
+      // 1986 Constitutional Gold Crown Crest
+      canvas.drawRect(
+        Rect.fromCenter(
+          center: Offset(center.dx, headRect.top),
+          width: headRect.width * 0.72,
+          height: 4.0,
+        ),
+        Paint()..color = const Color(0xFFFACC15),
+      );
+    } else if (role == 'bahay_historian') {
+      // Floating Emerald Healing Crest next to Historian
+      final floatY = math.sin(idleTime * 4.0) * 1.8;
       canvas.drawCircle(
-          Offset(tx, ty), 4.2, Paint()..color = const Color(0xFFD97706));
-      canvas.drawCircle(
-          Offset(tx - 1, ty), 1.4, Paint()..color = const Color(0xFFFEF08A));
+        Offset(headRect.right + 4.5, headRect.top + floatY),
+        4.2,
+        Paint()..color = const Color(0xFF10B981),
+      );
+      canvas.drawRect(
+        Rect.fromCenter(
+            center: Offset(headRect.right + 4.5, headRect.top + floatY),
+            width: 5.0,
+            height: 1.6),
+        Paint()..color = Colors.white,
+      );
+      canvas.drawRect(
+        Rect.fromCenter(
+            center: Offset(headRect.right + 4.5, headRect.top + floatY),
+            width: 1.6,
+            height: 5.0),
+        Paint()..color = Colors.white,
+      );
+    }
+  }
+
+  void _drawPuzzleNodePropSprite(
+    Canvas canvas, {
+    required Offset center,
+    required double tileW,
+    required double tileH,
+    required SovereignPuzzlePropKind propKind,
+    required Color accentColor,
+    required bool isSolved,
+    required double idlePhase,
+  }) {
+    final unit = math.min(tileW, tileH);
+    final bob = math.sin(idlePhase * 3.4) * 1.4;
+    final outline = Paint()
+      ..color = const Color(0xFF0F172A)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.3;
+
+    // 1. Pulsing Interactive Pedestal Halo (Gold/Emerald when solved)
+    final haloColor = isSolved ? const Color(0xFF34D399) : accentColor;
+    final pulse = 0.5 + 0.5 * math.sin(idlePhase * 4.0);
+    canvas.drawOval(
+      Rect.fromCenter(
+        center: Offset(center.dx, center.dy + unit * 0.28),
+        width: unit * (0.88 + 0.08 * pulse),
+        height: unit * 0.34,
+      ),
+      Paint()..color = haloColor.withValues(alpha: isSolved ? 0.42 : 0.28),
+    );
+
+    // 2. Carved Stone / Wooden Pedestal Base
+    final ped = RRect.fromRectAndRadius(
+      Rect.fromCenter(
+        center: Offset(center.dx, center.dy + unit * 0.18),
+        width: unit * 0.64,
+        height: unit * 0.30,
+      ),
+      const Radius.circular(3),
+    );
+    canvas.drawRRect(ped, Paint()..color = const Color(0xFF475569));
+    canvas.drawRRect(ped, outline);
+
+    // 3. Bespoke 16-Bit Pixel Relic / Historical Prop atop the Pedestal
+    final propC = Offset(center.dx, center.dy - unit * 0.14 + bob);
+    switch (propKind) {
+      case SovereignPuzzlePropKind.bronzeBell:
+        // Act I: Bronze Umalohokan Town Crier Bell
+        final bell = Path()
+          ..moveTo(propC.dx - unit * 0.22, propC.dy + unit * 0.18)
+          ..lineTo(propC.dx - unit * 0.14, propC.dy - unit * 0.16)
+          ..lineTo(propC.dx + unit * 0.14, propC.dy - unit * 0.16)
+          ..lineTo(propC.dx + unit * 0.22, propC.dy + unit * 0.18)
+          ..close();
+        canvas.drawPath(bell, Paint()..color = const Color(0xFFF59E0B));
+        canvas.drawPath(bell, outline);
+        canvas.drawCircle(
+          Offset(propC.dx, propC.dy + unit * 0.20),
+          2.6,
+          Paint()..color = const Color(0xFFFEF08A),
+        );
+        break;
+      case SovereignPuzzlePropKind.sanduguanCup:
+        // Act I: Ceremonial Sanduguan Chalice
+        final cup = Rect.fromCenter(
+          center: propC,
+          width: unit * 0.36,
+          height: unit * 0.30,
+        );
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(cup, const Radius.circular(4)),
+          Paint()..color = const Color(0xFFA855F7),
+        );
+        canvas.drawRect(
+          Rect.fromCenter(
+              center: Offset(propC.dx, propC.dy - unit * 0.08),
+              width: unit * 0.28,
+              height: 3.2),
+          Paint()..color = const Color(0xFFEF4444),
+        );
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(cup, const Radius.circular(4)),
+          outline,
+        );
+        break;
+      case SovereignPuzzlePropKind.waxScroll:
+        // Act II & IV: Wax-Sealed Royal Audiencia / Jones Law Scroll
+        final scroll = Rect.fromCenter(
+          center: propC,
+          width: unit * 0.44,
+          height: unit * 0.36,
+        );
+        canvas.drawRect(scroll, Paint()..color = const Color(0xFFFEF3C7));
+        canvas.drawRect(scroll, outline);
+        canvas.drawCircle(
+          Offset(propC.dx + unit * 0.08, propC.dy + unit * 0.06),
+          3.2,
+          Paint()..color = const Color(0xFFDC2626),
+        );
+        break;
+      case SovereignPuzzlePropKind.charterQuill:
+        // Act III & VII: Malolos / 1986 ConCom Constitutional Folio & Quill
+        final folio = Rect.fromCenter(
+          center: propC,
+          width: unit * 0.48,
+          height: unit * 0.36,
+        );
+        canvas.drawRect(folio, Paint()..color = const Color(0xFFFEF9C3));
+        canvas.drawRect(folio, outline);
+        canvas.drawLine(
+          Offset(propC.dx, propC.dy + unit * 0.08),
+          Offset(propC.dx + unit * 0.24, propC.dy - unit * 0.24),
+          Paint()
+            ..color = const Color(0xFF38BDF8)
+            ..strokeWidth = 2.4,
+        );
+        break;
+      case SovereignPuzzlePropKind.ballotBox:
+        // Act IV: 1937 Women's Suffrage Ballot Box
+        final box = Rect.fromCenter(
+          center: propC,
+          width: unit * 0.46,
+          height: unit * 0.36,
+        );
+        canvas.drawRect(box, Paint()..color = const Color(0xFFEC4899));
+        canvas.drawRect(box, outline);
+        canvas.drawRect(
+          Rect.fromCenter(
+              center: Offset(propC.dx, propC.dy - unit * 0.14),
+              width: unit * 0.24,
+              height: 4.5),
+          Paint()..color = Colors.white,
+        );
+        break;
+      case SovereignPuzzlePropKind.bambooLantern:
+        // Act V: Wartime Bamboo Survival Lantern
+        final lantern = RRect.fromRectAndRadius(
+          Rect.fromCenter(center: propC, width: unit * 0.36, height: unit * 0.40),
+          const Radius.circular(4),
+        );
+        canvas.drawRRect(lantern, Paint()..color = const Color(0xFFF59E0B));
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(
+            Rect.fromCenter(center: propC, width: unit * 0.20, height: unit * 0.22),
+            const Radius.circular(2),
+          ),
+          Paint()..color = const Color(0xFFFEF08A),
+        );
+        canvas.drawRRect(lantern, outline);
+        break;
+      case SovereignPuzzlePropKind.printingPress:
+        // Act VI: Underground Student Printing Press
+        final press = Rect.fromCenter(
+          center: propC,
+          width: unit * 0.50,
+          height: unit * 0.34,
+        );
+        canvas.drawRect(press, Paint()..color = const Color(0xFF334155));
+        canvas.drawRect(
+          Rect.fromCenter(
+              center: Offset(propC.dx, propC.dy - unit * 0.06),
+              width: unit * 0.34,
+              height: unit * 0.14),
+          Paint()..color = const Color(0xFFF8FAFC),
+        );
+        canvas.drawRect(press, outline);
+        break;
+      case SovereignPuzzlePropKind.habeasShield:
+        // Act VI: Glowing Cyan Writ of Habeas Corpus Shield
+        final shield = Path()
+          ..moveTo(propC.dx, propC.dy - unit * 0.22)
+          ..lineTo(propC.dx + unit * 0.22, propC.dy - unit * 0.10)
+          ..lineTo(propC.dx + unit * 0.16, propC.dy + unit * 0.14)
+          ..lineTo(propC.dx, propC.dy + unit * 0.24)
+          ..lineTo(propC.dx - unit * 0.16, propC.dy + unit * 0.14)
+          ..lineTo(propC.dx - unit * 0.22, propC.dy - unit * 0.10)
+          ..close();
+        canvas.drawPath(shield, Paint()..color = const Color(0xFF38BDF8));
+        canvas.drawPath(shield, outline);
+        break;
+      case SovereignPuzzlePropKind.edsaFlowers:
+        // Act VII: EDSA Peaceful Citizen Flowers & Radio Shrine
+        canvas.drawCircle(
+          Offset(propC.dx - unit * 0.10, propC.dy),
+          unit * 0.13,
+          Paint()..color = const Color(0xFFFACC15),
+        );
+        canvas.drawCircle(
+          Offset(propC.dx + unit * 0.10, propC.dy - unit * 0.04),
+          unit * 0.13,
+          Paint()..color = const Color(0xFF34D399),
+        );
+        canvas.drawCircle(
+          Offset(propC.dx, propC.dy + unit * 0.06),
+          unit * 0.10,
+          Paint()..color = const Color(0xFFFEF08A),
+        );
+        break;
+    }
+
+    // 4. Solved Golden Checkmark Badge
+    if (isSolved) {
+      final badgeC = Offset(center.dx + unit * 0.26, center.dy - unit * 0.34);
+      canvas.drawCircle(badgeC, 4.8, Paint()..color = const Color(0xFF10B981));
+      canvas.drawCircle(badgeC, 4.8, outline);
+      canvas.drawLine(
+        Offset(badgeC.dx - 2.2, badgeC.dy),
+        Offset(badgeC.dx - 0.5, badgeC.dy + 2.0),
+        Paint()
+          ..color = Colors.white
+          ..strokeWidth = 1.5,
+      );
+      canvas.drawLine(
+        Offset(badgeC.dx - 0.5, badgeC.dy + 2.0),
+        Offset(badgeC.dx + 2.4, badgeC.dy - 1.8),
+        Paint()
+          ..color = Colors.white
+          ..strokeWidth = 1.5,
+      );
     }
   }
 
