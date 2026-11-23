@@ -327,8 +327,10 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
   final List<RemoteLobbyPlayer> remotePlayers;
   final bool showOfflineClassmates;
   final Map<LobbyRoomId, int> roomOccupancyCounts;
+  final List<InteractiveZone>? precomputedActiveZones;
 
   const SchoolLobbyCanvasPainter({
+    super.repaint,
     required this.assets,
     required this.playerSheet,
     required this.playerPos,
@@ -355,7 +357,12 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
     this.remotePlayers = const [],
     this.showOfflineClassmates = false,
     this.roomOccupancyCounts = const {},
+    this.precomputedActiveZones,
   });
+
+  List<InteractiveZone> get _resolvedActiveZones =>
+      precomputedActiveZones ??
+      buildActiveInteractiveZones(subjectChests, room: currentRoom);
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -465,8 +472,7 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
     }
 
     // 6d-2. Walking & Talking AI Subject Teachers (`PKLP`, `PPG`, `UCSP`) across ALL 5 rooms!
-    final activeZones =
-        buildActiveInteractiveZones(subjectChests, room: currentRoom);
+    final activeZones = _resolvedActiveZones;
     for (final zone in activeZones) {
       if (zone.kind != InteractiveZoneKind.smallMysteryChest) continue;
       final remainingSec = smallChestRemainingSec[zone.id] ?? 0;
@@ -1000,8 +1006,7 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
     }
 
     // 2. Render glowing Campus Door Portals (`🚪`), Group Study Spaces (`📚💬`) & interactive Rest Spot indicators
-    final allZones =
-        buildActiveInteractiveZones(subjectChests, room: currentRoom);
+    final allZones = _resolvedActiveZones;
     for (final z in allZones) {
       if (z.kind == InteractiveZoneKind.doorPortal) {
         _drawDoorPortal(
@@ -1961,25 +1966,68 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
         );
       }
 
-      // 4. When facing UP (at a Classroom desk or Canteen table), overlay the lower backrest slice
-      // of `chair-tan-back` from `floor-items.png` so the wooden backrest wraps cleanly behind their back!
+      // 4. When facing UP on an actual desk chair (not a bench, stool, sofa, or picnic rug),
+      // overlay the chair backrest behind their back — tinting to the student's custom
+      // `tableDecor.chairPrimaryColor` when seated at their personal Classroom desk!
       if (facing == AvatarFacing.up) {
-        final chairFrame = assets.itemFrames['chair-tan-back'];
-        if (chairFrame != null) {
-          const offY = 10.0;
-          final backSrc = Rect.fromLTWH(
-            chairFrame.left,
-            chairFrame.top + offY,
-            chairFrame.width,
-            chairFrame.height - offY,
-          );
-          final backDst = Rect.fromLTWH(
-            pos.dx - 16.0,
-            pos.dy - 24.0 + offY,
-            chairFrame.width,
-            chairFrame.height - offY,
-          );
-          canvas.drawImageRect(assets.floorItems, backSrc, backDst, pixelPaint);
+        LobbyRestSpot? nearestSpot;
+        var bestSpotDist = 34.0;
+        for (final spot in restSpotsForRoom(currentRoom)) {
+          final d = (pos - spot.center).distance;
+          if (d < bestSpotDist) {
+            bestSpotDist = d;
+            nearestSpot = spot;
+          }
+        }
+        final spotId = nearestSpot?.id.toLowerCase() ?? '';
+        final isBacklessOrBench = spotId.contains('bench') ||
+            spotId.contains('stool') ||
+            spotId.contains('sofa') ||
+            spotId.contains('picnic') ||
+            spotId.contains('egg');
+        final isWoodenDeskChair = !isBacklessOrBench &&
+            (spotId.contains('chair') ||
+                spotId.contains('desk') ||
+                currentRoom == LobbyRoomId.classroom ||
+                currentRoom == LobbyRoomId.facultyRoom);
+
+        if (isWoodenDeskChair) {
+          final isPersonalChair =
+              currentRoom == LobbyRoomId.classroom &&
+              (pos - const Offset(544, 404)).distance <= 32.0;
+          final chairFrame = assets.itemFrames['chair-tan-back'];
+          if (isPersonalChair) {
+            final customColor =
+                LobbyDataService.instance.progress.tableDecor.chairPrimaryColor;
+            final backRect = RRect.fromRectAndRadius(
+              Rect.fromLTWH(pos.dx - 13.0, pos.dy - 14.0, 26.0, 14.0),
+              const Radius.circular(4),
+            );
+            canvas.drawRRect(backRect, Paint()..color = customColor);
+            canvas.drawRRect(
+              backRect,
+              Paint()
+                ..color = const Color(0xFF0F172A)
+                ..style = PaintingStyle.stroke
+                ..strokeWidth = 1.4,
+            );
+          } else if (chairFrame != null) {
+            const offY = 10.0;
+            final backSrc = Rect.fromLTWH(
+              chairFrame.left,
+              chairFrame.top + offY,
+              chairFrame.width,
+              chairFrame.height - offY,
+            );
+            final backDst = Rect.fromLTWH(
+              pos.dx - 16.0,
+              pos.dy - 24.0 + offY,
+              chairFrame.width,
+              chairFrame.height - offY,
+            );
+            canvas.drawImageRect(
+                assets.floorItems, backSrc, backDst, pixelPaint);
+          }
         }
       }
 

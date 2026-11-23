@@ -95,6 +95,11 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
   List<Rect> _cachedSolids = const [];
   List<InteractiveZone> _cachedZones = const [];
 
+  /// Lightweight 60 Hz repaint trigger for `SchoolLobbyCanvasPainter` so smooth
+  /// walking, camera panning, and autonomous AI teachers repaint ONLY the canvas
+  /// without rebuilding the entire HUD widget tree every 16ms!
+  final ValueNotifier<int> _worldRepaintTick = ValueNotifier<int>(0);
+
   Timer? _gameLoopTimer;
 
   @override
@@ -183,6 +188,7 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
     LobbyPresenceService.instance.stopPresence();
     LobbyRadioService.instance.setLocalListening(false);
     _gameLoopTimer?.cancel();
+    _worldRepaintTick.dispose();
     _keyboardFocusNode.dispose();
     SystemChrome.setPreferredOrientations(const []);
     super.dispose();
@@ -830,14 +836,16 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
       }
     }
 
-    if (walking ||
-        wasWalking ||
+    if (zoneChanged || (wasWalking != walking)) {
+      // Only rebuild HUD widget tree when proximity target or walk state transitions
+      setState(() {});
+    } else if (walking ||
         cameraMoved ||
         animChanged ||
-        zoneChanged ||
         remoteMoved ||
         agentsMoved) {
-      setState(() {});
+      // 60 FPS canvas-only repaint (zero full-screen HUD widget rebuilds!)
+      _worldRepaintTick.value++;
     }
   }
 
@@ -1668,36 +1676,41 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
                                 behavior: HitTestBehavior.opaque,
                                 onTapUp: (d) =>
                                     _handleCanvasTapUp(d, viewportSize),
-                                child: CustomPaint(
-                                  size: viewportSize,
-                                  painter: SchoolLobbyCanvasPainter(
-                                    assets: _assets!,
-                                    playerSheet: _playerSheet,
-                                    playerPos: _playerPos,
-                                    playerFacing: _playerFacing,
-                                    playerIsWalking: _playerIsWalking,
-                                    animTick: _animTick,
-                                    playerName: _playerNickname,
-                                    isFaculty: widget.session.isFaculty,
-                                    equippedBadgeIcon: equippedBadgeIcon,
-                                    waveBubbleProgress: _waveBubbleProgress,
-                                    cameraCenter: _cameraCenter,
-                                    cameraZoom: _cameraZoom,
-                                    activePath: _activePath,
-                                    tapPulseTarget: _tapPulseTarget,
-                                    tapPulseProgress: _tapPulseProgress,
-                                    highlightedZone: _highlightedZone,
-                                    subjectChests: service.subjectChests,
-                                    smallChestRemainingSec:
-                                        smallChestRemainingSec,
-                                    isDarkMode: isDarkMode,
-                                    currentRoom: _currentRoom,
-                                    playerRestState: _playerRestState,
-                                    playerThoughtText: _playerThoughtText,
-                                    activePeerThoughts: _activePeerThoughts,
-                                    remotePlayers: remotePlayersInRoom,
-                                    showOfflineClassmates: _showOfflineBots,
-                                    roomOccupancyCounts: roomOccupancyCounts,
+                                child: ValueListenableBuilder<int>(
+                                  valueListenable: _worldRepaintTick,
+                                  builder: (context, _, __) => CustomPaint(
+                                    size: viewportSize,
+                                    painter: SchoolLobbyCanvasPainter(
+                                      repaint: _worldRepaintTick,
+                                      assets: _assets!,
+                                      playerSheet: _playerSheet,
+                                      playerPos: _playerPos,
+                                      playerFacing: _playerFacing,
+                                      playerIsWalking: _playerIsWalking,
+                                      animTick: _animTick,
+                                      playerName: _playerNickname,
+                                      isFaculty: widget.session.isFaculty,
+                                      equippedBadgeIcon: equippedBadgeIcon,
+                                      waveBubbleProgress: _waveBubbleProgress,
+                                      cameraCenter: _cameraCenter,
+                                      cameraZoom: _cameraZoom,
+                                      activePath: _activePath,
+                                      tapPulseTarget: _tapPulseTarget,
+                                      tapPulseProgress: _tapPulseProgress,
+                                      highlightedZone: _highlightedZone,
+                                      subjectChests: service.subjectChests,
+                                      smallChestRemainingSec:
+                                          smallChestRemainingSec,
+                                      isDarkMode: isDarkMode,
+                                      currentRoom: _currentRoom,
+                                      playerRestState: _playerRestState,
+                                      playerThoughtText: _playerThoughtText,
+                                      activePeerThoughts: _activePeerThoughts,
+                                      remotePlayers: remotePlayersInRoom,
+                                      showOfflineClassmates: _showOfflineBots,
+                                      roomOccupancyCounts: roomOccupancyCounts,
+                                      precomputedActiveZones: _cachedZones,
+                                    ),
                                   ),
                                 ),
                               );

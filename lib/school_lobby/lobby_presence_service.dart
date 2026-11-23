@@ -166,7 +166,32 @@ class LobbyPresenceService extends ChangeNotifier {
   bool _isConnected = false;
   bool _isDisposedOrStopped = true;
 
+  static const List<_MqttEndpointConfig> _kMqttEndpoints = <_MqttEndpointConfig>[
+    _MqttEndpointConfig.ws(
+      label: 'EMQX-WSS',
+      url: 'wss://broker.emqx.io:8084/mqtt',
+    ),
+    _MqttEndpointConfig.ws(
+      label: 'HiveMQ-WSS',
+      url: 'wss://broker.hivemq.com:8884/mqtt',
+    ),
+    _MqttEndpointConfig.tcp(
+      label: 'HiveMQ-TCP',
+      host: 'broker.hivemq.com',
+      port: 1883,
+      useTls: false,
+    ),
+    _MqttEndpointConfig.tcp(
+      label: 'EMQX-TLS',
+      host: 'broker.emqx.io',
+      port: 8883,
+      useTls: true,
+    ),
+  ];
+
   final List<_RealtimeMqttChannel> _mqttChannels = <_RealtimeMqttChannel>[];
+  int _activeMqttEndpointIndex = 0;
+  Timer? _mqttFailoverTimer;
   RawDatagramSocket? _udpSocket;
   StreamSubscription<RawSocketEvent>? _udpSub;
   Timer? _heartbeatTimer;
@@ -257,7 +282,9 @@ class LobbyPresenceService extends ChangeNotifier {
         (DateTime.now().microsecondsSinceEpoch % 90000 + 10000).toString();
     _selfUserId = session.id.trim();
     _selfPeerKey = '${_selfUserId}_$randomSuffix';
-    _selfNickname = nickname.trim().isEmpty ? session.name : nickname.trim();
+    final rawSelfNick =
+        nickname.trim().isEmpty ? session.name : nickname.trim();
+    _selfNickname = LobbyModerationService.instance.sanitizeText(rawSelfNick);
     _selfIsFaculty = session.isFaculty;
     _selfLook = look;
     _selfBadgeIcon = equippedBadgeIcon;
@@ -268,61 +295,17 @@ class LobbyPresenceService extends ChangeNotifier {
     _selfRestState = PlayerRestState.none;
     _selfSessionStartMs = nowMs;
     _selfSeq = 0;
+    _activeMqttEndpointIndex = 0;
 
     if (!enableNetworkTransport) return;
 
     // 1. Start Instant LAN / Hotspot UDP Broadcast Socket (1-5ms latency on same Wi-Fi)
     unawaited(_startLanUdpSocket());
 
-    // 2. Start 4 Redundant Persistent Binary MQTT v3.1.1 Channels (WSS + TCP + TLS)
-    //    Combining HiveMQ and EMQX over both WebSockets and Raw Sockets guarantees
-    //    <150ms real-time delivery across mobile data, home Wi-Fi, and school networks.
-    final configs = <_MqttEndpointConfig>[
-      const _MqttEndpointConfig.ws(
-        label: 'EMQX-WSS',
-        url: 'wss://broker.emqx.io:8084/mqtt',
-      ),
-      const _MqttEndpointConfig.ws(
-        label: 'HiveMQ-WSS',
-        url: 'wss://broker.hivemq.com:8884/mqtt',
-      ),
-      const _MqttEndpointConfig.tcp(
-        label: 'HiveMQ-TCP',
-        host: 'broker.hivemq.com',
-        port: 1883,
-        useTls: false,
-      ),
-      const _MqttEndpointConfig.tcp(
-        label: 'EMQX-TLS',
-        host: 'broker.emqx.io',
-        port: 8883,
-        useTls: true,
-      ),
-    ];
-
-    for (var i = 0; i < configs.length; i++) {
-      final ch = _RealtimeMqttChannel(
-        config: configs[i],
-        clientId: 'mis_${_selfPeerKey}_$i',
-        topic: _kMqttTopic,
-        onJsonPayload: _handleRawJsonPayload,
-        onConnectedChanged: (connected) {
-          if (_isDisposedOrStopped) return;
-          final anyConn = _mqttChannels.any((c) => c.isConnected) ||
-              _udpSocket != null;
-          if (_isConnected != anyConn) {
-            _isConnected = anyConn;
-            notifyListeners();
-          }
-          if (connected) {
-            // Immediately announce our presence on the newly connected real-time channel!
-            _broadcastPacketSync(type: 'hello_join');
-          }
-        },
-      );
-      _mqttChannels.add(ch);
-      unawaited(ch.connect());
-    }
+    // 2. Start 1 Active Primary MQTT v3.1.1 Channel with Sequential Automatic Failover
+    //    across all 4 endpoints (EMQX-WSS -> HiveMQ-WSS -> HiveMQ-TCP -> EMQX-TLS),
+    //    preventing 8x-18x duplicate packet amplification across redundant sockets.
+    _connectActiveMqttEndpoint();
 
     // 3. Broadcast immediate join + 2.5-second fast heartbeat & stale player pruning
     _broadcastPacketSync(type: 'hello_join');
@@ -359,6 +342,8 @@ class LobbyPresenceService extends ChangeNotifier {
     _heartbeatTimer = null;
     _mqttKeepAliveTimer?.cancel();
     _mqttKeepAliveTimer = null;
+    _mqttFailoverTimer?.cancel();
+    _mqttFailoverTimer = null;
 
     for (final ch in _mqttChannels) {
       ch.dispose();
@@ -376,6 +361,52 @@ class LobbyPresenceService extends ChangeNotifier {
     _lastHelloReplyToPeerMs.clear();
   }
 
+  void _connectActiveMqttEndpoint() {
+    if (_isDisposedOrStopped || !enableNetworkTransport) return;
+    _mqttFailoverTimer?.cancel();
+    _mqttFailoverTimer = null;
+
+    for (final ch in _mqttChannels) {
+      ch.dispose();
+    }
+    _mqttChannels.clear();
+
+    final idx = _activeMqttEndpointIndex % _kMqttEndpoints.length;
+    final config = _kMqttEndpoints[idx];
+    final ch = _RealtimeMqttChannel(
+      config: config,
+      clientId: 'mis_${_selfPeerKey}_$idx',
+      topic: _kMqttTopic,
+      onJsonPayload: _handleRawJsonPayload,
+      onConnectedChanged: (connected) {
+        if (_isDisposedOrStopped) return;
+        final anyConn =
+            _mqttChannels.any((c) => c.isConnected) || _udpSocket != null;
+        if (_isConnected != anyConn) {
+          _isConnected = anyConn;
+          notifyListeners();
+        }
+        if (connected) {
+          _broadcastPacketSync(type: 'hello_join');
+        }
+      },
+      onDisconnectedOrFailed: _scheduleMqttFailover,
+    );
+    _mqttChannels.add(ch);
+    unawaited(ch.connect());
+  }
+
+  void _scheduleMqttFailover() {
+    if (_isDisposedOrStopped || !enableNetworkTransport) return;
+    if (_mqttFailoverTimer != null && _mqttFailoverTimer!.isActive) return;
+    _mqttFailoverTimer = Timer(const Duration(milliseconds: 1800), () {
+      if (_isDisposedOrStopped || !enableNetworkTransport) return;
+      _activeMqttEndpointIndex =
+          (_activeMqttEndpointIndex + 1) % _kMqttEndpoints.length;
+      _connectActiveMqttEndpoint();
+    });
+  }
+
   /// Updates the local player's state and streams to all online players in real time.
   void updateLocalPlayerState({
     String? nickname,
@@ -391,7 +422,9 @@ class LobbyPresenceService extends ChangeNotifier {
     bool triggerWave = false,
     bool forceImmediateBroadcast = false,
   }) {
-    if (nickname != null) _selfNickname = nickname;
+    if (nickname != null) {
+      _selfNickname = LobbyModerationService.instance.sanitizeText(nickname);
+    }
     if (look != null) _selfLook = look;
     if (equippedBadgeIcon != null || equippedBadgeIcon == null) {
       _selfBadgeIcon = equippedBadgeIcon ?? _selfBadgeIcon;
@@ -573,7 +606,10 @@ class LobbyPresenceService extends ChangeNotifier {
     }
 
     final userId = (data['userId'] ?? peerKey).toString();
-    final nickname = (data['nickname'] ?? 'Student').toString();
+    final rawNickname = (data['nickname'] ?? 'Student').toString().trim();
+    final sanitizedNick =
+        LobbyModerationService.instance.sanitizeText(rawNickname).trim();
+    final nickname = sanitizedNick.isEmpty ? 'Student' : sanitizedNick;
     final isFaculty = data['isFaculty'] == true;
     final lookStr = (data['look'] ?? 'preset:1').toString();
     final look = LobbyAvatarLook.fromLookString(lookStr);
@@ -967,6 +1003,7 @@ class _RealtimeMqttChannel {
   final String topic;
   final void Function(String jsonPayload) onJsonPayload;
   final void Function(bool isConnected) onConnectedChanged;
+  final VoidCallback? onDisconnectedOrFailed;
 
   WebSocket? _ws;
   Socket? _tcpSocket;
@@ -984,6 +1021,7 @@ class _RealtimeMqttChannel {
     required this.topic,
     required this.onJsonPayload,
     required this.onConnectedChanged,
+    this.onDisconnectedOrFailed,
   }) {
     _topicBytes = Uint8List.fromList(utf8.encode(topic));
   }
@@ -1153,6 +1191,10 @@ class _RealtimeMqttChannel {
     _cleanupSocket();
     if (wasConnected) {
       onConnectedChanged(false);
+    }
+    if (onDisconnectedOrFailed != null) {
+      onDisconnectedOrFailed!();
+      return;
     }
     _reconnectTimer?.cancel();
     _reconnectTimer = Timer(const Duration(milliseconds: 2200), () {

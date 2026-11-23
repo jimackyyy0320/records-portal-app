@@ -353,7 +353,12 @@ void main() {
       final zones = buildActiveInteractiveZones(service.subjectChests);
       expect(zones.any((z) => z.id == 'quest_counter'), isTrue);
       expect(zones.any((z) => z.id == 'small_chest_1'), isTrue);
-      expect(zones.any((z) => z.id == 'small_chest_8'), isTrue);
+      expect(zones.any((z) => z.id == 'small_chest_8'), isFalse);
+      final facultyZones = buildActiveInteractiveZones(
+        service.subjectChests,
+        room: LobbyRoomId.facultyRoom,
+      );
+      expect(facultyZones.any((z) => z.id == 'small_chest_8'), isTrue);
 
       final nav = LobbyNavGrid(
         cols: kLobbyCols,
@@ -1370,6 +1375,91 @@ void main() {
         glowColor: 0xFFFACC15,
       );
       expect(compositeFrame(battleFrame).any((px) => px != 0), isTrue);
+    },
+  );
+
+  test(
+    'Part 4/6: Strict AI Mentor Room Isolation, Solid Furniture Colliders, Nickname Moderation & Radio Clock Clamp',
+    () async {
+      final service = LobbyDataService.instance;
+      await service.init('2024-00444');
+
+      // 1. Strict room isolation: Main Lobby has ONLY small_chest_1..3 (zero ghost sub-room mentors)
+      final lobbyMentors = buildActiveInteractiveZones(
+        service.subjectChests,
+        room: LobbyRoomId.mainLobby,
+      )
+          .where((z) => z.kind == InteractiveZoneKind.smallMysteryChest)
+          .map((z) => z.id)
+          .toSet();
+      expect(lobbyMentors, equals({'small_chest_1', 'small_chest_2', 'small_chest_3'}));
+      expect(lobbyMentors.contains('small_chest_4'), isFalse);
+      expect(lobbyMentors.contains('small_chest_8'), isFalse);
+
+      // 2. Solid furniture colliders include bookcases/vending/park rocks & bushes while keeping A* walkable
+      final lobbySolids = buildLobbySolids(
+        service.subjectChests,
+        room: LobbyRoomId.mainLobby,
+      );
+      final parkSolids = buildLobbySolids(
+        service.subjectChests,
+        room: LobbyRoomId.park,
+      );
+      expect(lobbySolids.length, greaterThan(10));
+      expect(parkSolids.length, greaterThan(12));
+      final nav = LobbyNavGrid(
+        cols: kLobbyCols,
+        rows: kLobbyRows,
+        solids: lobbySolids,
+      );
+      expect(nav.findPath(kPlayerSpawnPoint, const Offset(768, 196)), isNotEmpty);
+
+      // 3. Avatar Nickname Profanity Sanitization (local save + incoming MQTT/UDP payload)
+      await AvatarSpriteCache.instance.saveNickname('2024-00444', 'gago_student');
+      final savedNick = await AvatarSpriteCache.instance.loadSavedNickname(
+        '2024-00444',
+        fallbackName: 'Student',
+      );
+      expect(savedNick.toLowerCase().contains('gago'), isFalse);
+
+      final presence = LobbyPresenceService.instance;
+      presence.enableNetworkTransport = false;
+      presence.handleIncomingPresencePayload({
+        'app': 'mis_shs_lobby_v1',
+        'type': 'hello_join',
+        'peerKey': '2024-00777_12345',
+        'userId': '2024-00777',
+        'nickname': 'putangina_troll',
+        'room': 'mainLobby',
+        'x': 500.0,
+        'y': 500.0,
+      });
+      final remote = presence.allRemotePlayers
+          .firstWhere((p) => p.peerKey == '2024-00777_12345');
+      expect(remote.nickname.toLowerCase().contains('putangina'), isFalse);
+      presence.handleIncomingPresencePayload({
+        'app': 'mis_shs_lobby_v1',
+        'type': 'leave',
+        'peerKey': '2024-00777_12345',
+      });
+
+      // 4. Campus Radio remote sync clamps malicious future timestamps (+24h skew)
+      final radio = LobbyRadioService.instance;
+      radio.resetForTesting();
+      final localNow = 1700000000000;
+      final forgedFutureTs = localNow + (24 * 60 * 60 * 1000);
+      radio.applyRemoteRadioSync(
+        stationId: 'rg_manila_opm',
+        changedAtMs: forgedFutureTs,
+        changedBy: 'SkewedPeer',
+        localNowMs: localNow,
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(radio.lastChangedAtMs, lessThanOrEqualTo(localNow));
+      expect(
+        radio.remainingCooldownSeconds(nowMs: localNow),
+        lessThanOrEqualTo(3600),
+      );
     },
   );
 }

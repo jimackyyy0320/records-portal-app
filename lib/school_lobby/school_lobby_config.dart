@@ -2799,11 +2799,52 @@ List<Rect> buildLobbySolids(
         kLobbyWorldWidth - (b.right - 16.0), kLobbyWorldHeight), // Right wall
   ];
 
-  // Only large tree trunks have a small center trunk footprint; small plants/bushes/lamps are passable!
+  // Generate slim base-footprint colliders for solid furniture props (trees, bookcases,
+  // vending machines, coffee tables, boulders, and park bushes) while leaving chairs/rugs open!
   for (final piece in furnitureForRoom(room)) {
     if (!piece.collidable || piece.isFloorRug) continue;
-    if (piece.spriteKey == 'tree') {
-      solids.add(Rect.fromLTWH(piece.x + 28, piece.y + 74, 24, 20));
+    switch (piece.spriteKey) {
+      case 'tree':
+        solids.add(Rect.fromLTWH(piece.x + 28, piece.y + 74, 24, 20));
+        break;
+      case 'tree-small':
+        solids.add(Rect.fromLTWH(piece.x + 16, piece.y + 40, 20, 16));
+        break;
+      case 'bookshelf':
+      case 'wall-bookcase':
+      case 'wall-bookcase-pale':
+      case 'wall-bookcase-red':
+      case 'shelving':
+      case 'wall-cabinet':
+        if (piece.y > 96) {
+          solids.add(Rect.fromLTWH(piece.x + 6, piece.y + 24, 44, 20));
+        }
+        break;
+      case 'vending-drinks':
+      case 'vending-snacks':
+      case 'wall-vending':
+      case 'water-cooler':
+      case 'mini-fridge':
+        if (piece.y > 110) {
+          solids.add(Rect.fromLTWH(piece.x + 6, piece.y + 28, 36, 20));
+        }
+        break;
+      case 'coffee-table':
+      case 'wall-coffee-table':
+        solids.add(Rect.fromLTWH(piece.x + 8, piece.y + 18, 44, 18));
+        break;
+      case 'rocks':
+        solids.add(Rect.fromLTWH(piece.x + 6, piece.y + 16, 28, 16));
+        break;
+      case 'bush':
+      case 'ours-bush-clay':
+      case 'ours-bush-lilac':
+      case 'ours-bush-sage':
+      case 'ours-bush-white':
+        solids.add(Rect.fromLTWH(piece.x + 8, piece.y + 18, 22, 14));
+        break;
+      default:
+        break;
     }
   }
 
@@ -2960,6 +3001,12 @@ List<InteractiveZone> buildActiveInteractiveZones(
     for (final z
         in INTERACTIVE_ZONES.where((z) => z.room == LobbyRoomId.mainLobby)) {
       if (z.kind == InteractiveZoneKind.smallMysteryChest) {
+        final mentor = findAiMentorById(z.id);
+        // Strictly isolate each AI Subject Mentor to their assigned campus room!
+        // Prevents sub-room mentors (small_chest_4..8) from creating ghost zones in Main Lobby.
+        if (mentor != null && mentor.primaryRoom != LobbyRoomId.mainLobby) {
+          continue;
+        }
         final runtimeState = nowMs == null
             ? LobbyAgencyAgentsService.instance.runtimeStateForId(z.id)
             : null;
@@ -2967,7 +3014,6 @@ List<InteractiveZone> buildActiveInteractiveZones(
                 runtimeState.spec.room == LobbyRoomId.mainLobby)
             ? runtimeState.currentPos
             : smallChestPositionFor2HourWindow(z.id, nowMs: nowMs);
-        final mentor = findAiMentorById(z.id);
         zones.add(
           InteractiveZone(
             id: z.id,

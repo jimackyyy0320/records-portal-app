@@ -249,19 +249,30 @@ class LobbyRadioService extends ChangeNotifier {
     return true;
   }
 
-  /// Applies a remote radio sync packet received from `LobbyPresenceService` if newer.
+  /// Maximum allowed forward clock skew (`30s`) when accepting remote radio sync packets,
+  /// preventing a skewed peer clock from permanently locking the 1-hour channel cooldown.
+  static const int kMaxAllowedFutureSkewMs = 30 * 1000;
+
+  /// Applies a remote radio sync packet received from `LobbyPresenceService` if newer,
+  /// clamping any future timestamp against [localNowMs] + [kMaxAllowedFutureSkewMs].
   void applyRemoteRadioSync({
     required String stationId,
     required int changedAtMs,
     required String changedBy,
+    int? localNowMs,
   }) {
-    if (stationId.isEmpty || changedAtMs <= _lastChangedAtMs) return;
+    if (stationId.isEmpty) return;
+    final now = localNowMs ?? DateTime.now().millisecondsSinceEpoch;
+    final clampedTs = changedAtMs > (now + kMaxAllowedFutureSkewMs)
+        ? now
+        : changedAtMs;
+    if (clampedTs <= _lastChangedAtMs) return;
     if (!kStations.any((s) => s.id == stationId)) return;
     unawaited(
       changeStation(
         stationId,
         changedBy: changedBy,
-        nowMs: changedAtMs,
+        nowMs: clampedTs,
         fromRemoteSync: true,
       ),
     );

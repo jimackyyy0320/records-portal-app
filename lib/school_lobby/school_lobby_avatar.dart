@@ -6,6 +6,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'lobby_data_service.dart';
+import 'lobby_moderation_service.dart';
 import 'lobby_shop_service.dart';
 
 /// Recycled from TinyFloor `character.ts` & `characters.json`:
@@ -436,10 +437,11 @@ class AvatarSpriteCache {
     return firstWord.replaceAll(',', '');
   }
 
-  /// Saves the user's chosen Avatar Nickname.
+  /// Saves the user's chosen Avatar Nickname (sanitized through Campus Moderation).
   Future<void> saveNickname(String userId, String nickname) async {
     final prefs = await SharedPreferences.getInstance();
-    final trimmed = nickname.trim();
+    final trimmed =
+        LobbyModerationService.instance.sanitizeText(nickname.trim()).trim();
     if (trimmed.isNotEmpty) {
       await prefs.setString(
           '$_kPrefNicknamePrefix${_cleanUserId(userId)}', trimmed);
@@ -477,16 +479,38 @@ class AvatarSpriteCache {
     return frame.image;
   }
 
+  static const int kMaxCompositedCacheEntries = 24;
+
+  void _storeCompositedLook(String key, ui.Image image) {
+    _compositedLookCache.remove(key);
+    _compositedLookCache[key] = image;
+    while (_compositedLookCache.length > kMaxCompositedCacheEntries) {
+      final oldestKey = _compositedLookCache.keys.first;
+      final evicted = _compositedLookCache.remove(oldestKey);
+      // Only dispose textures we composited ourselves (never shared raw asset sheets!)
+      if (evicted != null && !_rawAssetCache.values.contains(evicted)) {
+        try {
+          evicted.dispose();
+        } catch (_) {}
+      }
+    }
+  }
+
   /// Resolves (and composites if multi-layered) the 48-frame `1536x64` sprite strip for [look].
   Future<ui.Image> resolveLookSpriteSheet(LobbyAvatarLook look) async {
     final key = look.toLookString();
     final existing = _compositedLookCache[key];
-    if (existing != null) return existing;
+    if (existing != null) {
+      // Refresh LRU recency
+      _compositedLookCache.remove(key);
+      _compositedLookCache[key] = existing;
+      return existing;
+    }
 
     final paths = look.assetLayerPaths;
     if (paths.length == 1) {
       final single = await loadRawAssetImage(paths.first);
-      _compositedLookCache[key] = single;
+      _storeCompositedLook(key, single);
       return single;
     }
 
@@ -517,7 +541,7 @@ class AvatarSpriteCache {
 
     final picture = recorder.endRecording();
     final composited = await picture.toImage(width, height);
-    _compositedLookCache[key] = composited;
+    _storeCompositedLook(key, composited);
     return composited;
   }
 }
@@ -550,13 +574,23 @@ class _PixelAvatarPreviewState extends State<PixelAvatarPreview> {
   void initState() {
     super.initState();
     _loadSheet();
-    _animTimer = Timer.periodic(const Duration(milliseconds: 110), (_) {
-      if (mounted) {
-        setState(() {
-          _stepFrame = (_stepFrame + 1) % kCharFramesPerDirection;
-        });
-      }
-    });
+    _syncAnimTimer();
+  }
+
+  void _syncAnimTimer() {
+    if (widget.animateWalk) {
+      _animTimer ??= Timer.periodic(const Duration(milliseconds: 110), (_) {
+        if (mounted) {
+          setState(() {
+            _stepFrame = (_stepFrame + 1) % kCharFramesPerDirection;
+          });
+        }
+      });
+    } else {
+      _animTimer?.cancel();
+      _animTimer = null;
+      _stepFrame = 0;
+    }
   }
 
   @override
@@ -564,6 +598,9 @@ class _PixelAvatarPreviewState extends State<PixelAvatarPreview> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.look.toLookString() != widget.look.toLookString()) {
       _loadSheet();
+    }
+    if (oldWidget.animateWalk != widget.animateWalk) {
+      _syncAnimTimer();
     }
   }
 
@@ -795,13 +832,14 @@ class _LobbyAvatarCustomizerSheetState
   }
 
   void _saveAndClose() {
-    final cleanNick = _nicknameCtrl.text.trim().isEmpty
+    final rawNick = _nicknameCtrl.text.trim().isEmpty
         ? widget.initialNickname
         : _nicknameCtrl.text.trim();
+    final cleanNick = LobbyModerationService.instance.sanitizeText(rawNick);
     Navigator.of(context).pop(
       LobbyAvatarCustomizationResult(
         look: _look,
-        nickname: cleanNick,
+        nickname: cleanNick.isEmpty ? widget.initialNickname : cleanNick,
       ),
     );
   }
