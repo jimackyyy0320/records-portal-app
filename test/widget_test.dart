@@ -1435,7 +1435,7 @@ void main() {
         'y': 500.0,
       });
       final remote = presence.allRemotePlayers
-          .firstWhere((p) => p.peerKey == '2024-00777_12345');
+          .firstWhere((p) => p.userId == '2024-00777');
       expect(remote.nickname.toLowerCase().contains('putangina'), isFalse);
       presence.handleIncomingPresencePayload({
         'app': 'mis_shs_lobby_v1',

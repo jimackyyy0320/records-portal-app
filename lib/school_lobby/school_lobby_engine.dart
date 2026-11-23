@@ -1973,7 +1973,7 @@ class SchoolLobbyCanvasPainter extends CustomPainter {
         LobbyRestSpot? nearestSpot;
         var bestSpotDist = 34.0;
         for (final spot in restSpotsForRoom(currentRoom)) {
-          final d = (pos - spot.center).distance;
+          final d = (pos - Offset(spot.x, spot.y)).distance;
           if (d < bestSpotDist) {
             bestSpotDist = d;
             nearestSpot = spot;
