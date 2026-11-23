@@ -11,40 +11,43 @@ class LobbyModerationService extends ChangeNotifier {
   LobbyModerationService._();
   static final LobbyModerationService instance = LobbyModerationService._();
 
-  /// Word-boundary profanity list covering common English, Tagalog, and Cebuano/Bisaya slurs.
+  /// Letter-boundary profanity list covering common English, Tagalog, and Cebuano/Bisaya slurs
+  /// (also catches underscore/digit nickname bypasses like `gago_123` without false positives).
   static final List<RegExp> _profanityPatterns = <String>[
-    r'\bfuck(?:ing|er|ed|s)?\b',
-    r'\bshit(?:ty|s)?\b',
-    r'\bbitch(?:es)?\b',
-    r'\basshole(?:s)?\b',
-    r'\bbastard(?:s)?\b',
-    r'\bdickhead\b',
-    r'\bpussy\b',
-    r'\bcunt\b',
-    r'\bslut\b',
-    r'\bwhore\b',
-    r'\bputang\s*ina\b',
-    r'\bputangina(?:mo)?\b',
-    r'\bputa\b',
-    r'\bgago\b',
-    r'\bgaga\b',
-    r'\btanga\b',
-    r'\bbobo\b',
-    r'\btarantado\b',
-    r'\bulol\b',
-    r'\bkupal\b',
-    r'\bpunyeta\b',
-    r'\bleche\b',
-    r'\bhindot\b',
-    r'\bkantot\b',
-    r'\bpakshet\b',
-    r'\byawa(?:a)?\b',
-    r'\bpiste(?:ha)?\b',
-    r'\bkayat(?:a)?\b',
-    r'\bbuang\b',
-    r'\bbogo\b',
-    r'\biloy\s*mo\b',
-  ].map((p) => RegExp(p, caseSensitive: false)).toList();
+    r'fuck(?:ing|er|ed|s)?',
+    r'shit(?:ty|s)?',
+    r'bitch(?:es)?',
+    r'asshole(?:s)?',
+    r'bastard(?:s)?',
+    r'dickhead',
+    r'pussy',
+    r'cunt',
+    r'slut',
+    r'whore',
+    r'putang\s*ina',
+    r'putangina(?:mo)?',
+    r'puta',
+    r'gago',
+    r'gaga',
+    r'tanga',
+    r'bobo',
+    r'tarantado',
+    r'ulol',
+    r'kupal',
+    r'punyeta',
+    r'leche',
+    r'hindot',
+    r'kantot',
+    r'pakshet',
+    r'yawa(?:a)?',
+    r'piste(?:ha)?',
+    r'kayat(?:a)?',
+    r'buang',
+    r'bogo',
+    r'iloy\s*mo',
+  ]
+      .map((p) => RegExp('(?<![a-zA-Z])(?:$p)(?![a-zA-Z])', caseSensitive: false))
+      .toList();
 
   final Set<LobbyRoomId> _mutedRooms = <LobbyRoomId>{};
   String? _activeAnnouncement;
