@@ -122,9 +122,11 @@ class ReviewerOutlineExtractor {
     );
 
     // 3. Mark slide boundaries without consuming nested content inside slides
+    //    Use `(?<![-\w])slide(?![-\w])` so child classes like `slide-header`,
+    //    `slide-title`, or `slide-body` are NEVER treated as separate slide boundaries!
     work = work.replaceAll(
       RegExp(
-        r'<(?:div|section|article)\b[^>]*\bclass\s*=\s*["\x27][^"\x27]*\bslide\b[^"\x27]*["\x27][^>]*>',
+        r'<(?:div|section|article)\b[^>]*\bclass\s*=\s*["\x27][^"\x27]*(?<![-\w])slide(?![-\w])[^"\x27]*["\x27][^>]*>',
         caseSensitive: false,
       ),
       '\n$_slideBreakToken\n',
@@ -382,9 +384,10 @@ class ReviewerOutlineExtractor {
   static String _decodeEntities(String input) {
     if (!input.contains('&')) return input;
 
+    // Decode non-ampersand named entities and numeric entities FIRST,
+    // and decode `&amp;` LAST to prevent double-unescaping (e.g., `&amp;lt;` -> `&lt;`).
     const named = <String, String>{
       '&nbsp;': ' ',
-      '&amp;': '&',
       '&lt;': '<',
       '&gt;': '>',
       '&quot;': '"',
@@ -435,6 +438,9 @@ class ReviewerOutlineExtractor {
       if (code == null || code <= 0) return '';
       return String.fromCharCode(code);
     });
+
+    // Decode `&amp;` last so double-encoded entities remain intact.
+    out = out.replaceAll(RegExp(r'&amp;', caseSensitive: false), '&');
 
     return out;
   }

@@ -762,6 +762,26 @@ class StudentScheduleOverlay extends StatefulWidget {
     required this.child,
   });
 
+  /// Builds a deterministic per-period key so dismissing the "Class is in Session"
+  /// notice stays dismissed for the remainder of that class period without re-locking
+  /// the screen every 10 seconds, then automatically resets on the next class period.
+  static String buildScheduleSessionKey(
+    String day,
+    String subjectCode,
+    String timeIn,
+  ) {
+    return '${day.trim().toLowerCase()}|${subjectCode.trim().toUpperCase()}|${timeIn.trim()}';
+  }
+
+  /// Returns `true` when an active class period should show the warning overlay.
+  static bool shouldShowInClassWarning({
+    required String? activeSessionKey,
+    required String? dismissedSessionKey,
+  }) {
+    if (activeSessionKey == null || activeSessionKey.isEmpty) return false;
+    return activeSessionKey != dismissedSessionKey;
+  }
+
   @override
   State<StudentScheduleOverlay> createState() => _StudentScheduleOverlayState();
 }
@@ -770,7 +790,8 @@ class _StudentScheduleOverlayState extends State<StudentScheduleOverlay> {
   Timer? _timer;
   bool _minimized = false;
   bool _inClassWarningActive = false;
-  int _lastDismissedMs = 0;
+  String? _activeSessionKey;
+  String? _dismissedSessionKey;
   String _nextSubject = 'No more classes today';
   String _countdown = '--:--:--';
   Offset _badgeOffset = const Offset(16, 90);
@@ -821,7 +842,7 @@ class _StudentScheduleOverlayState extends State<StudentScheduleOverlay> {
     ];
     final todayStr = days[now.weekday - 1];
 
-    bool inClass = false;
+    String? currentClassSessionKey;
     String? upcomingSubj;
     Duration? minDiff;
 
@@ -831,7 +852,11 @@ class _StudentScheduleOverlayState extends State<StudentScheduleOverlay> {
         final tOut = _parseTimeToday(s.timeOut);
         if (tIn == null || tOut == null) continue;
         if (!now.isBefore(tIn) && !now.isAfter(tOut)) {
-          inClass = true;
+          currentClassSessionKey = StudentScheduleOverlay.buildScheduleSessionKey(
+            s.day,
+            s.subjectCode,
+            s.timeIn,
+          );
           break;
         }
         if (tIn.isAfter(now)) {
@@ -845,12 +870,15 @@ class _StudentScheduleOverlayState extends State<StudentScheduleOverlay> {
     }
 
     setState(() {
-      if (inClass) {
-        if (DateTime.now().millisecondsSinceEpoch - _lastDismissedMs > 10000) {
-          _inClassWarningActive = true;
-        }
+      _activeSessionKey = currentClassSessionKey;
+      if (currentClassSessionKey != null) {
+        _inClassWarningActive = StudentScheduleOverlay.shouldShowInClassWarning(
+          activeSessionKey: currentClassSessionKey,
+          dismissedSessionKey: _dismissedSessionKey,
+        );
       } else {
         _inClassWarningActive = false;
+        _dismissedSessionKey = null;
         if (upcomingSubj != null && minDiff != null) {
           _nextSubject = upcomingSubj;
           final hh = minDiff.inHours.toString().padLeft(2, '0');
@@ -1013,7 +1041,9 @@ class _StudentScheduleOverlayState extends State<StudentScheduleOverlay> {
               constraints: const BoxConstraints(maxWidth: 380),
               padding: const EdgeInsets.all(28),
               decoration: BoxDecoration(
-                color: PortalColors.burgBg,
+                color: PortalColors.isDark
+                    ? PortalColors.activeCard
+                    : PortalColors.burgBg,
                 borderRadius: BorderRadius.circular(22),
                 border: Border.all(color: PortalColors.burg, width: 2),
               ),
@@ -1025,13 +1055,21 @@ class _StudentScheduleOverlayState extends State<StudentScheduleOverlay> {
                   Text(
                     'Class is in Session',
                     textAlign: TextAlign.center,
-                    style: PortalTheme.serif(size: 30, color: PortalColors.burg),
+                    style: PortalTheme.serif(
+                      size: 30,
+                      color: PortalColors.isDark
+                          ? const Color(0xFFFCA5A5)
+                          : PortalColors.burg,
+                    ),
                   ),
                   const SizedBox(height: 10),
                   Text(
-                    'Please put your phone away and focus on the lecture. The portal will resume shortly.',
+                    'Please put your phone away and focus on the lecture. Dismissing this notice keeps it hidden for this class period so you can still access your QR Pass or reviewers.',
                     textAlign: TextAlign.center,
-                    style: PortalTheme.sans(size: 14, color: PortalColors.ink),
+                    style: PortalTheme.sans(
+                      size: 14,
+                      color: PortalColors.activeInk,
+                    ),
                   ),
                   const SizedBox(height: 22),
                   SizedBox(
@@ -1040,8 +1078,7 @@ class _StudentScheduleOverlayState extends State<StudentScheduleOverlay> {
                       onPressed: () {
                         setState(() {
                           _inClassWarningActive = false;
-                          _lastDismissedMs =
-                              DateTime.now().millisecondsSinceEpoch;
+                          _dismissedSessionKey = _activeSessionKey;
                         });
                       },
                       child: const Text('I Understand'),

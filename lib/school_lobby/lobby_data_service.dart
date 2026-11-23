@@ -968,6 +968,17 @@ class LobbyDataService extends ChangeNotifier {
           );
           chestsChanged = true;
         }
+
+        // 4. Sync official Google Drive Reviewer files for this active subject so
+        //    the in-app HTML Reviewer Streamer & .TXT Study Outline Extractor work inside Chests!
+        try {
+          final driveFiles = await ApiService.instance.fetchReviewerFiles(code);
+          if (mergeDriveReviewerFilesForSubject(code, driveFiles) > 0) {
+            chestsChanged = true;
+          }
+        } catch (_) {
+          // Offline or Drive folder unavailable; retain cached/curated links
+        }
       }
 
       if (chestsChanged) {
@@ -978,6 +989,82 @@ class LobbyDataService extends ChangeNotifier {
       _isSyncingDriveReviewers = false;
       notifyListeners();
     }
+  }
+
+  /// Merges fetched Google Drive [ReviewerFile] entries into the matching [SubjectChest]
+  /// with `driveFileId` populated so `isFromDrive == true` unlocks the HTML Streamer &
+  /// `.TXT` Outline Extractor. Returns the count of newly added Drive reviewers.
+  int mergeDriveReviewerFilesForSubject(
+    String subjectCode,
+    List<ReviewerFile> driveFiles,
+  ) {
+    if (driveFiles.isEmpty) return 0;
+    final normCode = normalizeSubjectCode(subjectCode);
+    var chestIdx = _subjectChests.indexWhere(
+      (c) => normalizeSubjectCode(c.subjectName) == normCode,
+    );
+    if (chestIdx < 0) {
+      _subjectChests.add(
+        SubjectChest(
+          id: 'chest_${normCode.toLowerCase().replaceAll(' ', '_')}',
+          subjectName: normCode,
+          fullTitle: subjectCode,
+          colorValue: _colorForSubjectCode(normCode),
+          reviewers: const [],
+        ),
+      );
+      chestIdx = _subjectChests.length - 1;
+    }
+
+    final chest = _subjectChests[chestIdx];
+    final existingDriveIds = chest.reviewers
+        .where((r) => r.driveFileId != null && r.driveFileId!.isNotEmpty)
+        .map((r) => r.driveFileId!)
+        .toSet();
+    final updatedReviewers = List<LobbyReviewerItem>.from(chest.reviewers);
+    var addedCount = 0;
+
+    for (final file in driveFiles) {
+      final fid = file.id.trim();
+      if (fid.isEmpty || existingDriveIds.contains(fid)) continue;
+      final lowerName = file.name.toLowerCase();
+      final lowerMime = file.mimeType.toLowerCase();
+      String fileType = 'LINK';
+      if (lowerName.endsWith('.html') ||
+          lowerName.endsWith('.htm') ||
+          lowerMime.contains('html')) {
+        fileType = 'HTML';
+      } else if (lowerName.endsWith('.pdf') || lowerMime.contains('pdf')) {
+        fileType = 'PDF';
+      } else if (lowerName.endsWith('.ppt') ||
+          lowerName.endsWith('.pptx') ||
+          lowerMime.contains('presentation')) {
+        fileType = 'PPTX';
+      }
+
+      updatedReviewers.add(
+        LobbyReviewerItem(
+          id: 'drive_$fid',
+          title: file.name.trim().isEmpty ? '$normCode Reviewer' : file.name.trim(),
+          subject: normCode,
+          fileType: fileType,
+          urlOrContent: file.url,
+          summary: 'Official $normCode Google Drive Reviewer ($fileType)',
+          uploadedBy: 'Google Drive',
+          createdAtMs: DateTime.now().millisecondsSinceEpoch,
+          xpReward: 20,
+          driveFileId: fid,
+          mimeType: file.mimeType,
+        ),
+      );
+      existingDriveIds.add(fid);
+      addedCount++;
+    }
+
+    if (addedCount > 0) {
+      _subjectChests[chestIdx] = chest.copyWith(reviewers: updatedReviewers);
+    }
+    return addedCount;
   }
 
   /// Pushes the Teacher's current Activities and Subject Chest Reviewer Links

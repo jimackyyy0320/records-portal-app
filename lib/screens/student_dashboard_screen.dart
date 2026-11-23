@@ -242,7 +242,7 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
     if (_isFacultyViewing) return;
     final action = await showModalBottomSheet<String>(
       context: context,
-      backgroundColor: Colors.white,
+      backgroundColor: PortalColors.activeCard,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
@@ -514,7 +514,7 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
                   vertical: 6,
                 ),
                 decoration: BoxDecoration(
-                  color: PortalColors.parchment,
+                  color: PortalColors.activeBg,
                   borderRadius: BorderRadius.circular(20),
                   border: Border.all(color: PortalColors.ruleMed),
                 ),
@@ -677,7 +677,7 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
                             ),
                             child: CircleAvatar(
                               radius: 30,
-                              backgroundColor: PortalColors.parchment,
+                              backgroundColor: PortalColors.activeBg,
                               backgroundImage: avatarBytes != null
                                   ? MemoryImage(avatarBytes)
                                   : null,
@@ -817,7 +817,7 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
                 Container(
                   padding: const EdgeInsets.all(28),
                   decoration: BoxDecoration(
-                    color: Colors.white,
+                    color: PortalColors.activeCard,
                     borderRadius: BorderRadius.circular(20),
                     border: Border.all(color: PortalColors.rule),
                   ),
@@ -845,7 +845,7 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
                   return Container(
                     margin: const EdgeInsets.only(bottom: 12),
                     decoration: BoxDecoration(
-                      color: Colors.white,
+                      color: PortalColors.activeCard,
                       borderRadius: BorderRadius.circular(20),
                       border: Border.all(color: PortalColors.ruleMed),
                       boxShadow: const [
@@ -870,7 +870,7 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
                                 height: 54,
                                 alignment: Alignment.center,
                                 decoration: BoxDecoration(
-                                  color: PortalColors.parchment,
+                                  color: PortalColors.activeBg,
                                   borderRadius: BorderRadius.circular(15),
                                   border:
                                       Border.all(color: PortalColors.ruleMed),
@@ -977,7 +977,7 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
                 // Student Profile Card (.dash-profile-card)
                 Container(
                   decoration: BoxDecoration(
-                    color: Colors.white,
+                    color: PortalColors.activeCard,
                     borderRadius: BorderRadius.circular(26),
                     border: Border.all(color: PortalColors.rule),
                     boxShadow: const [
@@ -1066,7 +1066,7 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
                           vertical: 6,
                         ),
                         decoration: BoxDecoration(
-                          color: PortalColors.parchment,
+                          color: PortalColors.activeBg,
                           borderRadius: BorderRadius.circular(50),
                           border: Border.all(color: PortalColors.ruleMed),
                         ),
@@ -1193,7 +1193,7 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
                 Container(
                   width: double.infinity,
                   decoration: BoxDecoration(
-                    color: Colors.white,
+                    color: PortalColors.activeCard,
                     borderRadius: BorderRadius.circular(24),
                     border: Border.all(color: PortalColors.rule),
                     boxShadow: const [
@@ -1408,7 +1408,7 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
                     final r = filtered[idx];
                     return Container(
                       decoration: BoxDecoration(
-                        color: Colors.white,
+                        color: PortalColors.activeCard,
                         borderRadius: BorderRadius.circular(10),
                         border: Border.all(color: PortalColors.ruleMed),
                       ),
@@ -1640,7 +1640,7 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: PortalColors.parchment,
+        color: PortalColors.activeBg,
         borderRadius: BorderRadius.circular(14),
         border: Border.all(color: PortalColors.rule),
       ),
@@ -1786,7 +1786,7 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
                           height: 44,
                           alignment: Alignment.center,
                           decoration: BoxDecoration(
-                            color: PortalColors.parchment,
+                            color: PortalColors.activeBg,
                             borderRadius: BorderRadius.circular(10),
                           ),
                           child: Text(
@@ -1844,7 +1844,7 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
 
     final choice = await showModalBottomSheet<String>(
       context: context,
-      backgroundColor: Colors.white,
+      backgroundColor: PortalColors.activeCard,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
@@ -1860,7 +1860,7 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
                   Container(
                     padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
-                      color: PortalColors.parchment,
+                      color: PortalColors.activeBg,
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: const Text('📚', style: TextStyle(fontSize: 22)),
@@ -2171,7 +2171,7 @@ class _ReviewerOutlineReaderScreenState
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: PortalColors.parchment,
+      backgroundColor: PortalColors.activeBg,
       appBar: AppBar(
         backgroundColor: PortalColors.forest,
         foregroundColor: Colors.white,
@@ -2233,7 +2233,7 @@ class _ReviewerOutlineReaderScreenState
                       width: double.infinity,
                       padding: const EdgeInsets.all(20),
                       decoration: BoxDecoration(
-                        color: Colors.white,
+                        color: PortalColors.activeCard,
                         borderRadius: BorderRadius.circular(20),
                         border: Border.all(color: PortalColors.ruleMed),
                         boxShadow: const [
@@ -2261,9 +2261,9 @@ class _ReviewerOutlineReaderScreenState
             // Bottom Action Bar
             Container(
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 14),
-              decoration: const BoxDecoration(
-                color: Colors.white,
-                border: Border(top: BorderSide(color: PortalColors.ruleMed)),
+              decoration: BoxDecoration(
+                color: PortalColors.activeCard,
+                border: Border(top: BorderSide(color: PortalColors.activeRule)),
               ),
               child: Row(
                 children: [

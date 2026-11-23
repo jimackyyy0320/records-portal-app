@@ -180,7 +180,7 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> {
     final savedVal = await showDialog<String>(
       context: context,
       builder: (ctx) => Dialog(
-        backgroundColor: Colors.white,
+        backgroundColor: PortalColors.activeCard,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         child: Padding(
           padding: const EdgeInsets.all(24),
@@ -631,7 +631,7 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> {
                 Container(
                   padding: const EdgeInsets.all(26),
                   decoration: BoxDecoration(
-                    color: Colors.white,
+                    color: PortalColors.activeCard,
                     borderRadius: BorderRadius.circular(20),
                     border: Border.all(color: PortalColors.rule),
                   ),
@@ -646,7 +646,7 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> {
                   return Container(
                     margin: const EdgeInsets.only(bottom: 12),
                     decoration: BoxDecoration(
-                      color: Colors.white,
+                      color: PortalColors.activeCard,
                       borderRadius: BorderRadius.circular(20),
                       border: Border.all(color: PortalColors.ruleMed),
                       boxShadow: const [
@@ -671,7 +671,7 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> {
                                 height: 52,
                                 alignment: Alignment.center,
                                 decoration: BoxDecoration(
-                                  color: PortalColors.parchment,
+                                  color: PortalColors.activeBg,
                                   borderRadius: BorderRadius.circular(14),
                                   border:
                                       Border.all(color: PortalColors.ruleMed),
@@ -758,7 +758,7 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> {
                 Container(
                   padding: const EdgeInsets.all(18),
                   decoration: BoxDecoration(
-                    color: Colors.white,
+                    color: PortalColors.activeCard,
                     borderRadius: BorderRadius.circular(20),
                     border: Border.all(color: PortalColors.rule),
                   ),
@@ -827,7 +827,7 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> {
                                 )
                               : null,
                           filled: true,
-                          fillColor: PortalColors.parchment,
+                          fillColor: PortalColors.activeBg,
                           contentPadding: const EdgeInsets.symmetric(
                             horizontal: 14,
                             vertical: 11,
@@ -939,7 +939,7 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> {
       return Container(
         padding: const EdgeInsets.all(28),
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: PortalColors.activeCard,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(color: PortalColors.rule),
         ),
@@ -953,7 +953,7 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> {
 
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: PortalColors.activeCard,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: PortalColors.rule),
       ),
@@ -1041,7 +1041,7 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> {
       return Container(
         padding: const EdgeInsets.all(28),
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: PortalColors.activeCard,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(color: PortalColors.rule),
         ),
@@ -1074,7 +1074,7 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> {
             ),
             leading: CircleAvatar(
               radius: 22,
-              backgroundColor: PortalColors.parchment,
+              backgroundColor: PortalColors.activeBg,
               backgroundImage:
                   avatarBytes != null ? MemoryImage(avatarBytes) : null,
               child: avatarBytes == null

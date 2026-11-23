@@ -678,7 +678,7 @@ class _TeacherScannerScreenState extends State<TeacherScannerScreen>
       context: context,
       barrierDismissible: false,
       builder: (ctx) => AlertDialog(
-        backgroundColor: Colors.white,
+        backgroundColor: PortalColors.activeCard,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
         title: Row(
           children: [
@@ -799,7 +799,7 @@ class _TeacherScannerScreenState extends State<TeacherScannerScreen>
     final entered = await showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: Colors.white,
+        backgroundColor: PortalColors.activeCard,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: Text('Manual Student ID', style: PortalTheme.serif(size: 24)),
         content: TextField(
@@ -808,7 +808,7 @@ class _TeacherScannerScreenState extends State<TeacherScannerScreen>
           decoration: InputDecoration(
             hintText: 'Enter Student ID',
             filled: true,
-            fillColor: PortalColors.parchment,
+            fillColor: PortalColors.activeBg,
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
             ),
@@ -841,7 +841,7 @@ class _TeacherScannerScreenState extends State<TeacherScannerScreen>
     final added = await showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: Colors.white,
+        backgroundColor: PortalColors.activeCard,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: Text('Add / Enter Subject', style: PortalTheme.serif(size: 22)),
         content: TextField(
@@ -851,7 +851,7 @@ class _TeacherScannerScreenState extends State<TeacherScannerScreen>
           decoration: InputDecoration(
             hintText: 'e.g. PKLP, PGP, PHILO',
             filled: true,
-            fillColor: PortalColors.parchment,
+            fillColor: PortalColors.activeBg,
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
             ),
@@ -887,7 +887,7 @@ class _TeacherScannerScreenState extends State<TeacherScannerScreen>
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: Colors.white,
+      backgroundColor: PortalColors.activeCard,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
@@ -902,7 +902,7 @@ class _TeacherScannerScreenState extends State<TeacherScannerScreen>
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: Colors.white,
+      backgroundColor: PortalColors.activeCard,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
@@ -917,7 +917,7 @@ class _TeacherScannerScreenState extends State<TeacherScannerScreen>
   Widget build(BuildContext context) {
     if (!_hasFacultyAccess) {
       return Scaffold(
-        backgroundColor: PortalColors.parchment,
+        backgroundColor: PortalColors.activeBg,
         appBar: AppBar(
           backgroundColor: PortalColors.forest,
           foregroundColor: Colors.white,
@@ -970,7 +970,7 @@ class _TeacherScannerScreenState extends State<TeacherScannerScreen>
         !_hwStatus.cameraGranted || (_hwStatus.nfcSupported && !_hwStatus.nfcEnabled);
 
     return Scaffold(
-      backgroundColor: PortalColors.parchment,
+      backgroundColor: PortalColors.activeBg,
       appBar: AppBar(
         backgroundColor: PortalColors.forest,
         foregroundColor: Colors.white,
@@ -1126,9 +1126,9 @@ class _TeacherScannerScreenState extends State<TeacherScannerScreen>
             Container(
               width: double.infinity,
               padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
-              decoration: const BoxDecoration(
-                color: Colors.white,
-                border: Border(bottom: BorderSide(color: PortalColors.ruleMed)),
+              decoration: BoxDecoration(
+                color: PortalColors.activeCard,
+                border: Border(bottom: BorderSide(color: PortalColors.activeRule)),
                 boxShadow: [
                   BoxShadow(
                     color: Color(0x141A3A2A),
@@ -1245,7 +1245,7 @@ class _TeacherScannerScreenState extends State<TeacherScannerScreen>
                           label: Text(subj),
                           selected: selected,
                           selectedColor: PortalColors.forest,
-                          backgroundColor: PortalColors.parchment,
+                          backgroundColor: PortalColors.activeBg,
                           checkmarkColor: PortalColors.gold,
                           labelStyle: PortalTheme.sans(
                             size: 12,
@@ -1742,7 +1742,7 @@ class _TeacherScannerScreenState extends State<TeacherScannerScreen>
             Expanded(
               flex: 4,
               child: Container(
-                color: Colors.white,
+                color: PortalColors.activeCard,
                 child: Column(
                   children: [
                     Container(
@@ -1750,8 +1750,8 @@ class _TeacherScannerScreenState extends State<TeacherScannerScreen>
                         horizontal: 14,
                         vertical: 8,
                       ),
-                      decoration: const BoxDecoration(
-                        color: PortalColors.parchment,
+                      decoration: BoxDecoration(
+                        color: PortalColors.activeBg,
                         border: Border(
                           bottom: BorderSide(color: PortalColors.rule),
                         ),
@@ -2142,7 +2142,7 @@ class _ScannerPermissionsSetupSheetState
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: PortalColors.parchment,
+                color: PortalColors.activeBg,
                 borderRadius: BorderRadius.circular(14),
                 border: Border.all(color: PortalColors.ruleMed),
               ),
@@ -2208,7 +2208,7 @@ class _ScannerPermissionsSetupSheetState
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: PortalColors.activeCard,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
           color: statusOk ? PortalColors.emeraldBorder : PortalColors.ruleMed,

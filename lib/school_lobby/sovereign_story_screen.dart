@@ -3084,6 +3084,29 @@ class _SovereignStoryScreenState extends State<SovereignStoryScreen> {
                             fontWeight: FontWeight.w700,
                           ),
                         ),
+                        const SizedBox(height: 8),
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: OutlinedButton.icon(
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: const Color(0xFF38BDF8),
+                              side: const BorderSide(color: Color(0xFF38BDF8)),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 10, vertical: 6),
+                              visualDensity: VisualDensity.compact,
+                            ),
+                            onPressed: () =>
+                                _openSaligangTalaPracticeQuiz(entry),
+                            icon: const Icon(Icons.quiz_rounded, size: 15),
+                            label: Text(
+                              'Quick Practice Quiz',
+                              style: GoogleFonts.outfit(
+                                fontSize: 11.5,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ),
+                        ),
                       ],
                     ],
                   ),
@@ -3092,6 +3115,157 @@ class _SovereignStoryScreenState extends State<SovereignStoryScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  /// Opens a focused Constitutional Practice Quiz for an unlocked *Saligang Tala*
+  /// entry, pulling authentic questions from that historical Act so students can
+  /// review Philippine Governance concepts anytime.
+  Future<void> _openSaligangTalaPracticeQuiz(SaligangTalaEntry entry) async {
+    final actIdx = (entry.actNumber - 1).clamp(0, kSovereignActs.length - 1);
+    final act = kSovereignActs[actIdx];
+    final pool = <DebateChallengeQuestion>[
+      ...act.randomUnrestEncounter.questions,
+      for (final e in act.entities)
+        if (e.battleSpec != null) ...e.battleSpec!.questions,
+    ];
+    if (pool.isEmpty) return;
+
+    var qIdx = entry.id.hashCode.abs() % pool.length;
+    int? selectedIdx;
+
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) {
+          final q = pool[qIdx % pool.length];
+          final answered = selectedIdx != null;
+          final isCorrect = answered && selectedIdx == q.correctIndex;
+          return AlertDialog(
+            backgroundColor: const Color(0xFF0F172A),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(18),
+              side: const BorderSide(color: Color(0xFF38BDF8), width: 1.8),
+            ),
+            title: Text(
+              '⚖️ ${entry.title} • Practice Quiz',
+              style: GoogleFonts.outfit(
+                color: const Color(0xFFFACC15),
+                fontSize: 16,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    q.prompt,
+                    style: GoogleFonts.outfit(
+                      color: Colors.white,
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  ...List<Widget>.generate(q.choices.length, (i) {
+                    final letter = String.fromCharCode(65 + i);
+                    Color borderCol = Colors.white24;
+                    Color fillCol = const Color(0xFF1E293B);
+                    if (answered) {
+                      if (i == q.correctIndex) {
+                        borderCol = const Color(0xFF10B981);
+                        fillCol = const Color(0xFF065F46).withValues(alpha: 0.45);
+                      } else if (i == selectedIdx) {
+                        borderCol = const Color(0xFFEF4444);
+                        fillCol = const Color(0xFF7F1D1D).withValues(alpha: 0.45);
+                      }
+                    }
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 7),
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(10),
+                        onTap: answered
+                            ? null
+                            : () {
+                                if (i == q.correctIndex) {
+                                  LobbyAudioService.instance.playQuizCorrect();
+                                } else {
+                                  LobbyAudioService.instance.playQuizWrong();
+                                }
+                                setDialogState(() => selectedIdx = i);
+                              },
+                        child: Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: fillCol,
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: borderCol, width: 1.4),
+                          ),
+                          child: Text(
+                            '$letter. ${q.choices[i]}',
+                            style: GoogleFonts.inter(
+                              color: Colors.white,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
+                  }),
+                  if (answered) ...[
+                    const SizedBox(height: 6),
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF1E293B),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: isCorrect
+                              ? const Color(0xFF34D399)
+                              : const Color(0xFFF59E0B),
+                        ),
+                      ),
+                      child: Text(
+                        '${isCorrect ? '✅ Correct!' : '💡 Review Note:'} ${q.constitutionalExplanation}',
+                        style: GoogleFonts.inter(
+                          color: Colors.white,
+                          fontSize: 11.5,
+                          height: 1.35,
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            actions: [
+              if (pool.length > 1)
+                TextButton(
+                  onPressed: () {
+                    setDialogState(() {
+                      qIdx = (qIdx + 1) % pool.length;
+                      selectedIdx = null;
+                    });
+                  },
+                  child: const Text('Next Question →',
+                      style: TextStyle(color: Color(0xFF38BDF8))),
+                ),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF10B981),
+                  foregroundColor: Colors.white,
+                ),
+                onPressed: () => Navigator.of(ctx).pop(),
+                child: const Text('Done'),
+              ),
+            ],
+          );
+        },
       ),
     );
   }

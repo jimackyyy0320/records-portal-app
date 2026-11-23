@@ -11,6 +11,7 @@ import 'package:student_portal_app/screens/auth_screen.dart';
 import 'package:student_portal_app/screens/teacher_scanner_screen.dart';
 import 'package:student_portal_app/services/session_service.dart';
 import 'package:student_portal_app/utils/reviewer_outline_extractor.dart';
+import 'package:student_portal_app/widgets/common_widgets.dart';
 import 'package:student_portal_app/widgets/student_qr_generator.dart';
 import 'package:student_portal_app/school_lobby/lobby_agency_agents.dart';
 import 'package:student_portal_app/school_lobby/lobby_audio_service.dart';
@@ -1460,6 +1461,103 @@ void main() {
         radio.remainingCooldownSeconds(nowMs: localNow),
         lessThanOrEqualTo(3600),
       );
+    },
+  );
+
+  test(
+    'Part 5/6: ReviewerOutlineExtractor Slide Regex & Entities, Drive Chest Sync, Schedule Dismissal & Dark Mode',
+    () async {
+      // 1. Verify ReviewerOutlineExtractor does NOT split slide-header/slide-body into fake parts
+      //    and does NOT double-unescape `&amp;lt;`!
+      const sampleHtml = '''
+        <section class="slide">
+          <div class="slide-header"><h1>Philippine Constitution</h1></div>
+          <div class="slide-body"><p>Article II &amp;lt;Sovereignty&amp;gt; resides in the people.</p></div>
+        </section>
+        <section class="slide">
+          <div class="slide-title"><h2>Three Co-Equal Branches</h2></div>
+          <div class="slide-body"><p>Legislative, Executive, and Judicial.</p></div>
+        </section>
+      ''';
+      final extracted = ReviewerOutlineExtractor.extractToTxt(
+        sampleHtml,
+        documentTitle: 'PPG Week 3',
+      );
+      expect(extracted.contains('[PART 1 OF 2]'), isTrue);
+      expect(extracted.contains('[PART 2 OF 2]'), isTrue);
+      expect(extracted.contains('[PART 3 OF'), isFalse);
+      expect(extracted.contains('&lt;Sovereignty&gt;'), isTrue);
+
+      // 2. Verify Google Drive Reviewer syncing populates `driveFileId` (`isFromDrive == true`) cleanly
+      final service = LobbyDataService.instance;
+      await service.init('2024-00515');
+      final added = service.mergeDriveReviewerFilesForSubject(
+        'PPG',
+        const <ReviewerFile>[
+          ReviewerFile(
+            id: 'drive_abc123',
+            name: 'Week 4 Checks and Balances.html',
+            mimeType: 'text/html',
+            url: 'https://drive.google.com/file/d/drive_abc123/view',
+          ),
+        ],
+      );
+      expect(added, 1);
+      // Duplicate merge is a no-op
+      final addedAgain = service.mergeDriveReviewerFilesForSubject(
+        'PPG',
+        const <ReviewerFile>[
+          ReviewerFile(
+            id: 'drive_abc123',
+            name: 'Week 4 Checks and Balances.html',
+            mimeType: 'text/html',
+            url: 'https://drive.google.com/file/d/drive_abc123/view',
+          ),
+        ],
+      );
+      expect(addedAgain, 0);
+      final ppgChest = service.subjectChests.firstWhere(
+        (c) => LobbyDataService.normalizeSubjectCode(c.subjectName) == 'PPG',
+      );
+      final driveItem = ppgChest.reviewers
+          .firstWhere((r) => r.driveFileId == 'drive_abc123');
+      expect(driveItem.isFromDrive, isTrue);
+      expect(driveItem.fileType, 'HTML');
+
+      // 3. Verify StudentScheduleOverlay per-period dismissal stays dismissed for the same class
+      final p1 = StudentScheduleOverlay.buildScheduleSessionKey(
+          'Monday', 'PPG', '08:00 AM');
+      final p2 = StudentScheduleOverlay.buildScheduleSessionKey(
+          'Monday', 'UCSP', '09:30 AM');
+      expect(
+        StudentScheduleOverlay.shouldShowInClassWarning(
+          activeSessionKey: p1,
+          dismissedSessionKey: null,
+        ),
+        isTrue,
+      );
+      expect(
+        StudentScheduleOverlay.shouldShowInClassWarning(
+          activeSessionKey: p1,
+          dismissedSessionKey: p1,
+        ),
+        isFalse,
+      );
+      expect(
+        StudentScheduleOverlay.shouldShowInClassWarning(
+          activeSessionKey: p2,
+          dismissedSessionKey: p1,
+        ),
+        isTrue,
+      );
+
+      // 4. Verify Dark Mode activeCard & activeBg switch cleanly
+      await ThemeController.instance.setDarkMode(true);
+      expect(PortalColors.activeCard, PortalColors.darkSurface);
+      expect(PortalColors.activeBg, PortalColors.darkBg);
+      await ThemeController.instance.setDarkMode(false);
+      expect(PortalColors.activeCard, Colors.white);
+      expect(PortalColors.activeBg, PortalColors.parchment);
     },
   );
 }

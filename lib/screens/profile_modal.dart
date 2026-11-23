@@ -106,7 +106,7 @@ class _StudentProfileSheetState extends State<StudentProfileSheet> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: Colors.white,
+        backgroundColor: PortalColors.activeCard,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: Text(
           'Important Notice',
@@ -194,7 +194,7 @@ class _StudentProfileSheetState extends State<StudentProfileSheet> {
     return PopScope(
       canPop: !widget.mandatoryCompletion,
       child: Dialog(
-        backgroundColor: Colors.white,
+        backgroundColor: PortalColors.activeCard,
         insetPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 24),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
         child: ConstrainedBox(
@@ -252,7 +252,7 @@ class _StudentProfileSheetState extends State<StudentProfileSheet> {
         Container(
           padding: const EdgeInsets.all(18),
           decoration: BoxDecoration(
-            color: PortalColors.parchment,
+            color: PortalColors.activeBg,
             borderRadius: BorderRadius.circular(16),
             border: Border.all(color: PortalColors.ruleMed),
           ),
@@ -401,7 +401,7 @@ class _StudentProfileSheetState extends State<StudentProfileSheet> {
           decoration: InputDecoration(
             hintText: 'Permanent Address (Purok, Brgy, Municipality, Province)',
             filled: true,
-            fillColor: PortalColors.parchment,
+            fillColor: PortalColors.activeBg,
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(14),
               borderSide: BorderSide.none,
@@ -415,7 +415,7 @@ class _StudentProfileSheetState extends State<StudentProfileSheet> {
           decoration: InputDecoration(
             hintText: 'Active Email Address',
             filled: true,
-            fillColor: PortalColors.parchment,
+            fillColor: PortalColors.activeBg,
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(14),
               borderSide: BorderSide.none,
@@ -527,7 +527,7 @@ class _ChangePasswordOtpDialogState extends State<_ChangePasswordOtpDialog> {
   @override
   Widget build(BuildContext context) {
     return Dialog(
-      backgroundColor: Colors.white,
+      backgroundColor: PortalColors.activeCard,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       child: Padding(
         padding: const EdgeInsets.all(24),
@@ -585,7 +585,7 @@ class _ChangePasswordOtpDialogState extends State<_ChangePasswordOtpDialog> {
                 decoration: InputDecoration(
                   hintText: 'Enter 6-digit OTP',
                   filled: true,
-                  fillColor: PortalColors.parchment,
+                  fillColor: PortalColors.activeBg,
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
                   ),
@@ -599,7 +599,7 @@ class _ChangePasswordOtpDialogState extends State<_ChangePasswordOtpDialog> {
                 decoration: InputDecoration(
                   hintText: 'New Password',
                   filled: true,
-                  fillColor: PortalColors.parchment,
+                  fillColor: PortalColors.activeBg,
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
                   ),

@@ -807,7 +807,7 @@ class _AuthScreenState extends State<AuthScreen> {
             margin: const EdgeInsets.only(bottom: 14),
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
             decoration: BoxDecoration(
-              color: Colors.white,
+              color: PortalColors.activeCard,
               borderRadius: BorderRadius.circular(20),
               border: Border.all(color: PortalColors.rule),
               boxShadow: const [
@@ -966,7 +966,7 @@ class _AuthScreenState extends State<AuthScreen> {
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
           decoration: BoxDecoration(
-            color: PortalColors.parchment,
+            color: PortalColors.activeBg,
             borderRadius: BorderRadius.circular(14),
             border: Border.all(color: PortalColors.ruleMed),
           ),
