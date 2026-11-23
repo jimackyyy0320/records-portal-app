@@ -1311,4 +1311,65 @@ void main() {
       expect(propMap['act7_edsa_citizens'], SovereignPuzzlePropKind.edsaFlowers);
     },
   );
+
+  test(
+    'Part 3/6: GBA Battle Arena 9 Historical Portrait Roles, Choreography State & 240x120 pixelfx Beam',
+    () {
+      // 1. Verify all 9 historical portrait roles exist across the 7-Act campaign
+      final resolvedRoles = <SovereignBattlePortraitRole>{};
+      for (final act in kSovereignActs) {
+        resolvedRoles.add(
+          resolveBattlePortraitRole(act.randomUnrestEncounter.spriteRole),
+        );
+        for (final e in act.entities) {
+          if (e.battleSpec != null) {
+            resolvedRoles.add(
+              resolveBattlePortraitRole(e.battleSpec!.spriteRole),
+            );
+          }
+        }
+      }
+      expect(resolvedRoles, containsAll(SovereignBattlePortraitRole.values));
+
+      // 2. Verify GBA Battle Choreography transitions (slide-in, doctrine strike, counter)
+      final choreo = SovereignBattleChoreographyState();
+      choreo.startIntro();
+      expect(choreo.introSlideProgress, 0.0);
+      choreo.tick(0.25);
+      expect(choreo.introSlideProgress, greaterThan(0.4));
+      choreo.tick(0.30);
+      expect(choreo.introSlideProgress, 1.0);
+
+      choreo.triggerAlonDoctrineStrike(0xFFFACC15);
+      expect(choreo.alonAttackLunge, 1.0);
+      expect(choreo.opponentHitFlash, 1.0);
+      expect(choreo.isProjectileActive, isTrue);
+      expect(choreo.projectileFromAlon, isTrue);
+      choreo.tick(0.16);
+      expect(choreo.projectileProgress, greaterThan(0.4));
+      choreo.tick(0.40);
+      expect(choreo.alonAttackLunge, 0.0);
+      expect(choreo.isProjectileActive, isFalse);
+
+      choreo.triggerOpponentCounter(0xFFEF4444);
+      expect(choreo.opponentLunge, 1.0);
+      expect(choreo.alonHitFlash, 1.0);
+      expect(choreo.projectileFromAlon, isFalse);
+
+      // 3. Verify 240x120 battle FX frame + drawDoctrineProjectileBeam rendering
+      final battleFrame = createFrame(kGbaBattleFxWidth, kGbaBattleFxHeight);
+      expect(battleFrame.colorBuffer.length, 240 * 120);
+      drawDoctrineProjectileBeam(
+        clearFrame(battleFrame),
+        x0: 68,
+        y0: 84,
+        x1: 176,
+        y1: 48,
+        progress: 0.55,
+        coreColor: 0xFFFFFFFF,
+        glowColor: 0xFFFACC15,
+      );
+      expect(compositeFrame(battleFrame).any((px) => px != 0), isTrue);
+    },
+  );
 }

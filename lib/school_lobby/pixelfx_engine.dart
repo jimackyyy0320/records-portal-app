@@ -32,6 +32,62 @@ const List<int> kBayer4x4 = <int>[
 /// used by `Chronicles of the Sovereign` `pixelfx` frame buffers.
 const int kGbaFxFrameWidth = 240;
 const int kGbaFxFrameHeight = 160;
+const int kGbaBattleFxWidth = 240;
+const int kGbaBattleFxHeight = 120;
+
+/// Draws a choreographed pixel-art projectile comet & dithered spark trail
+/// streaking from `(x0, y0)` toward `(x1, y1)` inside a `PixelFxFrame`
+/// (`progress` in `0.0..1.0`).
+void drawDoctrineProjectileBeam(
+  PixelFxFrame frame, {
+  required double x0,
+  required double y0,
+  required double x1,
+  required double y1,
+  required double progress,
+  required int coreColor,
+  required int glowColor,
+}) {
+  final p = progress.clamp(0.0, 1.0);
+  if (p <= 0.0 || p >= 1.0) return;
+
+  final tailP = (p - 0.36).clamp(0.0, 1.0);
+  final headX = x0 + (x1 - x0) * p;
+  final headY = y0 + (y1 - y0) * p;
+  final tailX = x0 + (x1 - x0) * tailP;
+  final tailY = y0 + (y1 - y0) * tailP;
+
+  // Core glowing Bresenham beam line
+  frame.drawLine(
+    tailX.round(),
+    tailY.round(),
+    headX.round(),
+    headY.round(),
+    coreColor,
+    glowColor: glowColor,
+  );
+  // Bright comet head disc + additive bloom
+  frame.drawDisc(
+    headX,
+    headY,
+    3.6,
+    0xFFFFFFFF,
+    glowColor: glowColor,
+    glowRadius: 12.0,
+    ditherEdge: 0.3,
+  );
+  // Trailing Bayer-dithered sparks along the beam path
+  for (var i = 0; i < 10; i++) {
+    final frac = tailP + (p - tailP) * (i / 10.0);
+    final jitterX = (PixelFxRng.hash2d(i, (p * 60).round(), 701) - 0.5) * 9.0;
+    final jitterY = (PixelFxRng.hash2d(i, (p * 60).round(), 911) - 0.5) * 9.0;
+    final sx = (x0 + (x1 - x0) * frac + jitterX).round();
+    final sy = (y0 + (y1 - y0) * frac + jitterY).round();
+    frame.setPixel(sx, sy, i.isEven ? coreColor : glowColor,
+        dither: (i + 1) / 10.0);
+    frame.addLight(sx, sy, glowColor, 0.35);
+  }
+}
 
 /// Extracts pixel coordinates inside a `PixelFxFrame` for contiguous clusters
 /// (or individual cells) of [targetChar] inside an ASCII overworld tilemap.

@@ -279,6 +279,107 @@ class AlonOverworldMotionState {
   }
 }
 
+/// 9 Distinct Front-Facing Historical Opponent Battle Portraits rendered inside
+/// `_SovereignBattleArenaPainter`.
+enum SovereignBattlePortraitRole {
+  datu,
+  governor,
+  calderon,
+  quezon,
+  laurel,
+  magistrate,
+  commissioner,
+  rival,
+  guard,
+}
+
+/// Resolves a `DebateOpponentSpec.spriteRole` string into its exact battle portrait enum.
+SovereignBattlePortraitRole resolveBattlePortraitRole(String spriteRole) {
+  switch (spriteRole.trim().toLowerCase()) {
+    case 'datu':
+      return SovereignBattlePortraitRole.datu;
+    case 'governor':
+      return SovereignBattlePortraitRole.governor;
+    case 'calderon':
+      return SovereignBattlePortraitRole.calderon;
+    case 'quezon':
+      return SovereignBattlePortraitRole.quezon;
+    case 'laurel':
+      return SovereignBattlePortraitRole.laurel;
+    case 'magistrate':
+      return SovereignBattlePortraitRole.magistrate;
+    case 'commissioner':
+      return SovereignBattlePortraitRole.commissioner;
+    case 'rival':
+      return SovereignBattlePortraitRole.rival;
+    case 'guard':
+    default:
+      return SovereignBattlePortraitRole.guard;
+  }
+}
+
+/// Choreographs GBA LeafGreen battle animations: slide-in entry, Alon's attack
+/// lunge, traveling `pixelfx` doctrine beams, hit-flash white tints, and recoil.
+class SovereignBattleChoreographyState {
+  double introSlideProgress = 1.0; // 0..1 over 0.45s
+  double alonAttackLunge = 0.0; // 1..0 decay
+  double opponentHitFlash = 0.0; // 1..0 decay
+  double opponentLunge = 0.0; // 1..0 decay
+  double alonHitFlash = 0.0; // 1..0 decay
+  double projectileProgress = 1.0; // 0..1 active beam
+  bool projectileFromAlon = true;
+  int projectileColor = 0xFFFACC15;
+
+  bool get isProjectileActive =>
+      projectileProgress > 0.0 && projectileProgress < 1.0;
+
+  void startIntro() {
+    introSlideProgress = 0.0;
+    alonAttackLunge = 0.0;
+    opponentHitFlash = 0.0;
+    opponentLunge = 0.0;
+    alonHitFlash = 0.0;
+    projectileProgress = 1.0;
+  }
+
+  void triggerAlonDoctrineStrike(int accentColor) {
+    alonAttackLunge = 1.0;
+    opponentHitFlash = 1.0;
+    projectileFromAlon = true;
+    projectileColor = accentColor;
+    projectileProgress = 0.01;
+  }
+
+  void triggerOpponentCounter(int accentColor) {
+    opponentLunge = 1.0;
+    alonHitFlash = 1.0;
+    projectileFromAlon = false;
+    projectileColor = accentColor;
+    projectileProgress = 0.01;
+  }
+
+  void tick(double dt) {
+    if (introSlideProgress < 1.0) {
+      introSlideProgress = (introSlideProgress + dt / 0.45).clamp(0.0, 1.0);
+    }
+    if (alonAttackLunge > 0.0) {
+      alonAttackLunge = math.max(0.0, alonAttackLunge - dt / 0.36);
+    }
+    if (opponentHitFlash > 0.0) {
+      opponentHitFlash = math.max(0.0, opponentHitFlash - dt / 0.38);
+    }
+    if (opponentLunge > 0.0) {
+      opponentLunge = math.max(0.0, opponentLunge - dt / 0.36);
+    }
+    if (alonHitFlash > 0.0) {
+      alonHitFlash = math.max(0.0, alonHitFlash - dt / 0.38);
+    }
+    if (projectileProgress > 0.0 && projectileProgress < 1.0) {
+      projectileProgress = (projectileProgress + dt / 0.32).clamp(0.0, 1.0);
+    }
+  }
+}
+
 /// **Chronicles of the Sovereign: A LeafGreen-Style RPG for Philippine Governance**
 ///
 /// Triggered by stepping through the glowing bookshelf at the back of the 2D Virtual
@@ -336,7 +437,8 @@ class _SovereignStoryScreenState extends State<SovereignStoryScreen> {
       createFrame(kGbaFxFrameWidth, kGbaFxFrameHeight);
   late final PixelFxFrame _titleFxFrame =
       createFrame(kGbaFxFrameWidth, kGbaFxFrameHeight);
-  late final PixelFxFrame _battleFxFrame = createFrame(160, 96);
+  late final PixelFxFrame _battleFxFrame =
+      createFrame(kGbaBattleFxWidth, kGbaBattleFxHeight);
   late final PixelFxFrame _swirlFxFrame = createFrame(120, 84);
 
   late PixelFxController _ambientFxCtrl;
@@ -364,6 +466,8 @@ class _SovereignStoryScreenState extends State<SovereignStoryScreen> {
   String _battleLogMessage = '';
   bool _battleBusy = false;
   double _battleScreenShake = 0.0;
+  final SovereignBattleChoreographyState _battleChoreo =
+      SovereignBattleChoreographyState();
   double _milestoneFlashAlpha = 0.0;
   String? _milestoneBannerText;
   final List<_FloatingJuiceText> _floatingTexts = <_FloatingJuiceText>[];
@@ -485,6 +589,9 @@ class _SovereignStoryScreenState extends State<SovereignStoryScreen> {
 
     _idleTime += dt;
     _motion.tick(dt);
+    if (_shellState == _StoryShellState.battle) {
+      _battleChoreo.tick(dt);
+    }
     if (_shellState == _StoryShellState.title) {
       _titleFxCtrl.update(dt);
     } else {
@@ -974,6 +1081,7 @@ class _SovereignStoryScreenState extends State<SovereignStoryScreen> {
         _pendingDoctrineMove = null;
         _awaitingQuestionAnswer = false;
         _battleBusy = false;
+        _battleChoreo.startIntro();
         _battleLogMessage = '${opponent.name}: "${opponent.introQuote}"';
       });
     });
@@ -1045,12 +1153,13 @@ class _SovereignStoryScreenState extends State<SovereignStoryScreen> {
       final heal = move.resolveHeal;
 
       setState(() {
-        // Trigger `patch-gg/pixelfx` Doctrine animation on Opponent platform (x: 118, y: 34)
+        // Trigger choreographed lunge + traveling `pixelfx` beam + Opponent impact (`240×120`)
+        _battleChoreo.triggerAlonDoctrineStrike(move.accentColor);
         _battleActiveFxCtrl = createFx(
           move.fxPreset,
           PixelFxOptions(
-            x: 118,
-            y: 34,
+            x: 176,
+            y: 48,
             seed: DateTime.now().millisecondsSinceEpoch & 0xFFFF,
           ),
         );
@@ -1095,8 +1204,8 @@ class _SovereignStoryScreenState extends State<SovereignStoryScreen> {
         _battleActiveFxCtrl = createFx(
           PixelFxPreset.doubtShatterBurst,
           PixelFxOptions(
-            x: 118,
-            y: 34,
+            x: 176,
+            y: 48,
             seed: DateTime.now().millisecondsSinceEpoch & 0xFFFF,
           ),
         );
@@ -1112,6 +1221,7 @@ class _SovereignStoryScreenState extends State<SovereignStoryScreen> {
       if (!mounted) return;
       final counterDmg = math.max(4, opponent.attackPower ~/ 3);
       setState(() {
+        _battleChoreo.triggerOpponentCounter(opponent.primaryColor);
         _save = _save.copyWith(
           civicResolveHp: math.max(1, _save.civicResolveHp - counterDmg),
         );
@@ -1126,11 +1236,12 @@ class _SovereignStoryScreenState extends State<SovereignStoryScreen> {
       final dmg = opponent.attackPower;
 
       setState(() {
+        _battleChoreo.triggerOpponentCounter(0xFFEF4444);
         _battleActiveFxCtrl = createFx(
           PixelFxPreset.doubtShatterBurst,
           PixelFxOptions(
-            x: 44,
-            y: 62,
+            x: 64,
+            y: 84,
             seed: DateTime.now().millisecondsSinceEpoch & 0xFFFF,
           ),
         );
@@ -1222,8 +1333,8 @@ class _SovereignStoryScreenState extends State<SovereignStoryScreen> {
       _battleActiveFxCtrl = createFx(
         PixelFxPreset.charterSealUnlock,
         PixelFxOptions(
-          x: 80,
-          y: 52,
+          x: 120,
+          y: 62,
           seed: DateTime.now().millisecondsSinceEpoch & 0xFFFF,
         ),
       );
@@ -2281,167 +2392,322 @@ class _SovereignStoryScreenState extends State<SovereignStoryScreen> {
                     opponent: opponent,
                     alonAttireColor: _currentAct.alonHatOrBadgeColor,
                     idleTime: _idleTime,
+                    choreo: _battleChoreo,
                     fxFrame: _battleFxFrame,
                     activeFx: _battleActiveFxCtrl,
                   ),
                 ),
 
-                // Top-Left Opponent Doubt Meter Card (GBA LeafGreen Status Box)
+                // Top-Left Opponent Doubt Meter Plate (Classic GBA LeafGreen Double-Bevel Box)
                 Positioned(
-                  top: 12,
-                  left: 14,
+                  top: 10,
+                  left: 12,
                   child: Container(
-                    width: 245,
-                    padding: const EdgeInsets.all(11),
+                    constraints: const BoxConstraints(maxWidth: 238, minWidth: 196),
+                    padding: const EdgeInsets.all(2.5),
                     decoration: BoxDecoration(
-                      color: const Color(0xF00F172A),
-                      borderRadius: BorderRadius.circular(14),
+                      color: const Color(0xFF020617),
+                      borderRadius: const BorderRadius.only(
+                        topLeft: Radius.circular(14),
+                        topRight: Radius.circular(6),
+                        bottomRight: Radius.circular(14),
+                        bottomLeft: Radius.circular(6),
+                      ),
                       border: Border.all(
                         color: Color(opponent.primaryColor),
-                        width: 2.0,
+                        width: 2.2,
                       ),
+                      boxShadow: const [
+                        BoxShadow(
+                          color: Colors.black54,
+                          blurRadius: 10,
+                          offset: Offset(0, 4),
+                        ),
+                      ],
                     ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          opponent.name,
-                          style: GoogleFonts.outfit(
-                            color: Colors.white,
-                            fontSize: 13.5,
-                            fontWeight: FontWeight.w900,
-                          ),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: const Color(0xF2141E30),
+                        borderRadius: const BorderRadius.only(
+                          topLeft: Radius.circular(11),
+                          topRight: Radius.circular(4),
+                          bottomRight: Radius.circular(11),
+                          bottomLeft: Radius.circular(4),
                         ),
-                        Text(
-                          opponent.title,
-                          style: GoogleFonts.inter(
-                            color: Colors.white70,
-                            fontSize: 10.5,
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        Row(
-                          children: [
-                            Text(
-                              'DOUBT ',
-                              style: GoogleFonts.outfit(
-                                color: const Color(0xFFFACC15),
-                                fontSize: 10,
-                                fontWeight: FontWeight.w900,
-                              ),
-                            ),
-                            Expanded(
-                              child: ClipRRect(
-                                borderRadius: BorderRadius.circular(99),
-                                child: TweenAnimationBuilder<double>(
-                                  tween:
-                                      Tween<double>(begin: 1.0, end: doubtRatio),
-                                  duration: const Duration(milliseconds: 300),
-                                  curve: Curves.easeOutCubic,
-                                  builder: (context, val, _) =>
-                                      LinearProgressIndicator(
-                                    value: val,
-                                    minHeight: 8,
-                                    backgroundColor: Colors.white12,
-                                    color: val > 0.5
-                                        ? const Color(0xFFF59E0B)
-                                        : const Color(0xFFEF4444),
+                        border: Border.all(color: Colors.white12, width: 1.0),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  opponent.name,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: GoogleFonts.outfit(
+                                    color: Colors.white,
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w900,
                                   ),
                                 ),
                               ),
-                            ),
-                            const SizedBox(width: 6),
-                            Text(
-                              '$_opponentDoubtRemaining/${opponent.maxDoubt}',
-                              style: GoogleFonts.outfit(
-                                color: Colors.white,
-                                fontSize: 10.5,
-                                fontWeight: FontWeight.w800,
+                              const SizedBox(width: 6),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 5, vertical: 1.5),
+                                decoration: BoxDecoration(
+                                  color: Color(opponent.primaryColor)
+                                      .withValues(alpha: 0.25),
+                                  borderRadius: BorderRadius.circular(5),
+                                  border: Border.all(
+                                    color: Color(opponent.primaryColor),
+                                    width: 0.9,
+                                  ),
+                                ),
+                                child: Text(
+                                  _isBossBattle ? 'LEADER' : 'FOE',
+                                  style: GoogleFonts.outfit(
+                                    color: const Color(0xFFFEF08A),
+                                    fontSize: 8.5,
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                ),
                               ),
+                            ],
+                          ),
+                          Text(
+                            opponent.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: GoogleFonts.inter(
+                              color: Colors.white70,
+                              fontSize: 10,
                             ),
-                          ],
-                        ),
-                      ],
+                          ),
+                          const SizedBox(height: 6),
+                          Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 4, vertical: 1),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF0F172A),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: Text(
+                                  'DOUBT',
+                                  style: GoogleFonts.outfit(
+                                    color: const Color(0xFFFACC15),
+                                    fontSize: 9,
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              Expanded(
+                                child: Container(
+                                  padding: const EdgeInsets.all(1.5),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFF020617),
+                                    borderRadius: BorderRadius.circular(99),
+                                    border: Border.all(color: Colors.white24),
+                                  ),
+                                  child: ClipRRect(
+                                    borderRadius: BorderRadius.circular(99),
+                                    child: TweenAnimationBuilder<double>(
+                                      tween: Tween<double>(
+                                          begin: 1.0, end: doubtRatio),
+                                      duration:
+                                          const Duration(milliseconds: 300),
+                                      curve: Curves.easeOutCubic,
+                                      builder: (context, val, _) =>
+                                          LinearProgressIndicator(
+                                        value: val,
+                                        minHeight: 7,
+                                        backgroundColor: Colors.white10,
+                                        color: val > 0.55
+                                            ? const Color(0xFF10B981)
+                                            : (val > 0.25
+                                                ? const Color(0xFFF59E0B)
+                                                : const Color(0xFFEF4444)),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                '$_opponentDoubtRemaining/${opponent.maxDoubt}',
+                                style: GoogleFonts.outfit(
+                                  color: Colors.white,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
 
-                // Bottom-Right Alon & Umalo Civic Resolve Card
+                // Bottom-Right Alon & Umalo Civic Resolve Plate (GBA LeafGreen Double-Bevel Box)
                 Positioned(
                   bottom: 10,
-                  right: 14,
+                  right: 12,
                   child: Container(
-                    width: 235,
-                    padding: const EdgeInsets.all(11),
+                    constraints: const BoxConstraints(maxWidth: 234, minWidth: 196),
+                    padding: const EdgeInsets.all(2.5),
                     decoration: BoxDecoration(
-                      color: const Color(0xF00F172A),
-                      borderRadius: BorderRadius.circular(14),
+                      color: const Color(0xFF020617),
+                      borderRadius: const BorderRadius.only(
+                        topLeft: Radius.circular(14),
+                        topRight: Radius.circular(6),
+                        bottomRight: Radius.circular(14),
+                        bottomLeft: Radius.circular(6),
+                      ),
                       border: Border.all(
                         color: const Color(0xFF10B981),
-                        width: 2.0,
+                        width: 2.2,
                       ),
+                      boxShadow: const [
+                        BoxShadow(
+                          color: Colors.black54,
+                          blurRadius: 10,
+                          offset: Offset(0, 4),
+                        ),
+                      ],
                     ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Alon & Umalo (${_currentAct.romanNumeral})',
-                          style: GoogleFonts.outfit(
-                            color: Colors.white,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w900,
-                          ),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: const Color(0xF2141E30),
+                        borderRadius: const BorderRadius.only(
+                          topLeft: Radius.circular(11),
+                          topRight: Radius.circular(4),
+                          bottomRight: Radius.circular(11),
+                          bottomLeft: Radius.circular(4),
                         ),
-                        Text(
-                          _currentAct.alonAttireName,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: GoogleFonts.inter(
-                            color: const Color(0xFF6EE7B7),
-                            fontSize: 10,
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        Row(
-                          children: [
-                            Text(
-                              'RESOLVE ',
-                              style: GoogleFonts.outfit(
-                                color: const Color(0xFF34D399),
-                                fontSize: 10,
-                                fontWeight: FontWeight.w900,
-                              ),
-                            ),
-                            Expanded(
-                              child: ClipRRect(
-                                borderRadius: BorderRadius.circular(99),
-                                child: TweenAnimationBuilder<double>(
-                                  tween: Tween<double>(
-                                      begin: 1.0, end: resolveRatio),
-                                  duration: const Duration(milliseconds: 300),
-                                  curve: Curves.easeOutCubic,
-                                  builder: (context, val, _) =>
-                                      LinearProgressIndicator(
-                                    value: val,
-                                    minHeight: 8,
-                                    backgroundColor: Colors.white12,
-                                    color: const Color(0xFF10B981),
+                        border: Border.all(color: Colors.white12, width: 1.0),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  'Alon & Umalo',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: GoogleFonts.outfit(
+                                    color: Colors.white,
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w900,
                                   ),
                                 ),
                               ),
-                            ),
-                            const SizedBox(width: 6),
-                            Text(
-                              '${_save.civicResolveHp}/${_save.maxCivicResolveHp}',
-                              style: GoogleFonts.outfit(
-                                color: Colors.white,
-                                fontSize: 10.5,
-                                fontWeight: FontWeight.w800,
+                              const SizedBox(width: 6),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 5, vertical: 1.5),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF065F46),
+                                  borderRadius: BorderRadius.circular(5),
+                                  border: Border.all(
+                                      color: const Color(0xFF34D399),
+                                      width: 0.9),
+                                ),
+                                child: Text(
+                                  _currentAct.romanNumeral,
+                                  style: GoogleFonts.outfit(
+                                    color: const Color(0xFF6EE7B7),
+                                    fontSize: 8.5,
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                ),
                               ),
+                            ],
+                          ),
+                          Text(
+                            _currentAct.alonAttireName,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: GoogleFonts.inter(
+                              color: const Color(0xFF6EE7B7),
+                              fontSize: 9.8,
                             ),
-                          ],
-                        ),
-                      ],
+                          ),
+                          const SizedBox(height: 6),
+                          Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 4, vertical: 1),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF0F172A),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: Text(
+                                  'HP',
+                                  style: GoogleFonts.outfit(
+                                    color: const Color(0xFF34D399),
+                                    fontSize: 9,
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              Expanded(
+                                child: Container(
+                                  padding: const EdgeInsets.all(1.5),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFF020617),
+                                    borderRadius: BorderRadius.circular(99),
+                                    border: Border.all(color: Colors.white24),
+                                  ),
+                                  child: ClipRRect(
+                                    borderRadius: BorderRadius.circular(99),
+                                    child: TweenAnimationBuilder<double>(
+                                      tween: Tween<double>(
+                                          begin: 1.0, end: resolveRatio),
+                                      duration:
+                                          const Duration(milliseconds: 300),
+                                      curve: Curves.easeOutCubic,
+                                      builder: (context, val, _) =>
+                                          LinearProgressIndicator(
+                                        value: val,
+                                        minHeight: 7,
+                                        backgroundColor: Colors.white10,
+                                        color: val > 0.50
+                                            ? const Color(0xFF10B981)
+                                            : (val > 0.25
+                                                ? const Color(0xFFF59E0B)
+                                                : const Color(0xFFEF4444)),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                '${_save.civicResolveHp}/${_save.maxCivicResolveHp}',
+                                style: GoogleFonts.outfit(
+                                  color: Colors.white,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
@@ -5083,6 +5349,7 @@ class _SovereignBattleArenaPainter extends CustomPainter {
   final DebateOpponentSpec opponent;
   final int alonAttireColor;
   final double idleTime;
+  final SovereignBattleChoreographyState choreo;
   final PixelFxFrame fxFrame;
   final PixelFxController? activeFx;
 
@@ -5091,6 +5358,7 @@ class _SovereignBattleArenaPainter extends CustomPainter {
     required this.opponent,
     required this.alonAttireColor,
     required this.idleTime,
+    required this.choreo,
     required this.fxFrame,
     this.activeFx,
   });
@@ -5100,107 +5368,750 @@ class _SovereignBattleArenaPainter extends CustomPainter {
     final rect = Offset.zero & size;
     final pal = act.palette;
 
-    // 1. GBA Battle Sky & Horizon Gradient
+    // 1. 7 Era-Specific 16-Bit GBA Battle Horizon & Architectural Backdrops
+    _drawEraBattleBackdrop(canvas, size, pal);
+
+    // Slide-in entry easing (Opponent slides in from right, Alon from left)
+    final slideEase =
+        1.0 - math.pow(1.0 - choreo.introSlideProgress.clamp(0.0, 1.0), 3.0).toDouble();
+    final oppSlideDx = (1.0 - slideEase) * size.width * 0.32;
+    final alonSlideDx = -(1.0 - slideEase) * size.width * 0.32;
+
+    // 2. Opponent Beveled 2.5D Tribunal Dais (Top-Right)
+    final oppPlatformCenter =
+        Offset(size.width * 0.73 + oppSlideDx, size.height * 0.50);
+    _drawBeveledTribunalDais(
+      canvas,
+      center: oppPlatformCenter,
+      width: (size.width * 0.36).clamp(112.0, 168.0),
+      height: (size.height * 0.22).clamp(28.0, 46.0),
+      fillColor: Color(pal.tribunalRoof),
+      trimColor: Color(opponent.primaryColor),
+    );
+
+    // Opponent Historical Front Portrait + Lunge/Recoil/Hit-Flash
+    final oppBob = math.sin(idleTime * 3.0) * 2.6;
+    final oppRecoilDx =
+        math.sin(choreo.opponentHitFlash * math.pi * 3.0) * 6.0 * choreo.opponentHitFlash;
+    final oppLungeDx = -math.sin(choreo.opponentLunge * math.pi) * 16.0;
+    final oppLungeDy = math.sin(choreo.opponentLunge * math.pi) * 8.0;
+    final oppSpriteAnchor = Offset(
+      oppPlatformCenter.dx + oppRecoilDx + oppLungeDx,
+      oppPlatformCenter.dy - 14.0 + oppBob + oppLungeDy,
+    );
+    _drawOpponentBattlePortrait(
+      canvas,
+      anchor: oppSpriteAnchor,
+      scale: (math.min(size.width, size.height) / 220.0).clamp(0.75, 1.35),
+      portraitRole: resolveBattlePortraitRole(opponent.spriteRole),
+      primaryColor: Color(opponent.primaryColor),
+      hitFlash: choreo.opponentHitFlash,
+    );
+
+    // 3. Alon & Umalo Beveled 2.5D Sanctuary Dais (Bottom-Left)
+    final alonPlatformCenter =
+        Offset(size.width * 0.27 + alonSlideDx, size.height * 0.80);
+    _drawBeveledTribunalDais(
+      canvas,
+      center: alonPlatformCenter,
+      width: (size.width * 0.38).clamp(118.0, 178.0),
+      height: (size.height * 0.22).clamp(30.0, 48.0),
+      fillColor: const Color(0xFF065F46),
+      trimColor: const Color(0xFF34D399),
+    );
+
+    // Alon Over-the-Shoulder GBA Back-Sprite + Umalo Tarsier + Astrolabe Lunge
+    final alonBob = math.sin(idleTime * 3.5 + 1.0) * 2.2;
+    final alonLungeDx = math.sin(choreo.alonAttackLunge * math.pi) * 18.0;
+    final alonLungeDy = -math.sin(choreo.alonAttackLunge * math.pi) * 9.0;
+    final alonRecoilDx =
+        -math.sin(choreo.alonHitFlash * math.pi * 3.0) * 6.0 * choreo.alonHitFlash;
+    final alonSpriteAnchor = Offset(
+      alonPlatformCenter.dx + alonLungeDx + alonRecoilDx,
+      alonPlatformCenter.dy - 12.0 + alonBob + alonLungeDy,
+    );
+    _drawAlonAndUmaloBackSprite(
+      canvas,
+      anchor: alonSpriteAnchor,
+      scale: (math.min(size.width, size.height) / 210.0).clamp(0.78, 1.38),
+      attireColor: Color(alonAttireColor),
+      attackLunge: choreo.alonAttackLunge,
+      hitFlash: choreo.alonHitFlash,
+    );
+
+    // 4. Composite `patch-gg/pixelfx` `240×120` Projectile Beam & Battle Doctrine FX
+    final hasFx = activeFx != null || choreo.isProjectileActive;
+    if (hasFx) {
+      clearFrame(fxFrame);
+      if (choreo.isProjectileActive) {
+        drawDoctrineProjectileBeam(
+          fxFrame,
+          x0: choreo.projectileFromAlon ? 68.0 : 176.0,
+          y0: choreo.projectileFromAlon ? 84.0 : 48.0,
+          x1: choreo.projectileFromAlon ? 176.0 : 68.0,
+          y1: choreo.projectileFromAlon ? 48.0 : 84.0,
+          progress: choreo.projectileProgress,
+          coreColor: 0xFFFFFFFF,
+          glowColor: choreo.projectileColor,
+        );
+      }
+      if (activeFx != null) {
+        activeFx!.draw(fxFrame);
+      }
+      renderPixelFxFrameToCanvas(canvas, fxFrame, rect);
+    }
+  }
+
+  void _drawEraBattleBackdrop(
+    Canvas canvas,
+    Size size,
+    SovereignEraPalette pal,
+  ) {
+    final horizonY = size.height * 0.54;
+
+    // Sky & Ground split gradient
     canvas.drawRect(
-      rect,
+      Rect.fromLTWH(0, 0, size.width, horizonY + 4),
       Paint()
         ..shader = LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
           colors: [
             Color(pal.shadowTone),
+            Color.lerp(Color(pal.shadowTone), Color(pal.uiAccent), 0.30)!,
+            Color.lerp(Color(pal.groundPrimary), Color(pal.uiAccent), 0.18)!,
+          ],
+        ).createShader(Rect.fromLTWH(0, 0, size.width, horizonY + 4)),
+    );
+    canvas.drawRect(
+      Rect.fromLTWH(0, horizonY, size.width, size.height - horizonY),
+      Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
             Color(pal.groundPrimary),
             Color(pal.groundSecondary),
+            Color.lerp(Color(pal.groundSecondary), Color(pal.shadowTone), 0.35)!,
           ],
-        ).createShader(rect),
+        ).createShader(
+            Rect.fromLTWH(0, horizonY, size.width, size.height - horizonY)),
     );
 
-    // 2. Opponent Tribunal Platform (Top-Right)
-    final oppCenter = Offset(size.width * 0.73, size.height * 0.44);
-    canvas.drawOval(
-      Rect.fromCenter(center: oppCenter + const Offset(0, 22), width: 132, height: 36),
-      Paint()..color = Color(pal.tribunalRoof).withValues(alpha: 0.75),
+    // Subtle GBA horizontal pixel scanline horizon band
+    canvas.drawRect(
+      Rect.fromLTWH(0, horizonY - 2, size.width, 4),
+      Paint()..color = Color(pal.shadowTone).withValues(alpha: 0.45),
     );
+
+    final silPaint = Paint()
+      ..color = Color(pal.shadowTone).withValues(alpha: 0.72);
+    final accentGlow = Paint()
+      ..color = Color(pal.uiAccent).withValues(alpha: 0.35);
+
+    switch (act.actNumber) {
+      case 1:
+        // Act I: Sunset Archipelago Sea, Balangay Outrigger Sail & Coastal Palms
+        canvas.drawCircle(
+          Offset(size.width * 0.48, horizonY - 8),
+          size.height * 0.19,
+          Paint()..color = const Color(0xFFFDE047).withValues(alpha: 0.42),
+        );
+        // Sea shimmer band
+        canvas.drawRect(
+          Rect.fromLTWH(0, horizonY - 12, size.width, 14),
+          Paint()..color = const Color(0xFF0284C7).withValues(alpha: 0.55),
+        );
+        // Balangay boat + triangular sail silhouette
+        final bx = size.width * 0.44 + math.sin(idleTime * 1.4) * 4.0;
+        final sail = Path()
+          ..moveTo(bx, horizonY - 10)
+          ..lineTo(bx + 14, horizonY - 34)
+          ..lineTo(bx + 26, horizonY - 10)
+          ..close();
+        canvas.drawPath(sail, silPaint);
+        canvas.drawRect(
+            Rect.fromLTWH(bx - 6, horizonY - 10, 38, 6), silPaint);
+        // Coastal palm frond silhouettes on left cliff
+        canvas.drawRect(
+            Rect.fromLTWH(size.width * 0.10, horizonY - 38, 6, 38), silPaint);
+        canvas.drawOval(
+            Rect.fromCenter(
+                center: Offset(size.width * 0.10 + 3, horizonY - 40),
+                width: 34,
+                height: 14),
+            silPaint);
+        break;
+
+      case 2:
+        // Act II: Walled Intramuros Battlements & Spanish Bell Tower
+        for (var i = 0; i < 12; i++) {
+          final wx = i * (size.width / 12.0);
+          canvas.drawRect(
+            Rect.fromLTWH(wx, horizonY - (i.isEven ? 28 : 20),
+                size.width / 12.0 - 2, 28),
+            silPaint,
+          );
+        }
+        // Cathedral Bell Tower Silhouette
+        canvas.drawRect(
+          Rect.fromLTWH(size.width * 0.42, horizonY - 62, 34, 62),
+          silPaint,
+        );
+        canvas.drawCircle(
+          Offset(size.width * 0.42 + 17, horizonY - 62),
+          17,
+          silPaint,
+        );
+        canvas.drawRect(
+          Rect.fromLTWH(size.width * 0.42 + 13, horizonY - 46, 8, 14),
+          accentGlow,
+        );
+        break;
+
+      case 3:
+        // Act III: Inside Barasoain Church — Stained-Glass Rose Window & Arches
+        final roseCenter = Offset(size.width * 0.48, horizonY - 40);
+        canvas.drawCircle(roseCenter, 28, silPaint);
+        canvas.drawCircle(
+          roseCenter,
+          22,
+          Paint()..color = const Color(0xFFF59E0B).withValues(alpha: 0.48),
+        );
+        canvas.drawCircle(
+          roseCenter,
+          12,
+          Paint()..color = const Color(0xFFFEF08A).withValues(alpha: 0.62),
+        );
+        // Fluted Sanctuary Columns
+        for (final frac in const [0.14, 0.30, 0.66, 0.84]) {
+          canvas.drawRect(
+            Rect.fromLTWH(size.width * frac, 0, 14, horizonY),
+            silPaint,
+          );
+        }
+        break;
+
+      case 4:
+        // Act IV: Neoclassical Manila Legislative Building Colonnade
+        final ped = Path()
+          ..moveTo(size.width * 0.22, horizonY - 44)
+          ..lineTo(size.width * 0.50, horizonY - 68)
+          ..lineTo(size.width * 0.78, horizonY - 44)
+          ..close();
+        canvas.drawPath(ped, silPaint);
+        canvas.drawRect(
+            Rect.fromLTWH(size.width * 0.22, horizonY - 44, size.width * 0.56, 7),
+            accentGlow);
+        for (var c = 0; c < 6; c++) {
+          final cx = size.width * (0.26 + c * 0.095);
+          canvas.drawRect(Rect.fromLTWH(cx, horizonY - 37, 8, 37), silPaint);
+        }
+        break;
+
+      case 5:
+        // Act V: Stormy Sepia Wartime Manila Skyline + Sweeping Searchlight
+        for (var i = 0; i < 8; i++) {
+          final h = 22.0 + ((i * 19) % 34);
+          canvas.drawRect(
+            Rect.fromLTWH(i * (size.width / 8.0), horizonY - h,
+                size.width / 8.0 - 3, h),
+            silPaint,
+          );
+        }
+        final beamAngle = math.sin(idleTime * 1.4) * 45.0;
+        final beam = Path()
+          ..moveTo(size.width * 0.32, horizonY)
+          ..lineTo(size.width * 0.32 + beamAngle - 16, 0)
+          ..lineTo(size.width * 0.32 + beamAngle + 16, 0)
+          ..close();
+        canvas.drawPath(
+          beam,
+          Paint()..color = const Color(0xFFFEF08A).withValues(alpha: 0.14),
+        );
+        break;
+
+      case 6:
+        // Act VI: Brutalist Citadel Pillars & Crimson Spotlight Cones
+        for (final frac in const [0.08, 0.26, 0.50, 0.74, 0.90]) {
+          canvas.drawRect(
+            Rect.fromLTWH(size.width * frac - 10, 0, 20, horizonY),
+            silPaint,
+          );
+        }
+        final cone = Path()
+          ..moveTo(size.width * 0.73, 0)
+          ..lineTo(size.width * 0.58, horizonY + 12)
+          ..lineTo(size.width * 0.88, horizonY + 12)
+          ..close();
+        canvas.drawPath(
+          cone,
+          Paint()..color = const Color(0xFFEF4444).withValues(alpha: 0.16),
+        );
+        break;
+
+      default:
+        // Act VII: Golden EDSA Sunrise & 8-Ray Philippine Sun Crest
+        final sunC = Offset(size.width * 0.50, horizonY - 8);
+        canvas.drawCircle(
+          sunC,
+          size.height * 0.24,
+          Paint()..color = const Color(0xFFFACC15).withValues(alpha: 0.38),
+        );
+        for (var ray = 0; ray < 8; ray++) {
+          final a = -math.pi + (ray + 0.5) * (math.pi / 8.0) +
+              math.sin(idleTime * 0.8) * 0.04;
+          canvas.drawLine(
+            sunC,
+            Offset(
+              sunC.dx + math.cos(a) * size.width * 0.45,
+              sunC.dy + math.sin(a) * size.height * 0.55,
+            ),
+            Paint()
+              ..color = const Color(0xFFFEF08A).withValues(alpha: 0.22)
+              ..strokeWidth = 6.0,
+          );
+        }
+        // EDSA Constitutional Shrine Silhouette
+        canvas.drawRect(
+          Rect.fromLTWH(size.width * 0.38, horizonY - 26, size.width * 0.24, 26),
+          silPaint,
+        );
+        break;
+    }
+  }
+
+  void _drawBeveledTribunalDais(
+    Canvas canvas, {
+    required Offset center,
+    required double width,
+    required double height,
+    required Color fillColor,
+    required Color trimColor,
+  }) {
+    // 1. Ground drop shadow
     canvas.drawOval(
-      Rect.fromCenter(center: oppCenter + const Offset(0, 22), width: 132, height: 36),
+      Rect.fromCenter(
+        center: center + const Offset(0, 8),
+        width: width * 1.06,
+        height: height * 1.04,
+      ),
+      Paint()..color = Colors.black.withValues(alpha: 0.42),
+    );
+    // 2. Extruded 2.5D Stone Side Rim
+    canvas.drawOval(
+      Rect.fromCenter(
+        center: center + const Offset(0, 4.5),
+        width: width,
+        height: height,
+      ),
+      Paint()..color = Color.lerp(fillColor, Colors.black, 0.48)!,
+    );
+    // 3. Top Platform Surface
+    final topRect = Rect.fromCenter(center: center, width: width, height: height);
+    canvas.drawOval(topRect, Paint()..color = fillColor.withValues(alpha: 0.92));
+    // 4. Inner Highlight Ring + Outer Trim Border
+    canvas.drawOval(
+      topRect.deflate(6.0),
       Paint()
-        ..color = Color(opponent.primaryColor)
+        ..color = Colors.white.withValues(alpha: 0.24)
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 2.5,
-    );
-
-    // Opponent Pixel Sprite
-    final oppBob = math.sin(idleTime * 3.0) * 3.0;
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        Rect.fromCenter(
-            center: oppCenter + Offset(0, oppBob), width: 38, height: 52),
-        const Radius.circular(6),
-      ),
-      Paint()..color = Color(opponent.primaryColor),
-    );
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        Rect.fromCenter(
-            center: oppCenter + Offset(0, -24 + oppBob), width: 32, height: 28),
-        const Radius.circular(5),
-      ),
-      Paint()..color = const Color(0xFFFDE68A),
-    );
-
-    // 3. Alon + Umalo Platform (Bottom-Left)
-    final alonCenter = Offset(size.width * 0.27, size.height * 0.74);
-    canvas.drawOval(
-      Rect.fromCenter(
-          center: alonCenter + const Offset(0, 20), width: 138, height: 36),
-      Paint()..color = const Color(0xFF065F46).withValues(alpha: 0.8),
+        ..strokeWidth = 1.4,
     );
     canvas.drawOval(
-      Rect.fromCenter(
-          center: alonCenter + const Offset(0, 20), width: 138, height: 36),
+      topRect,
       Paint()
-        ..color = const Color(0xFF34D399)
+        ..color = trimColor
         ..style = PaintingStyle.stroke
         ..strokeWidth = 2.4,
     );
+  }
 
-    final alonBob = math.sin(idleTime * 3.5 + 1.0) * 2.5;
+  void _drawOpponentBattlePortrait(
+    Canvas canvas, {
+    required Offset anchor,
+    required double scale,
+    required SovereignBattlePortraitRole portraitRole,
+    required Color primaryColor,
+    required double hitFlash,
+  }) {
+    final s = scale;
+    final outline = Paint()
+      ..color = const Color(0xFF0F172A)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.8 * s;
+
+    Color coatColor = primaryColor;
+    Color accentColor = const Color(0xFFFACC15);
+    Color hairColor = const Color(0xFF1E293B);
+    Color skinColor = const Color(0xFFF3C69F);
+
+    switch (portraitRole) {
+      case SovereignBattlePortraitRole.datu:
+        coatColor = const Color(0xFF065F46);
+        accentColor = const Color(0xFFFACC15);
+        hairColor = const Color(0xFF0F172A);
+        skinColor = const Color(0xFFD99B66);
+        break;
+      case SovereignBattlePortraitRole.governor:
+        coatColor = const Color(0xFF1D4ED8);
+        accentColor = const Color(0xFFEF4444);
+        hairColor = const Color(0xFF78350F);
+        skinColor = const Color(0xFFFDE68A);
+        break;
+      case SovereignBattlePortraitRole.calderon:
+        coatColor = const Color(0xFF1E293B);
+        accentColor = const Color(0xFFFACC15);
+        hairColor = const Color(0xFF0F172A);
+        break;
+      case SovereignBattlePortraitRole.quezon:
+        coatColor = const Color(0xFFF8FAFC);
+        accentColor = const Color(0xFF0284C7);
+        hairColor = const Color(0xFF475569);
+        break;
+      case SovereignBattlePortraitRole.laurel:
+        coatColor = const Color(0xFFFEF3C7);
+        accentColor = const Color(0xFFD97706);
+        hairColor = const Color(0xFF334155);
+        break;
+      case SovereignBattlePortraitRole.magistrate:
+        coatColor = const Color(0xFF18181B);
+        accentColor = const Color(0xFFDC2626);
+        hairColor = const Color(0xFF94A3B8);
+        break;
+      case SovereignBattlePortraitRole.commissioner:
+        coatColor = const Color(0xFF0F172A);
+        accentColor = const Color(0xFFFACC15);
+        hairColor = const Color(0xFF334155);
+        break;
+      case SovereignBattlePortraitRole.rival:
+        coatColor = const Color(0xFFB91C1C);
+        accentColor = const Color(0xFFFACC15);
+        hairColor = const Color(0xFF0F172A);
+        break;
+      case SovereignBattlePortraitRole.guard:
+        coatColor = primaryColor;
+        accentColor = const Color(0xFFE2E8F0);
+        hairColor = const Color(0xFF1E293B);
+        break;
+    }
+
+    // 1. Torso / Coat / Historical Robes
+    final torso = RRect.fromRectAndRadius(
+      Rect.fromCenter(center: anchor + Offset(0, -10 * s), width: 42 * s, height: 42 * s),
+      Radius.circular(7 * s),
+    );
+    canvas.drawRRect(torso, Paint()..color = coatColor);
+    canvas.drawRRect(torso, outline);
+
+    // Role-specific Coat & Prop Details
+    if (portraitRole == SovereignBattlePortraitRole.datu) {
+      // Gold tribal chest embroidery + Kampilan hilt on left side
+      canvas.drawRect(
+        Rect.fromCenter(center: anchor + Offset(0, -14 * s), width: 32 * s, height: 6 * s),
+        Paint()..color = accentColor,
+      );
+      canvas.drawLine(
+        anchor + Offset(-26 * s, -36 * s),
+        anchor + Offset(-20 * s, 4 * s),
+        Paint()
+          ..color = const Color(0xFFE2E8F0)
+          ..strokeWidth = 3.5 * s,
+      );
+      canvas.drawRect(
+        Rect.fromCenter(center: anchor + Offset(-21 * s, 2 * s), width: 10 * s, height: 4 * s),
+        Paint()..color = const Color(0xFFFACC15),
+      );
+    } else if (portraitRole == SovereignBattlePortraitRole.governor) {
+      // Gold epaulettes, crimson diagonal sash & Cumplase scroll
+      canvas.drawRect(
+          Rect.fromLTWH(torso.left, torso.top, 11 * s, 5 * s),
+          Paint()..color = const Color(0xFFFACC15));
+      canvas.drawRect(
+          Rect.fromLTWH(torso.right - 11 * s, torso.top, 11 * s, 5 * s),
+          Paint()..color = const Color(0xFFFACC15));
+      canvas.drawLine(
+        Offset(torso.left + 4 * s, torso.top + 3 * s),
+        Offset(torso.right - 4 * s, torso.bottom - 3 * s),
+        Paint()
+          ..color = const Color(0xFFEF4444)
+          ..strokeWidth = 5 * s,
+      );
+      canvas.drawRect(
+        Rect.fromCenter(center: anchor + Offset(-24 * s, -8 * s), width: 12 * s, height: 18 * s),
+        Paint()..color = const Color(0xFFFEF3C7),
+      );
+    } else if (portraitRole == SovereignBattlePortraitRole.calderon ||
+        portraitRole == SovereignBattlePortraitRole.quezon ||
+        portraitRole == SovereignBattlePortraitRole.rival) {
+      // Formal crisp white shirt V-front & tie/cravat
+      canvas.drawRect(
+        Rect.fromCenter(center: anchor + Offset(0, -16 * s), width: 14 * s, height: 22 * s),
+        Paint()..color = Colors.white,
+      );
+      canvas.drawRect(
+        Rect.fromCenter(center: anchor + Offset(0, -14 * s), width: 4.5 * s, height: 20 * s),
+        Paint()..color = portraitRole == SovereignBattlePortraitRole.rival
+            ? const Color(0xFFFACC15)
+            : const Color(0xFF0F172A),
+      );
+      if (portraitRole == SovereignBattlePortraitRole.calderon) {
+        // Rolled 1899 Malolos Constitution Folio
+        canvas.drawRect(
+          Rect.fromCenter(center: anchor + Offset(-24 * s, -8 * s), width: 14 * s, height: 20 * s),
+          Paint()..color = const Color(0xFFFEF9C3),
+        );
+      } else if (portraitRole == SovereignBattlePortraitRole.quezon) {
+        // Commonwealth Presidential Gavel
+        canvas.drawRect(
+          Rect.fromCenter(center: anchor + Offset(-25 * s, -16 * s), width: 12 * s, height: 6 * s),
+          Paint()..color = const Color(0xFF92400E),
+        );
+      }
+    } else if (portraitRole == SovereignBattlePortraitRole.laurel) {
+      // Embroidered Barong Tagalog vertical calado panel
+      canvas.drawRect(
+        Rect.fromCenter(center: anchor + Offset(0, -10 * s), width: 14 * s, height: 34 * s),
+        Paint()..color = const Color(0xFFFDE68A),
+      );
+    } else if (portraitRole == SovereignBattlePortraitRole.magistrate) {
+      // Crimson Judicial Trim + White Barrister Collar + Scales of Justice
+      canvas.drawRect(
+        Rect.fromCenter(center: anchor + Offset(0, -10 * s), width: 12 * s, height: 38 * s),
+        Paint()..color = const Color(0xFFDC2626),
+      );
+      canvas.drawRect(
+        Rect.fromCenter(center: anchor + Offset(0, -25 * s), width: 16 * s, height: 7 * s),
+        Paint()..color = Colors.white,
+      );
+      canvas.drawLine(
+        anchor + Offset(-32 * s, -18 * s),
+        anchor + Offset(-16 * s, -18 * s),
+        Paint()
+          ..color = const Color(0xFFFACC15)
+          ..strokeWidth = 2.4 * s,
+      );
+    } else if (portraitRole == SovereignBattlePortraitRole.commissioner) {
+      // 1987 Constitutional Commission Gold Robe Border & Tablet
+      canvas.drawRect(
+        Rect.fromCenter(center: anchor + Offset(0, -10 * s), width: 10 * s, height: 38 * s),
+        Paint()..color = const Color(0xFFFACC15),
+      );
+      canvas.drawRect(
+        Rect.fromCenter(center: anchor + Offset(-24 * s, -10 * s), width: 14 * s, height: 20 * s),
+        Paint()..color = const Color(0xFF38BDF8),
+      );
+    }
+
+    // 2. Expressive Pixel Head & Face
+    final head = RRect.fromRectAndRadius(
+      Rect.fromCenter(center: anchor + Offset(0, -40 * s), width: 32 * s, height: 28 * s),
+      Radius.circular(6 * s),
+    );
+    canvas.drawRRect(head, Paint()..color = skinColor);
+    canvas.drawRRect(head, outline);
+
+    // Hair cap
     canvas.drawRRect(
       RRect.fromRectAndRadius(
-        Rect.fromCenter(
-            center: alonCenter + Offset(0, alonBob), width: 36, height: 48),
-        const Radius.circular(6),
+        Rect.fromLTWH(head.left, head.top - 1, head.width, head.height * 0.38),
+        Radius.circular(5 * s),
       ),
-      Paint()..color = const Color(0xFF0284C7),
+      Paint()..color = hairColor,
     );
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        Rect.fromCenter(
-            center: alonCenter + Offset(0, -22 + alonBob),
-            width: 30,
-            height: 26),
-        const Radius.circular(5),
-      ),
-      Paint()..color = const Color(0xFFFDE68A),
-    );
-    // Alon Era Headband/Putong
+
+    // Eyes & determined debate brows
+    final eyePaint = Paint()..color = const Color(0xFF0F172A);
     canvas.drawRect(
-      Rect.fromCenter(
-          center: alonCenter + Offset(0, -30 + alonBob), width: 32, height: 6),
-      Paint()..color = Color(alonAttireColor),
+      Rect.fromCenter(center: anchor + Offset(-6.5 * s, -39 * s), width: 3.5 * s, height: 5 * s),
+      eyePaint,
     );
-    // Umalo the Tarsier on Alon's shoulder
-    canvas.drawCircle(
-      alonCenter + Offset(22, -10 + alonBob),
-      7,
-      Paint()..color = const Color(0xFFD97706),
+    canvas.drawRect(
+      Rect.fromCenter(center: anchor + Offset(6.5 * s, -39 * s), width: 3.5 * s, height: 5 * s),
+      eyePaint,
+    );
+    // Eye specular dots
+    canvas.drawRect(
+      Rect.fromCenter(center: anchor + Offset(-7.2 * s, -40.5 * s), width: 1.4 * s, height: 1.4 * s),
+      Paint()..color = Colors.white,
+    );
+    canvas.drawRect(
+      Rect.fromCenter(center: anchor + Offset(5.8 * s, -40.5 * s), width: 1.4 * s, height: 1.4 * s),
+      Paint()..color = Colors.white,
     );
 
-    // 4. Composite `patch-gg/pixelfx` Battle Doctrine Effects (`sanduguanFlame`, `checksAndBalancesScales`, `habeasCorpusShield`, `sovereigntySunburst`)
-    if (activeFx != null) {
-      clearFrame(fxFrame);
-      activeFx!.draw(fxFrame);
-      renderPixelFxFrameToCanvas(canvas, fxFrame, rect);
+    // Role Facial Features & Iconic Headgear
+    if (portraitRole == SovereignBattlePortraitRole.laurel) {
+      final spec = Paint()
+        ..color = const Color(0xFF38BDF8)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.5 * s;
+      canvas.drawCircle(anchor + Offset(-6.5 * s, -39 * s), 4.5 * s, spec);
+      canvas.drawCircle(anchor + Offset(6.5 * s, -39 * s), 4.5 * s, spec);
+    } else if (portraitRole == SovereignBattlePortraitRole.calderon) {
+      canvas.drawRect(
+        Rect.fromCenter(center: anchor + Offset(0, -32 * s), width: 14 * s, height: 2.8 * s),
+        Paint()..color = const Color(0xFF0F172A),
+      );
+    }
+
+    if (portraitRole == SovereignBattlePortraitRole.datu) {
+      // Gold & Crimson Putong Crown
+      canvas.drawRect(
+        Rect.fromCenter(center: anchor + Offset(0, -52 * s), width: 36 * s, height: 8 * s),
+        Paint()..color = const Color(0xFFDC2626),
+      );
+      canvas.drawRect(
+        Rect.fromCenter(center: anchor + Offset(0, -52 * s), width: 10 * s, height: 8 * s),
+        Paint()..color = const Color(0xFFFACC15),
+      );
+    } else if (portraitRole == SovereignBattlePortraitRole.governor) {
+      // Plumed Spanish Bicorne
+      final hat = Path()
+        ..moveTo(head.left - 8 * s, head.top + 4 * s)
+        ..lineTo(anchor.dx, head.top - 14 * s)
+        ..lineTo(head.right + 8 * s, head.top + 4 * s)
+        ..close();
+      canvas.drawPath(hat, Paint()..color = const Color(0xFF1E3A8A));
+      canvas.drawPath(hat, outline);
+      canvas.drawCircle(
+          Offset(anchor.dx, head.top - 12 * s), 4 * s, Paint()..color = const Color(0xFFFACC15));
+    } else if (portraitRole == SovereignBattlePortraitRole.commissioner) {
+      canvas.drawRect(
+        Rect.fromCenter(center: anchor + Offset(0, -53 * s), width: 26 * s, height: 6 * s),
+        Paint()..color = const Color(0xFFFACC15),
+      );
+    } else if (portraitRole == SovereignBattlePortraitRole.rival) {
+      // Rival Mateo's confident raised debate finger + crimson headband
+      canvas.drawRect(
+        Rect.fromCenter(center: anchor + Offset(0, -51 * s), width: 33 * s, height: 4.5 * s),
+        Paint()..color = const Color(0xFFEF4444),
+      );
+      canvas.drawRect(
+        Rect.fromCenter(center: anchor + Offset(-24 * s, -22 * s), width: 7 * s, height: 14 * s),
+        Paint()..color = skinColor,
+      );
+    }
+
+    // 3. GBA White/Gold Hit-Flash Overlay when taking Doubt damage!
+    if (hitFlash > 0.05) {
+      final flashPaint = Paint()
+        ..color = Colors.white.withValues(alpha: (hitFlash * 0.78).clamp(0.0, 0.8));
+      canvas.drawRRect(torso, flashPaint);
+      canvas.drawRRect(head, flashPaint);
+    }
+  }
+
+  void _drawAlonAndUmaloBackSprite(
+    Canvas canvas, {
+    required Offset anchor,
+    required double scale,
+    required Color attireColor,
+    required double attackLunge,
+    required double hitFlash,
+  }) {
+    final s = scale;
+    final outline = Paint()
+      ..color = const Color(0xFF0F172A)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.8 * s;
+
+    // 1. Alon's Over-the-Shoulder Broad SHS Vest & Era Back Torso
+    final torso = RRect.fromRectAndRadius(
+      Rect.fromCenter(center: anchor + Offset(0, -8 * s), width: 46 * s, height: 40 * s),
+      Radius.circular(8 * s),
+    );
+    canvas.drawRRect(torso, Paint()..color = const Color(0xFF0284C7));
+    canvas.drawRRect(torso, outline);
+
+    // Back collar & era-specific sash/ribbon across the shoulders
+    canvas.drawRect(
+      Rect.fromCenter(center: anchor + Offset(0, -24 * s), width: 28 * s, height: 6 * s),
+      Paint()..color = const Color(0xFFF8FAFC),
+    );
+    canvas.drawLine(
+      Offset(torso.left + 5 * s, torso.top + 4 * s),
+      Offset(torso.right - 5 * s, torso.bottom - 4 * s),
+      Paint()
+        ..color = attireColor
+        ..strokeWidth = 5.5 * s,
+    );
+
+    // Raised right arm holding the glowing brass Astrolabe of Kalayaan during Doctrine Strike!
+    final armLift = attackLunge * 14.0 * s;
+    final handCenter = anchor + Offset(26 * s, -22 * s - armLift);
+    canvas.drawLine(
+      anchor + Offset(18 * s, -14 * s),
+      handCenter,
+      Paint()
+        ..color = const Color(0xFF0284C7)
+        ..strokeWidth = 8 * s
+        ..strokeCap = StrokeCap.round,
+    );
+    // Brass Astrolabe of Kalayaan Ring
+    canvas.drawCircle(
+      handCenter,
+      (6.5 + attackLunge * 3.0) * s,
+      Paint()
+        ..color = const Color(0xFFFACC15)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.4 * s,
+    );
+    canvas.drawCircle(
+      handCenter,
+      (3.0 + attackLunge * 2.0) * s,
+      Paint()..color = const Color(0xFFFEF08A),
+    );
+
+    // 2. Alon's Back-of-Head Hair Silhouette + Era Headband / Putong Tails
+    final head = RRect.fromRectAndRadius(
+      Rect.fromCenter(center: anchor + Offset(-2 * s, -38 * s), width: 32 * s, height: 28 * s),
+      Radius.circular(7 * s),
+    );
+    canvas.drawRRect(head, Paint()..color = const Color(0xFF0F172A));
+    canvas.drawRRect(head, outline);
+    // Hair back sheen highlight
+    canvas.drawRect(
+      Rect.fromLTWH(head.left + 5 * s, head.top + 4 * s, head.width - 10 * s, 4 * s),
+      Paint()..color = const Color(0xFF334155),
+    );
+    // Era Headband / Putong with fluttering ribbon tails on back
+    canvas.drawRect(
+      Rect.fromCenter(center: anchor + Offset(-2 * s, -44 * s), width: 34 * s, height: 6 * s),
+      Paint()..color = attireColor,
+    );
+    final tailFlutter = math.sin(idleTime * 5.0) * 3.0 * s;
+    canvas.drawLine(
+      anchor + Offset(12 * s, -44 * s),
+      anchor + Offset(20 * s, -34 * s + tailFlutter),
+      Paint()
+        ..color = attireColor
+        ..strokeWidth = 3.2 * s,
+    );
+
+    // 3. Umalo the Tarsier perched on Alon's right shoulder holding open Saligang Tala scroll!
+    final uC = anchor + Offset(22 * s, -22 * s + math.sin(idleTime * 4.6) * 2.0);
+    // Ears
+    canvas.drawCircle(uC + Offset(-6 * s, -7 * s), 3.6 * s, Paint()..color = const Color(0xFFB45309));
+    canvas.drawCircle(uC + Offset(6 * s, -7 * s), 3.6 * s, Paint()..color = const Color(0xFFB45309));
+    // Head & body
+    canvas.drawCircle(uC, 8 * s, Paint()..color = const Color(0xFFD97706));
+    canvas.drawCircle(uC, 8 * s, outline);
+    // Open Glowing Bamboo Scroll beside Umalo
+    final scrollRect = Rect.fromCenter(
+      center: uC + Offset(9 * s, 2 * s),
+      width: 9 * s,
+      height: 12 * s,
+    );
+    canvas.drawRect(scrollRect, Paint()..color = const Color(0xFFFEF08A));
+    canvas.drawRect(scrollRect, outline);
+
+    // 4. Crimson Hit-Flash when Alon loses Civic Resolve
+    if (hitFlash > 0.05) {
+      final hitPaint = Paint()
+        ..color = const Color(0xFFEF4444).withValues(alpha: (hitFlash * 0.65).clamp(0.0, 0.7));
+      canvas.drawRRect(torso, hitPaint);
+      canvas.drawRRect(head, hitPaint);
     }
   }
 
