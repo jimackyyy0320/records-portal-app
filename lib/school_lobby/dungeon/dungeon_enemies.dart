@@ -1151,13 +1151,15 @@ class DungeonEnemyManager {
   void spawnForChamber(
     DungeonChamberSpec spec, {
     required bool bossAlreadyDefeated,
+    Set<String> defeatedIds = const <String>{},
   }) {
     enemies.clear();
 
     for (final sp in spec.enemySpawns) {
       final arch = lookupDungeonArchetype(sp.archetypeId);
       if (arch == null) continue;
-      if (arch.isBoss && bossAlreadyDefeated) continue;
+      if (arch.isRival && defeatedIds.contains(sp.spawnId)) continue;
+      if (arch.isBoss && !arch.isRival && bossAlreadyDefeated) continue;
       final sx = sp.col * kDungeonTileSize + (kDungeonTileSize - arch.width) * 0.5;
       final sy = (sp.row + 1) * kDungeonTileSize - arch.height;
       // Scale Rival Mateo slightly when encountered in later Acts
@@ -1852,7 +1854,7 @@ class DungeonEnemyManager {
     DungeonCombatEngine combat, {
     double arcOffsetVx = 0.0,
   }) {
-    final dx = (player.centerX - src.hitbox.center.dx).clamp(-160.0, 160.0);
+    final dx = (player.centerX - src.hitbox.center.dx).clamp(-165.0, 165.0);
     combat.projectiles.add(
       DungeonProjectile(
         id: 'ep_${_projSeq++}',
@@ -1860,12 +1862,13 @@ class DungeonEnemyManager {
         deflectable: true,
         x: src.hitbox.center.dx,
         y: src.hitbox.top + 2.0,
-        vx: dx * 1.15 + arcOffsetVx,
-        vy: -145.0,
+        vx: dx * 1.12 + arcOffsetVx,
+        vy: -175.0,
+        gravity: 390.0,
         radius: 4.5,
         damage: src.archetype.attackDamage,
         color: SpriteCastPalette.endesga32[9],
-        remainingLifeSec: 2.2,
+        remainingLifeSec: 2.6,
       ),
     );
   }
@@ -1891,21 +1894,42 @@ class DungeonEnemyManager {
       e.vx = 0.0;
     }
 
-    // Vertical move + floor/ceiling clamp
+    // Vertical move + floor/one-way-bridge/ceiling clamp
+    final prevBottom = e.y + e.archetype.height;
     final nextY = e.y + e.vy * dt;
-    if (!_collidesSolid(e.x, nextY, e.archetype.width, e.archetype.height, chamber)) {
-      e.y = nextY;
-      e.isGrounded = false;
-    } else {
-      if (e.vy > 0.0) {
-        final bottomRow = ((nextY + e.archetype.height) / kDungeonTileSize).floor();
-        e.y = bottomRow * kDungeonTileSize - e.archetype.height;
+    if (e.vy >= 0.0) {
+      final bottomRow = ((nextY + e.archetype.height) / kDungeonTileSize).floor();
+      final minC = (e.x / kDungeonTileSize).floor();
+      final maxC = ((e.x + e.archetype.width - 0.1) / kDungeonTileSize).floor();
+      final tileTop = bottomRow * kDungeonTileSize;
+      var landed = false;
+      for (var c = minC; c <= maxC; c++) {
+        final tile = chamber.effectiveTileAt(c, bottomRow);
+        if (chamber.isSolidAt(c, bottomRow) ||
+            (!e.archetype.isFlying &&
+                tile.isOneWay &&
+                prevBottom <= tileTop + 2.5)) {
+          landed = true;
+          break;
+        }
+      }
+      if (landed) {
+        e.y = tileTop - e.archetype.height;
+        e.vy = 0.0;
         e.isGrounded = true;
-      } else if (e.vy < 0.0) {
+      } else {
+        e.y = nextY;
+        e.isGrounded = false;
+      }
+    } else {
+      if (!_collidesSolid(e.x, nextY, e.archetype.width, e.archetype.height, chamber)) {
+        e.y = nextY;
+        e.isGrounded = false;
+      } else {
         final topRow = (nextY / kDungeonTileSize).floor();
         e.y = (topRow + 1) * kDungeonTileSize;
+        e.vy = 0.0;
       }
-      e.vy = 0.0;
     }
   }
 

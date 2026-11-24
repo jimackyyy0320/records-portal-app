@@ -829,6 +829,14 @@ class DungeonPhysicsEngine {
 
       if (dist <= 11.0 && drop.ageSec > 0.14) {
         drop.collected = true;
+        if (drop.kind == DungeonLootKind.resolveOrb) {
+          player.resolveHp = math.min(
+            player.maxResolveHp,
+            player.resolveHp + math.max(1, drop.amount),
+          );
+        } else if (drop.kind == DungeonLootKind.silkMote) {
+          player.addSilk(drop.amount.toDouble());
+        }
         events.add(
           DungeonPhysicsEvent(
             kind: DungeonPhysicsEventKind.lootCollected,

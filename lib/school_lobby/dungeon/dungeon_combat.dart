@@ -195,6 +195,7 @@ class DungeonProjectile {
   double y;
   double vx;
   double vy;
+  final double gravity;
   final double radius;
   int damage;
   Color color;
@@ -209,6 +210,7 @@ class DungeonProjectile {
     required this.y,
     required this.vx,
     required this.vy,
+    this.gravity = 0.0,
     this.radius = 4.0,
     required this.damage,
     required this.color,
@@ -1015,8 +1017,13 @@ class DungeonCombatEngine {
     List<DungeonCombatEvent> events,
   ) {
     proj.isPlayerOwned = true;
-    proj.vx = -proj.vx * 1.45;
-    proj.vy = -proj.vy * 1.20;
+    if (proj.gravity != 0.0) {
+      proj.vx = -proj.vx * 1.15;
+      proj.vy = -165.0;
+    } else {
+      proj.vx = -proj.vx * 1.45;
+      proj.vy = -proj.vy * 1.20;
+    }
     proj.damage = math.max(14, proj.damage * 2);
     proj.color = SpriteCastPalette.endesga32[18];
     proj.remainingLifeSec = 2.4;
@@ -1132,7 +1139,7 @@ class DungeonCombatEngine {
             ),
           );
         } else if (br.kind == DungeonTileType.secretWall && br.hp == 0) {
-          br.brokenOrTriggered = true;
+          final crumbledKeys = _cascadeShatterSecretWall(chamber, c, r);
           hitStop.trigger(0.065);
           floatingNumbers.add(
             FloatingCombatNumber(
@@ -1143,15 +1150,19 @@ class DungeonCombatEngine {
               isCritical: true,
             ),
           );
-          events.add(
-            DungeonCombatEvent(
-              kind: DungeonCombatEventKind.secretWallBroken,
-              x: tx,
-              y: ty,
-              shakeIntensity: 4.0,
-              tileKey: '${chamber.spec.id}:$key',
-            ),
-          );
+          for (var idx = 0; idx < crumbledKeys.length; idx++) {
+            final ck = crumbledKeys[idx];
+            events.add(
+              DungeonCombatEvent(
+                kind: DungeonCombatEventKind.secretWallBroken,
+                x: tx,
+                y: ty,
+                shakeIntensity: idx == 0 ? 4.0 : 0.0,
+                value: idx == 0 ? 1 : 0,
+                tileKey: '${chamber.spec.id}:$ck',
+              ),
+            );
+          }
         } else if (br.kind == DungeonTileType.switchPedestal && br.hp == 0) {
           br.brokenOrTriggered = true;
           chamber.roomGateUnlocked = true;
@@ -1179,6 +1190,47 @@ class DungeonCombatEngine {
     }
   }
 
+  List<String> _cascadeShatterSecretWall(
+    DungeonChamberRuntime chamber,
+    int startCol,
+    int startRow,
+  ) {
+    final broken = <String>[];
+    final queue = <({int c, int r})>[(c: startCol, r: startRow)];
+    final seen = <String>{'${startCol}_$startRow'};
+
+    while (queue.isNotEmpty) {
+      final cur = queue.removeAt(0);
+      final k = '${cur.c}_${cur.r}';
+      final br = chamber.breakables[k];
+      if (br == null || br.kind != DungeonTileType.secretWall) continue;
+      br.hp = 0;
+      br.brokenOrTriggered = true;
+      br.hitFlashTimer = 0.16;
+      broken.add(k);
+
+      const dirs = <({int dc, int dr})>[
+        (dc: 0, dr: -1),
+        (dc: 0, dr: 1),
+        (dc: -1, dr: 0),
+        (dc: 1, dr: 0),
+      ];
+      for (final d in dirs) {
+        final nc = cur.c + d.dc;
+        final nr = cur.r + d.dr;
+        final nk = '${nc}_$nr';
+        if (!seen.add(nk)) continue;
+        final neighbor = chamber.breakables[nk];
+        if (neighbor != null &&
+            neighbor.kind == DungeonTileType.secretWall &&
+            !neighbor.brokenOrTriggered) {
+          queue.add((c: nc, r: nr));
+        }
+      }
+    }
+    return broken;
+  }
+
   void _stepProjectiles({
     required double dt,
     required DungeonPlayerPhysicsState player,
@@ -1194,6 +1246,9 @@ class DungeonCombatEngine {
         continue;
       }
       p.remainingLifeSec -= dt;
+      if (p.gravity != 0.0) {
+        p.vy = math.min(340.0, p.vy + p.gravity * dt);
+      }
       p.x += p.vx * dt;
       p.y += p.vy * dt;
 

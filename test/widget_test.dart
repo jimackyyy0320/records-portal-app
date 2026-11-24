@@ -3472,6 +3472,233 @@ void main() {
       await tester.tap(find.byIcon(Icons.close_rounded));
       await tester.pump(const Duration(milliseconds: 50));
       expect(find.text('SLASH'), findsOneWidget);
+      expect(find.byType(DungeonVirtualJoystickWheel), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'Overhaul Phase A: Secret Wall Cascade, Resolve/Silk Orb Pickups, Parabolic Mortar Gravity, One-Way Bridge Perches, Rival Mateo Independence & 360° Virtual Analog Joystick Wheel',
+    (WidgetTester tester) async {
+      // 1. Secret Wall Cascade Shatter: breaking 1 '?' tile shatters all contiguous '?' tiles in the wall seam!
+      const secretSpec = DungeonChamberSpec(
+        id: 'test_secret_cascade',
+        actNumber: 1,
+        title: 'Cascade Wall Test',
+        subtitle: 'Phase A Bug #1',
+        asciiGrid: <String>[
+          '############',
+          '#.....?....#',
+          '#.....?....#',
+          '#.....?....#',
+          '#.....?..K.#',
+          '############',
+        ],
+        defaultSpawnCol: 2,
+        defaultSpawnRow: 4,
+      );
+      final secretChamber = DungeonChamberRuntime(secretSpec);
+      final physics = DungeonPhysicsEngine();
+      final combat = DungeonCombatEngine();
+      const progress = DungeonProgressSave();
+      final player = DungeonPlayerPhysicsState(
+        x: 5 * kDungeonTileSize - 2,
+        y: 4 * kDungeonTileSize - 15,
+        facing: 1,
+        isGrounded: true,
+        resolveHp: 3,
+        maxResolveHp: 6,
+        civicSilk: 20.0,
+        maxCivicSilk: 100.0,
+      );
+
+      // Strike '?' at (6, 4) twice -> ALL 4 vertical '?' tiles (rows 1..4) cascade-crumble open!
+      final secretEvs = <DungeonCombatEvent>[];
+      for (var h = 0; h < 2; h++) {
+        combat.slashCooldownTimer = 0.0;
+        combat.activeSlashes.clear();
+        secretEvs.addAll(
+          combat.step(
+            dt: 1 / 60,
+            player: player,
+            chamber: secretChamber,
+            input: const DungeonPlayerInput(slashJustPressed: true),
+            progress: progress,
+            physicsEngine: physics,
+          ),
+        );
+      }
+      for (var r = 1; r <= 4; r++) {
+        expect(secretChamber.isSolidAt(6, r), isFalse, reason: 'Row $r secret tile did not cascade');
+      }
+      final brokenKeys = secretEvs
+          .where((e) => e.kind == DungeonCombatEventKind.secretWallBroken)
+          .map((e) => e.tileKey)
+          .whereType<String>()
+          .toSet();
+      expect(brokenKeys.length, 4);
+      expect(brokenKeys.first.startsWith('test_secret_cascade:6_'), isTrue);
+
+      // 2. Resolve Orbs & Silk Motes restore Resolve HP & Civic Silk directly on pickup!
+      secretChamber.lootDrops.addAll(<DungeonLootDrop>[
+        DungeonLootDrop(
+          id: 'orb_hp',
+          kind: DungeonLootKind.resolveOrb,
+          amount: 2,
+          x: player.centerX,
+          y: player.centerY,
+          vx: 0,
+          vy: 0,
+          ageSec: 0.25,
+        ),
+        DungeonLootDrop(
+          id: 'orb_silk',
+          kind: DungeonLootKind.silkMote,
+          amount: 25,
+          x: player.centerX,
+          y: player.centerY,
+          vx: 0,
+          vy: 0,
+          ageSec: 0.25,
+        ),
+      ]);
+      physics.step(
+        dt: 1 / 60,
+        player: player,
+        chamber: secretChamber,
+        input: const DungeonPlayerInput(),
+      );
+      expect(player.resolveHp, 5); // 3 + 2 = 5!
+      expect(player.civicSilk, closeTo(45.0, 0.5)); // 20 + 25 = 45!
+
+      // 3. Parabolic Mortar Gravity & One-Way Bridge Perch (`=`)
+      const perchSpec = DungeonChamberSpec(
+        id: 'test_perch_mortar',
+        actNumber: 5,
+        title: 'Mortar Perch Test',
+        subtitle: 'Phase A Bugs #3 & #5',
+        asciiGrid: <String>[
+          '########################',
+          '#......................#',
+          '#......................#',
+          '#.............====.....#',
+          '#......................#',
+          '#......................#',
+          '#......................#',
+          '########################',
+        ],
+        defaultSpawnCol: 2,
+        defaultSpawnRow: 6,
+        enemySpawns: <DungeonEnemySpawnSpec>[
+          DungeonEnemySpawnSpec(
+            spawnId: 'mortar_perch',
+            archetypeId: 'bunker_mortar',
+            col: 15,
+            row: 2, // directly above '=' one-way bridge at row 3!
+            patrolRadiusTiles: 0,
+          ),
+        ],
+      );
+      final perchChamber = DungeonChamberRuntime(perchSpec);
+      final mortarCombat = DungeonCombatEngine();
+      final enemyMgr = DungeonEnemyManager()
+        ..spawnForChamber(perchSpec, bossAlreadyDefeated: false);
+      final mortar = enemyMgr.enemies.single;
+      mortar.attackCooldown = 0.0;
+      final heroBelow = DungeonPlayerPhysicsState(
+        x: 6 * kDungeonTileSize,
+        y: 6 * kDungeonTileSize - 15,
+        facing: 1,
+        isGrounded: true,
+      );
+
+      for (var f = 0; f < 60; f++) {
+        enemyMgr.step(
+          dt: 1 / 60,
+          player: heroBelow,
+          chamber: perchChamber,
+          combat: mortarCombat,
+          progress: progress,
+        );
+      }
+      // Mortar stays perched on row 3 bridge (top = 48px), never falls to row 7 floor (112px)!
+      expect(mortar.hitbox.bottom, closeTo(3 * kDungeonTileSize, 1.0));
+      expect(mortar.isGrounded, isTrue);
+      // Fired shell has positive gravity and curves downward over time!
+      expect(mortarCombat.projectiles, isNotEmpty);
+      final shell = mortarCombat.projectiles.first;
+      expect(shell.gravity, greaterThan(300.0));
+      final initialVy = shell.vy;
+      for (var f = 0; f < 35; f++) {
+        mortarCombat.step(
+          dt: 1 / 60,
+          player: heroBelow,
+          chamber: perchChamber,
+          input: const DungeonPlayerInput(),
+          progress: progress,
+          physicsEngine: physics,
+        );
+      }
+      expect(shell.vy, greaterThan(initialVy + 150.0));
+
+      // 4. Rival Mateo per-chamber defeat independence (Act II defeat does NOT skip Act V rematch!)
+      final act2MateoRoom = lookupDungeonChamber('act2_c4_mateo_courtyard');
+      final act5MateoRoom = lookupDungeonChamber('act5_c4_mateo_bunker');
+      final defeatedSet = <String>{'a2_c4_rival_mateo'};
+
+      final mgrAct2 = DungeonEnemyManager()
+        ..spawnForChamber(
+          act2MateoRoom,
+          bossAlreadyDefeated: false,
+          defeatedIds: defeatedSet,
+        );
+      expect(mgrAct2.activeBoss, isNull); // Act II Mateo already defeated!
+
+      final mgrAct5 = DungeonEnemyManager()
+        ..spawnForChamber(
+          act5MateoRoom,
+          bossAlreadyDefeated: false,
+          defeatedIds: defeatedSet,
+        );
+      expect(mgrAct5.activeBoss, isNotNull); // Act V Mateo rematch still spawns!
+
+      // 5. 360° Virtual Analog Joystick Wheel: Deadzone, Full-Tilt Sprint, Up/Down Slash Aim & Snap-Back
+      Offset latestVec = const Offset(99, 99);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Center(
+              child: DungeonVirtualJoystickWheel(
+                size: 120,
+                onChanged: (v) => latestVec = v,
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      final center = tester.getCenter(find.byType(DungeonVirtualJoystickWheel));
+
+      // Touch dead-center -> deadzone outputs (0, 0)
+      final gesture = await tester.startGesture(center);
+      await tester.pump();
+      expect(latestVec, Offset.zero);
+
+      // Drag right (+50px) -> full sprint right (dx ~ +1.0, dy ~ 0.0)
+      await gesture.moveBy(const Offset(50, 0));
+      await tester.pump();
+      expect(latestVec.dx, closeTo(1.0, 0.05));
+      expect(latestVec.dy, closeTo(0.0, 0.05));
+
+      // Swirl thumb downward (+50px Y) -> downward pogo aim (dy > 0.7)
+      await gesture.moveTo(center + const Offset(0, 50));
+      await tester.pump();
+      expect(latestVec.dy, greaterThan(0.85));
+
+      // Lift thumb -> snaps cleanly back to (0, 0)!
+      await gesture.up();
+      await tester.pump();
+      expect(latestVec, Offset.zero);
       expect(tester.takeException(), isNull);
     },
   );
@@ -3486,21 +3713,21 @@ class _MockCombatTarget implements DungeonCombatTarget {
   int hp;
   @override
   final int maxHp;
-  @override
-  final bool isBoss;
-  @override
-  final bool isShieldedFront;
-  @override
-  final int facing;
 
   _MockCombatTarget({
     required this.id,
     required this.hitbox,
     required this.hp,
-    this.isBoss = false,
-    this.isShieldedFront = false,
-    this.facing = -1,
   }) : maxHp = hp;
+
+  @override
+  bool get isBoss => false;
+
+  @override
+  bool get isShieldedFront => false;
+
+  @override
+  int get facing => -1;
 
   @override
   bool get isAlive => hp > 0;
@@ -3514,12 +3741,6 @@ class _MockCombatTarget implements DungeonCombatTarget {
     required double attackerCenterX,
     required double attackerCenterY,
   }) {
-    if (isShieldedFront && !isSkillOrCrit) {
-      final fromFront =
-          (facing > 0 && attackerCenterX > hitbox.center.dx) ||
-              (facing < 0 && attackerCenterX < hitbox.center.dx);
-      if (fromFront) return 0;
-    }
     hp = hp - amount < 0 ? 0 : hp - amount;
     return amount;
   }

@@ -242,7 +242,11 @@ class _SovereignDungeonScreenState extends State<SovereignDungeonScreen>
 
     final bossAlreadyDefeated =
         spec.bossId != null && _progress.defeatedBossIds.contains(spec.bossId);
-    _enemyManager.spawnForChamber(spec, bossAlreadyDefeated: bossAlreadyDefeated);
+    _enemyManager.spawnForChamber(
+      spec,
+      bossAlreadyDefeated: bossAlreadyDefeated,
+      defeatedIds: _progress.defeatedBossIds,
+    );
     _camera.snapTo(_player, spec);
 
     if (!_progress.discoveredChamberIds.contains(spec.id)) {
@@ -455,12 +459,33 @@ class _SovereignDungeonScreenState extends State<SovereignDungeonScreen>
           break;
         case DungeonPhysicsEventKind.lootCollected:
           DungeonAudioService.instance.play(DungeonSfxCue.lootPickup);
+          Color burstColor = SpriteCastPalette.endesga32[11];
           if (ev.lootKind == DungeonLootKind.archipelagoShard && ev.amount > 0) {
             _progress = _progress.copyWith(
               archipelagoShards: _progress.archipelagoShards + ev.amount,
             );
+          } else if (ev.lootKind == DungeonLootKind.resolveOrb) {
+            burstColor = SpriteCastPalette.endesga32[12];
+            _combat.floatingNumbers.add(
+              FloatingCombatNumber(
+                text: '+${math.max(1, ev.amount)} HP',
+                color: burstColor,
+                x: ev.x,
+                y: ev.y - 6.0,
+              ),
+            );
+          } else if (ev.lootKind == DungeonLootKind.silkMote) {
+            burstColor = SpriteCastPalette.endesga32[18];
+            _combat.floatingNumbers.add(
+              FloatingCombatNumber(
+                text: '+${ev.amount} SILK',
+                color: burstColor,
+                x: ev.x,
+                y: ev.y - 6.0,
+              ),
+            );
           }
-          _emitBurst(ev.x, ev.y, SpriteCastPalette.endesga32[11], count: 4);
+          _emitBurst(ev.x, ev.y, burstColor, count: 6);
           break;
       }
     }
@@ -523,15 +548,25 @@ class _SovereignDungeonScreenState extends State<SovereignDungeonScreen>
           _emitBurst(ev.x, ev.y, SpriteCastPalette.endesga32[18], count: 8);
           break;
         case DungeonCombatEventKind.secretWallBroken:
-          DungeonAudioService.instance.play(DungeonSfxCue.secretDiscovered);
-          _emitBurst(ev.x, ev.y, SpriteCastPalette.endesga32[11], count: 14);
-          _showToast('SECRET PASSAGE DISCOVERED!');
+          if (ev.value > 0) {
+            DungeonAudioService.instance.play(DungeonSfxCue.secretDiscovered);
+            _emitBurst(ev.x, ev.y, SpriteCastPalette.endesga32[11], count: 14);
+            _showToast('SECRET PASSAGE DISCOVERED!');
+          }
           if (ev.tileKey != null) {
-            final fullKey = '${_chamber.spec.id}:${ev.tileKey}';
+            // `dungeon_combat.dart` already formats `tileKey` as `${chamber.spec.id}:col_row`
+            final normalizedKey = ev.tileKey!.contains(':')
+                ? ev.tileKey!
+                : '${_chamber.spec.id}:${ev.tileKey}';
             _progress = _progress.copyWith(
-              brokenSecretKeys: <String>{..._progress.brokenSecretKeys, fullKey},
+              brokenSecretKeys: <String>{
+                ..._progress.brokenSecretKeys,
+                normalizedKey,
+              },
             );
-            unawaited(_persistProgress());
+            if (ev.value > 0) {
+              unawaited(_persistProgress());
+            }
           }
           break;
         case DungeonCombatEventKind.gateUnlocked:
@@ -575,9 +610,27 @@ class _SovereignDungeonScreenState extends State<SovereignDungeonScreen>
   Future<void> _onBossVanquished(DungeonEnemyEvent ev) async {
     final bossId = ev.archetypeId;
     final act = actSpecForNumber(_chamber.spec.actNumber);
+    final isActEraBoss = act.bossId == bossId;
+
+    // Rival Mateo encounters track defeat by spawn entityId (`a2_c4_rival_mateo`, `a5_c4_mateo_bunker`)
+    // so defeating Mateo in Act II neither awards Act II's Charter Seal prematurely nor skips his Act V rematch!
+    if (!isActEraBoss) {
+      final nextDefeated = <String>{..._progress.defeatedBossIds, ev.entityId};
+      _progress = _progress.copyWith(defeatedBossIds: nextDefeated);
+      await _persistProgress();
+      try {
+        await LobbyDataService.instance.awardDungeonXp(95);
+      } catch (_) {}
+      if (!mounted) return;
+      setState(() {
+        _showToast('RIVAL MATEO BESTED! +95 PORTAL XP!', duration: 3.4);
+      });
+      return;
+    }
+
     final nextSkills = Set<DungeonSilkSkillId>.from(_progress.unlockedSkills);
     String skillBanner = '';
-    if (act.bossId == bossId && act.unlockedSkillOnClear != null) {
+    if (act.unlockedSkillOnClear != null) {
       if (nextSkills.add(act.unlockedSkillOnClear!)) {
         skillBanner =
             ' • UNLOCKED ${silkSkillSpecFor(act.unlockedSkillOnClear!).name.toUpperCase()}!';
@@ -1282,58 +1335,14 @@ class _SovereignDungeonScreenState extends State<SovereignDungeonScreen>
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              // Left Thumb: 4-Way Directional Pad (Move + Up/Down Slash Aim + Ladder!)
-              SizedBox(
-                width: 126,
-                height: 118,
-                child: Stack(
-                  children: [
-                    // UP
-                    Positioned(
-                      left: 42,
-                      top: 0,
-                      child: _TouchHoldButton(
-                        size: 40,
-                        icon: Icons.keyboard_arrow_up_rounded,
-                        color: SpriteCastPalette.endesga32[21],
-                        onChanged: (down) => _touchMoveY = down ? -1.0 : 0.0,
-                      ),
-                    ),
-                    // DOWN
-                    Positioned(
-                      left: 42,
-                      bottom: 0,
-                      child: _TouchHoldButton(
-                        size: 40,
-                        icon: Icons.keyboard_arrow_down_rounded,
-                        color: SpriteCastPalette.endesga32[21],
-                        onChanged: (down) => _touchMoveY = down ? 1.0 : 0.0,
-                      ),
-                    ),
-                    // LEFT
-                    Positioned(
-                      left: 0,
-                      top: 39,
-                      child: _TouchHoldButton(
-                        size: 42,
-                        icon: Icons.keyboard_arrow_left_rounded,
-                        color: SpriteCastPalette.endesga32[20],
-                        onChanged: (down) => _touchMoveX = down ? -1.0 : 0.0,
-                      ),
-                    ),
-                    // RIGHT
-                    Positioned(
-                      right: 0,
-                      top: 39,
-                      child: _TouchHoldButton(
-                        size: 42,
-                        icon: Icons.keyboard_arrow_right_rounded,
-                        color: SpriteCastPalette.endesga32[20],
-                        onChanged: (down) => _touchMoveX = down ? 1.0 : 0.0,
-                      ),
-                    ),
-                  ],
-                ),
+              // Left Thumb: 360° Virtual Analog Joystick Wheel
+              // (Smooth analog sprint, diagonal up-slash, downward pogo & ladder climb!)
+              DungeonVirtualJoystickWheel(
+                size: 124,
+                onChanged: (vec) {
+                  _touchMoveX = vec.dx;
+                  _touchMoveY = vec.dy;
+                },
               ),
 
               // Center Dynamic Context INTERACT Button (Bench / Portal / Chest / Lore!)
@@ -1789,17 +1798,259 @@ class _TouchTapButton extends StatelessWidget {
   }
 }
 
+/// Multi-touch-safe 360° Virtual Analog Joystick Wheel (`craft-game-floors` UI Floor).
+///
+/// Tracks a single dedicated `pointer` ID via [Listener] so holding & swirling
+/// the left thumb never conflicts with simultaneous right-thumb `SLASH` / `JUMP` / `DASH` taps.
+class DungeonVirtualJoystickWheel extends StatefulWidget {
+  final double size;
+  final double deadzone;
+  final ValueChanged<Offset> onChanged;
+
+  const DungeonVirtualJoystickWheel({
+    super.key,
+    this.size = 124.0,
+    this.deadzone = 0.14,
+    required this.onChanged,
+  });
+
+  @override
+  State<DungeonVirtualJoystickWheel> createState() =>
+      _DungeonVirtualJoystickWheelState();
+}
+
+class _DungeonVirtualJoystickWheelState
+    extends State<DungeonVirtualJoystickWheel> {
+  int? _activePointerId;
+  Offset _knobOffset = Offset.zero; // px from wheel center
+  Offset _outputVector = Offset.zero; // normalized [-1..1] after deadzone
+
+  double get _maxKnobRadius => widget.size * 0.31;
+
+  void _updateFromLocalPosition(Offset localPos) {
+    final center = Offset(widget.size * 0.5, widget.size * 0.5);
+    final rawDelta = localPos - center;
+    final dist = rawDelta.distance;
+    final maxR = _maxKnobRadius;
+
+    final clampedDelta = dist <= maxR || dist == 0.0
+        ? rawDelta
+        : Offset(rawDelta.dx / dist * maxR, rawDelta.dy / dist * maxR);
+
+    final normMag = (clampedDelta.distance / maxR).clamp(0.0, 1.0);
+    Offset nextVec = Offset.zero;
+    if (normMag > widget.deadzone && dist > 0.0) {
+      final rescaled =
+          ((normMag - widget.deadzone) / (1.0 - widget.deadzone)).clamp(0.0, 1.0);
+      nextVec = Offset(
+        (rawDelta.dx / dist) * rescaled,
+        (rawDelta.dy / dist) * rescaled,
+      );
+    }
+
+    setState(() {
+      _knobOffset = clampedDelta;
+      _outputVector = nextVec;
+    });
+    widget.onChanged(nextVec);
+  }
+
+  void _resetStick() {
+    if (_activePointerId == null && _knobOffset == Offset.zero) return;
+    setState(() {
+      _activePointerId = null;
+      _knobOffset = Offset.zero;
+      _outputVector = Offset.zero;
+    });
+    widget.onChanged(Offset.zero);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Listener(
+      behavior: HitTestBehavior.opaque,
+      onPointerDown: (event) {
+        if (_activePointerId != null) return;
+        _activePointerId = event.pointer;
+        _updateFromLocalPosition(event.localPosition);
+      },
+      onPointerMove: (event) {
+        if (event.pointer != _activePointerId) return;
+        _updateFromLocalPosition(event.localPosition);
+      },
+      onPointerUp: (event) {
+        if (event.pointer != _activePointerId) return;
+        _resetStick();
+      },
+      onPointerCancel: (event) {
+        if (event.pointer != _activePointerId) return;
+        _resetStick();
+      },
+      child: SizedBox(
+        width: widget.size,
+        height: widget.size,
+        child: CustomPaint(
+          painter: _JoystickWheelPainter(
+            knobOffset: _knobOffset,
+            outputVector: _outputVector,
+            isActive: _activePointerId != null,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _JoystickWheelPainter extends CustomPainter {
+  final Offset knobOffset;
+  final Offset outputVector;
+  final bool isActive;
+
+  const _JoystickWheelPainter({
+    required this.knobOffset,
+    required this.outputVector,
+    required this.isActive,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width * 0.5, size.height * 0.5);
+    final outerR = size.width * 0.46;
+    final innerTrackR = size.width * 0.31;
+
+    // 1. Recessed obsidian outer wheel well + beveled brass/slate rim
+    canvas.drawCircle(
+      center,
+      outerR,
+      Paint()..color = SpriteCastPalette.ink.withValues(alpha: 0.74),
+    );
+    canvas.drawCircle(
+      center,
+      outerR,
+      Paint()
+        ..color = isActive
+            ? SpriteCastPalette.endesga32[10]
+            : SpriteCastPalette.endesga32[22]
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.2,
+    );
+    canvas.drawCircle(
+      center,
+      innerTrackR,
+      Paint()
+        ..color = SpriteCastPalette.endesga32[23].withValues(alpha: 0.65)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.2,
+    );
+
+    // 2. Crisp 8-way compass ticks around the rim
+    final tickPaint = Paint()
+      ..color = SpriteCastPalette.endesga32[21].withValues(alpha: 0.55)
+      ..strokeWidth = 1.4;
+    for (var i = 0; i < 8; i++) {
+      final a = i * (math.pi / 4.0);
+      final r0 = (i.isEven ? outerR - 6.5 : outerR - 4.5);
+      canvas.drawLine(
+        Offset(center.dx + math.cos(a) * r0, center.dy + math.sin(a) * r0),
+        Offset(
+          center.dx + math.cos(a) * (outerR - 1.8),
+          center.dy + math.sin(a) * (outerR - 1.8),
+        ),
+        tickPaint,
+      );
+    }
+
+    // 3. Directional Aim Rim Arc (Gold/Emerald Up-Slash, Crimson/Amber Down-Pogo, Cyan Run!)
+    if (outputVector.distance > 0.05) {
+      final angle = math.atan2(outputVector.dy, outputVector.dx);
+      final Color aimColor;
+      if (outputVector.dy < -0.55) {
+        aimColor = SpriteCastPalette.endesga32[12]; // Up-Slash / Climb
+      } else if (outputVector.dy > 0.55) {
+        aimColor = SpriteCastPalette.endesga32[9]; // Downward Pogo-Slash
+      } else {
+        aimColor = SpriteCastPalette.endesga32[18]; // Horizontal Sprint
+      }
+
+      canvas.drawArc(
+        Rect.fromCircle(center: center, radius: outerR - 1.0),
+        angle - 0.52,
+        1.04,
+        false,
+        Paint()
+          ..color = aimColor
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 3.2
+          ..strokeCap = StrokeCap.round,
+      );
+
+      // Subtle silk tether from center to thumb puck
+      canvas.drawLine(
+        center,
+        center + knobOffset,
+        Paint()
+          ..color = aimColor.withValues(alpha: 0.55)
+          ..strokeWidth = 2.4,
+      );
+    }
+
+    // 4. Spring-Centered Beveled Thumb Puck + Sovereign Star Emblem
+    final puckCenter = center + knobOffset;
+    final puckR = size.width * 0.175;
+    // Drop shadow
+    canvas.drawCircle(
+      puckCenter + const Offset(0, 2.0),
+      puckR + 1.0,
+      Paint()..color = SpriteCastPalette.ink.withValues(alpha: 0.75),
+    );
+    // Puck body + crisp border
+    canvas.drawCircle(
+      puckCenter,
+      puckR,
+      Paint()
+        ..color = isActive
+            ? const Color(0xFF262B44)
+            : const Color(0xFF1F2238),
+    );
+    canvas.drawCircle(
+      puckCenter,
+      puckR,
+      Paint()
+        ..color = isActive
+            ? SpriteCastPalette.endesga32[18]
+            : SpriteCastPalette.endesga32[10]
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.0,
+    );
+    // Inner Sovereign diamond/star core
+    final starCol = isActive
+        ? SpriteCastPalette.endesga32[11]
+        : SpriteCastPalette.endesga32[2];
+    final diamond = Path()
+      ..moveTo(puckCenter.dx, puckCenter.dy - 5.5)
+      ..lineTo(puckCenter.dx + 5.5, puckCenter.dy)
+      ..lineTo(puckCenter.dx, puckCenter.dy + 5.5)
+      ..lineTo(puckCenter.dx - 5.5, puckCenter.dy)
+      ..close();
+    canvas.drawPath(diamond, Paint()..color = starCol);
+  }
+
+  @override
+  bool shouldRepaint(covariant _JoystickWheelPainter oldDelegate) {
+    return oldDelegate.knobOffset != knobOffset ||
+        oldDelegate.isActive != isActive;
+  }
+}
+
 class _TouchHoldButton extends StatelessWidget {
   final double size;
-  final String? label;
-  final IconData? icon;
+  final String label;
   final Color color;
   final ValueChanged<bool> onChanged;
 
   const _TouchHoldButton({
     required this.size,
-    this.label,
-    this.icon,
+    required this.label,
     required this.color,
     required this.onChanged,
   });
@@ -1819,16 +2070,14 @@ class _TouchHoldButton extends StatelessWidget {
           color: SpriteCastPalette.ink.withValues(alpha: 0.72),
           border: Border.all(color: color, width: 2.0),
         ),
-        child: icon != null
-            ? Icon(icon, color: color, size: 22)
-            : Text(
-                label ?? '',
-                style: TextStyle(
-                  color: color,
-                  fontSize: 9,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: color,
+            fontSize: 9,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
       ),
     );
   }
