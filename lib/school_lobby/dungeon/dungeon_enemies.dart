@@ -1940,7 +1940,7 @@ class DungeonEnemyManager {
     final col = (probeX / kDungeonTileSize).floor();
     final row = ((e.y + e.archetype.height + 3.0) / kDungeonTileSize).floor();
     final tile = chamber.effectiveTileAt(col, row);
-    return (tile.isSolid || tile.isOneWay) && !tile.isHazard;
+    return (chamber.isSolidAt(col, row) || tile.isOneWay) && !tile.isHazard;
   }
 
   void _handleEnemyDefeated(
