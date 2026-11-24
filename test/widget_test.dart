@@ -33,6 +33,7 @@ import 'package:student_portal_app/school_lobby/sovereign_story_screen.dart';
 import 'package:student_portal_app/school_lobby/spritecast_engine.dart';
 import 'package:student_portal_app/school_lobby/dungeon/dungeon_audio.dart';
 import 'package:student_portal_app/school_lobby/dungeon/dungeon_combat.dart';
+import 'package:student_portal_app/school_lobby/dungeon/dungeon_enemies.dart';
 import 'package:student_portal_app/school_lobby/dungeon/dungeon_models.dart';
 import 'package:student_portal_app/school_lobby/dungeon/dungeon_physics.dart';
 import 'package:student_portal_app/school_lobby/dungeon/dungeon_renderer.dart';
@@ -2832,6 +2833,292 @@ void main() {
       await tester.pump();
       expect(tester.takeException(), isNull);
       customSheet.dispose();
+    },
+  );
+
+  test(
+    'Dungeon Part 4/8: 14 Enemy Archetypes, Shield/Laser AI, Rival Mateo & 7 Multi-Phase Era Bosses with Staggered Constitutional Counter-Breaks',
+    () {
+      // 1. Catalog Integrity: 14 regular archetypes + Rival Mateo (15 total) & 7 Multi-Phase Era Bosses (Acts 1..7)
+      expect(kDungeonEnemyArchetypes.length, 15);
+      expect(kDungeonBossArchetypes.length, 7);
+      final bossActs = kDungeonBossArchetypes.values.map((b) => b.actNumber).toSet();
+      expect(bossActs, equals(<int>{1, 2, 3, 4, 5, 6, 7}));
+      for (final boss in kDungeonBossArchetypes.values) {
+        expect(boss.isBoss, isTrue);
+        expect(boss.phase1Attacks, isNotEmpty);
+        expect(boss.phase2Attacks, isNotEmpty);
+        expect(boss.counterBreak, isNotNull);
+        expect(boss.counterBreak!.options.length, 2);
+        expect(boss.counterBreak!.loreEntryId, isNotEmpty);
+      }
+      expect(kDungeonBossArchetypes['boss_sovereign_guardian']!.hasThreePhases, isTrue);
+      expect(kDungeonBossArchetypes['boss_iron_censor']!.hasThreePhases, isTrue);
+
+      // 2. Arena Setup for Enemy AI & Shield/Laser Verification
+      const arenaSpec = DungeonChamberSpec(
+        id: 'test_part4_arena',
+        actNumber: 2,
+        title: 'Intramuros Bastion Arena',
+        subtitle: 'Part 4 Enemy AI Test',
+        asciiGrid: <String>[
+          '########################',
+          '#......................#',
+          '#......................#',
+          '#......................#',
+          '#......................#',
+          '#......................#',
+          '#......................#',
+          '#......................#',
+          '#......................#',
+          '########################',
+        ],
+        defaultSpawnCol: 2,
+        defaultSpawnRow: 8,
+        enemySpawns: <DungeonEnemySpawnSpec>[
+          DungeonEnemySpawnSpec(
+            spawnId: 'sp_lancer',
+            archetypeId: 'guardia_lancer',
+            col: 8,
+            row: 8,
+          ),
+          DungeonEnemySpawnSpec(
+            spawnId: 'sp_musketeer',
+            archetypeId: 'intramuros_musketeer',
+            col: 15,
+            row: 8,
+          ),
+        ],
+      );
+      final chamber = DungeonChamberRuntime(arenaSpec);
+      final combat = DungeonCombatEngine();
+      final manager = DungeonEnemyManager();
+      manager.spawnForChamber(arenaSpec, bossAlreadyDefeated: false);
+      expect(manager.enemies.length, 2);
+      expect(manager.buildRenderSpecs().length, 2);
+
+      // 3. Shielded Lancer blocks frontal normal hit, takes full damage from behind, above (pogo), or Silk Skill
+      final lancer = manager.enemies.firstWhere((e) => e.id == 'sp_lancer');
+      lancer.facing = -1; // facing left toward player
+      final blocked = lancer.receiveDamage(
+        amount: 20,
+        knockbackVx: 80,
+        knockbackVy: -40,
+        isSkillOrCrit: false,
+        attackerCenterX: lancer.hitbox.center.dx - 24.0,
+        attackerCenterY: lancer.hitbox.center.dy,
+      );
+      expect(blocked, 0);
+
+      // Pogo strike from above bypasses front shield!
+      final pogoHit = lancer.receiveDamage(
+        amount: 20,
+        knockbackVx: 0,
+        knockbackVy: 0,
+        isSkillOrCrit: false,
+        attackerCenterX: lancer.hitbox.center.dx - 6.0,
+        attackerCenterY: lancer.hitbox.top - 10.0,
+      );
+      expect(pogoHit, 20);
+
+      // Dash-behind hit from the right bypasses front shield!
+      final backstab = lancer.receiveDamage(
+        amount: 15,
+        knockbackVx: -60,
+        knockbackVy: 0,
+        isSkillOrCrit: false,
+        attackerCenterX: lancer.hitbox.center.dx + 22.0,
+        attackerCenterY: lancer.hitbox.center.dy,
+      );
+      expect(backstab, 15);
+
+      // 4. Intramuros Musketeer projects aim telegraph laser during wind-up, then fires deflectable bolt
+      final musketeer = manager.enemies.firstWhere((e) => e.id == 'sp_musketeer');
+      musketeer.attackCooldown = 0.0;
+      final player = DungeonPlayerPhysicsState(
+        x: 11 * kDungeonTileSize,
+        y: 8 * kDungeonTileSize,
+        facing: 1,
+        isGrounded: true,
+        resolveHp: 6,
+        maxResolveHp: 8,
+        civicSilk: 30.0,
+      );
+      const progress = DungeonProgressSave();
+
+      var sawAimLaser = false;
+      for (var f = 0; f < 65; f++) {
+        manager.step(
+          dt: 1 / 60,
+          player: player,
+          chamber: chamber,
+          combat: combat,
+          progress: progress,
+        );
+        if (musketeer.aimTelegraphEnd != null) {
+          sawAimLaser = true;
+        }
+      }
+      expect(sawAimLaser, isTrue);
+      expect(combat.projectiles, isNotEmpty);
+      expect(combat.projectiles.first.isPlayerOwned, isFalse);
+      expect(combat.projectiles.first.deflectable, isTrue);
+
+      // 5. Rival Mateo Encounter spawns & scales HP properly in Act 5
+      const rivalSpec = DungeonChamberSpec(
+        id: 'test_rival_chamber',
+        actNumber: 5,
+        title: 'Corregidor Crossing',
+        subtitle: 'Rival Mateo Duel',
+        asciiGrid: <String>[
+          '####################',
+          '#..................#',
+          '#..................#',
+          '#..................#',
+          '#..................#',
+          '####################',
+        ],
+        defaultSpawnCol: 2,
+        defaultSpawnRow: 4,
+        enemySpawns: <DungeonEnemySpawnSpec>[
+          DungeonEnemySpawnSpec(
+            spawnId: 'mateo_act5',
+            archetypeId: 'rival_mateo',
+            col: 14,
+            row: 4,
+          ),
+        ],
+      );
+      final rivalMgr = DungeonEnemyManager()
+        ..spawnForChamber(rivalSpec, bossAlreadyDefeated: false);
+      expect(rivalMgr.activeBoss, isNotNull);
+      expect(rivalMgr.activeBoss!.archetype.isRival, isTrue);
+      expect(
+        rivalMgr.activeBoss!.maxHp,
+        greaterThan(kDungeonEnemyArchetypes['rival_mateo']!.maxHp),
+      );
+
+      // 6. Act VII 3-Phase Sovereign Guardian Finale: Phase 1 -> 2 -> 3, Stagger, Counter-Break & Defeat Loot
+      const finaleSpec = DungeonChamberSpec(
+        id: 'test_act7_altar',
+        actNumber: 7,
+        title: 'Altar of the 1987 Charter',
+        subtitle: '3-Phase Sovereign Finale',
+        asciiGrid: <String>[
+          '########################',
+          '#......................#',
+          '#......................#',
+          '#......................#',
+          '#......................#',
+          '#......................#',
+          '#......................#',
+          '########################',
+        ],
+        defaultSpawnCol: 3,
+        defaultSpawnRow: 6,
+        bossId: 'boss_sovereign_guardian',
+        bossSpawnCol: 17,
+        bossSpawnRow: 6,
+        isBossArena: true,
+      );
+      final finaleChamber = DungeonChamberRuntime(finaleSpec);
+      final finaleCombat = DungeonCombatEngine();
+      final bossMgr = DungeonEnemyManager()
+        ..spawnForChamber(finaleSpec, bossAlreadyDefeated: false);
+
+      final guardian = bossMgr.activeBoss!;
+      expect(guardian.phase, 1);
+
+      // Drop HP below 62% -> triggers Phase 2!
+      guardian.hp = (guardian.maxHp * 0.58).round();
+      final phase2Evs = bossMgr.step(
+        dt: 1 / 60,
+        player: player,
+        chamber: finaleChamber,
+        combat: finaleCombat,
+        progress: progress,
+      );
+      expect(guardian.phase, 2);
+      expect(
+        phase2Evs.any((e) => e.kind == DungeonEnemyEventKind.bossPhaseChanged),
+        isTrue,
+      );
+      // Finish phaseShift roar timer
+      for (var i = 0; i < 50; i++) {
+        bossMgr.step(
+          dt: 1 / 60,
+          player: player,
+          chamber: finaleChamber,
+          combat: finaleCombat,
+          progress: progress,
+        );
+      }
+
+      // Fill posture via Parry shock -> triggers Boss Stagger & Constitutional Counter-Break Prompt!
+      guardian.applyParryPostureShock(guardian.archetype.staggerThreshold);
+      final staggerEvs = bossMgr.step(
+        dt: 1 / 60,
+        player: player,
+        chamber: finaleChamber,
+        combat: finaleCombat,
+        progress: progress,
+      );
+      expect(guardian.isStaggered, isTrue);
+      expect(
+        staggerEvs.any((e) => e.kind == DungeonEnemyEventKind.bossStaggered),
+        isTrue,
+      );
+      final prompt = bossMgr.activeCounterBreakPrompt;
+      expect(prompt, isNotNull);
+      expect(prompt!.loreEntryId, 'lore_act7_sovereignty_1987');
+
+      // Tap the correct Constitutional Counter-Break option!
+      player.resolveHp = 4;
+      player.civicSilk = 10.0;
+      final hpBeforeCounter = guardian.hp;
+      final cbEvent = bossMgr.resolveCounterBreak(
+        chosenOptionIndex: prompt.correctIndex,
+        player: player,
+        combat: finaleCombat,
+        progress: progress,
+      );
+      expect(cbEvent, isNotNull);
+      expect(cbEvent!.kind, DungeonEnemyEventKind.counterBreakSucceeded);
+      expect(guardian.hp, lessThan(hpBeforeCounter - 100));
+      expect(player.resolveHp, 6); // +2 Resolve Masks restored!
+      expect(player.civicSilk, player.maxCivicSilk); // Silk fully refilled!
+      expect(finaleCombat.hitStop.remainingSec, closeTo(0.110, 0.005));
+
+      // Drop HP below 32% -> triggers Phase 3!
+      guardian.hp = (guardian.maxHp * 0.25).round();
+      final phase3Evs = bossMgr.step(
+        dt: 1 / 60,
+        player: player,
+        chamber: finaleChamber,
+        combat: finaleCombat,
+        progress: progress,
+      );
+      expect(guardian.phase, 3);
+      expect(
+        phase3Evs.any((e) => e.kind == DungeonEnemyEventKind.bossPhaseChanged),
+        isTrue,
+      );
+
+      // Defeat Guardian -> emits bossDefeated + drops Archipelago Shards, Silk Mote & Resolve Orb!
+      guardian.hp = 0;
+      final defeatEvs = bossMgr.step(
+        dt: 1 / 60,
+        player: player,
+        chamber: finaleChamber,
+        combat: finaleCombat,
+        progress: progress,
+      );
+      expect(
+        defeatEvs.any((e) => e.kind == DungeonEnemyEventKind.bossDefeated),
+        isTrue,
+      );
+      expect(bossMgr.activeBoss, isNull);
+      expect(finaleChamber.lootDrops.length, greaterThanOrEqualTo(10));
     },
   );
 }
