@@ -30,6 +30,8 @@ import 'package:student_portal_app/school_lobby/pixelfx_engine.dart';
 import 'package:student_portal_app/school_lobby/sovereign_story_data.dart';
 import 'package:student_portal_app/school_lobby/sovereign_story_screen.dart';
 import 'package:student_portal_app/school_lobby/spritecast_engine.dart';
+import 'package:student_portal_app/school_lobby/dungeon/dungeon_audio.dart';
+import 'package:student_portal_app/school_lobby/dungeon/dungeon_combat.dart';
 import 'package:student_portal_app/school_lobby/dungeon/dungeon_models.dart';
 import 'package:student_portal_app/school_lobby/dungeon/dungeon_physics.dart';
 import 'package:student_portal_app/theme/portal_theme.dart';
@@ -2155,4 +2157,366 @@ void main() {
       expect(pSpike.isInvulnerable, isTrue);
     },
   );
+
+  test(
+    'Dungeon Part 2/8: 3-Hit Combo, Pogo-Lanterns, 5 Constitutional Silk Skills, Golden Parry, Projectile Deflection, Breakables/Switches & 22 Procedural WAV SFX',
+    () {
+      // 1. Hit-Stop Manager: longest freeze wins & scales dt cleanly
+      final hs = DungeonHitStopManager();
+      hs.trigger(0.085);
+      hs.trigger(0.040); // shorter freeze must NOT overwrite 85ms freeze
+      expect(hs.remainingSec, closeTo(0.085, 0.001));
+      final scaledDt = hs.applyToDt(0.016);
+      expect(scaledDt, closeTo(0.016 * 0.05, 0.0002));
+      expect(hs.isFrozen, isTrue);
+      hs.applyToDt(0.10);
+      expect(hs.isFrozen, isFalse);
+      expect(hs.applyToDt(0.016), closeTo(0.016, 0.0001));
+
+      // 2. Combat test chamber with crate ('X'), crystal ('*'), switch ('S'), gate ('D'), secret ('?'), lantern ('O')
+      const combatRoomSpec = DungeonChamberSpec(
+        id: 'test_combat_room',
+        actNumber: 3,
+        title: 'Combat Arena',
+        subtitle: 'Part 2 Verification',
+        defaultSpawnCol: 2,
+        defaultSpawnRow: 8,
+        asciiGrid: <String>[
+          '########################',
+          '#......................#',
+          '#......................#',
+          '#......................#',
+          '#..........O...........#',
+          '#......................#',
+          '#......................#',
+          '#......................#',
+          '#....X..*..S..D..?.....#',
+          '########################',
+        ],
+      );
+
+      final chamber = DungeonChamberRuntime(combatRoomSpec);
+      final physics = DungeonPhysicsEngine();
+      final combat = DungeonCombatEngine();
+
+      const fullProgress = DungeonProgressSave(
+        bladeTier: DungeonBladeTier.kampilanEdge, // 15 base dmg
+        equippedCharmIds: <String>[
+          'quick_slash_bolo',
+          'long_needle',
+          'babaylan_bind',
+          'iron_parry_crest',
+          'scholars_silk',
+        ],
+        unlockedSkills: <DungeonSilkSkillId>{
+          DungeonSilkSkillId.sanduguanThread,
+          DungeonSilkSkillId.silkBind,
+          DungeonSilkSkillId.scalesTempest,
+          DungeonSilkSkillId.habeasAegis,
+          DungeonSilkSkillId.sovereignSunburst,
+        },
+      );
+
+      // 3. 3-Hit Combo against dummy target + Scholar's Silk generation
+      final dummy = _MockCombatTarget(
+        id: 'enemy_1',
+        hitbox: Rect.fromLTWH(52, 114, 14, 14),
+        hp: 200,
+      );
+      final player = DungeonPlayerPhysicsState(
+        x: 32,
+        y: 114,
+        facing: 1,
+        isGrounded: true,
+        resolveHp: 3,
+        maxResolveHp: 6,
+        civicSilk: 20.0,
+      );
+
+      final hitAmounts = <int>[];
+      for (var stepIdx = 0; stepIdx < 3; stepIdx++) {
+        // Let cooldown finish between swings
+        combat.slashCooldownTimer = 0.0;
+        final evs = combat.step(
+          dt: 1 / 60,
+          player: player,
+          chamber: chamber,
+          input: const DungeonPlayerInput(slashJustPressed: true),
+          progress: fullProgress,
+          physicsEngine: physics,
+          targets: <DungeonCombatTarget>[dummy],
+        );
+        final hitEv = evs.firstWhere((e) => e.kind == DungeonCombatEventKind.enemyHit);
+        hitAmounts.add(hitEv.value);
+        // Clear finished slash before next swing
+        combat.activeSlashes.clear();
+      }
+      // Step 0 & 1 = 15 dmg; Step 2 finisher (+25%) = 19 dmg!
+      expect(hitAmounts[0], 15);
+      expect(hitAmounts[1], 15);
+      expect(hitAmounts[2], 19);
+      // 3 hits * 14 silk (Scholar's Silk) + 20 starting = 62 silk
+      expect(player.civicSilk, closeTo(62.0, 0.5));
+
+      // 4. Downward Pogo-Slash onto Pogo-Lantern ('O' at col 11, row 4 -> x:176..192, y:64..80)
+      player.x = 11 * kDungeonTileSize + 2;
+      player.y = 3 * kDungeonTileSize;
+      player.isGrounded = false;
+      player.airDashAvailable = false;
+      combat.slashCooldownTimer = 0.0;
+      final pogoEvents = combat.step(
+        dt: 1 / 60,
+        player: player,
+        chamber: chamber,
+        input: const DungeonPlayerInput(moveY: 1.0, slashJustPressed: true),
+        progress: fullProgress,
+        physicsEngine: physics,
+      );
+      expect(
+        pogoEvents.any((e) => e.kind == DungeonCombatEventKind.pogoLanternStruck),
+        isTrue,
+      );
+      expect(player.vy, lessThan(-350.0));
+      expect(player.airDashAvailable, isTrue);
+
+      // 5. Scales Tempest deflects incoming enemy projectile!
+      combat.activeSlashes.clear();
+      player.x = 120;
+      player.y = 110;
+      player.civicSilk = 100.0;
+      final enemyBolt = DungeonProjectile(
+        id: 'bolt_1',
+        isPlayerOwned: false,
+        x: 138,
+        y: 117,
+        vx: -120.0,
+        vy: 0.0,
+        damage: 1,
+        color: Colors.red,
+      );
+      combat.projectiles.add(enemyBolt);
+      final skillEvs = <DungeonCombatEvent>[];
+      expect(
+        combat.tryCastSilkSkill(
+          skillId: DungeonSilkSkillId.scalesTempest,
+          player: player,
+          progress: fullProgress,
+          events: skillEvs,
+        ),
+        isTrue,
+      );
+      final tempestStepEvs = combat.step(
+        dt: 1 / 60,
+        player: player,
+        chamber: chamber,
+        input: const DungeonPlayerInput(),
+        progress: fullProgress,
+        physicsEngine: physics,
+      );
+      expect(
+        tempestStepEvs.any((e) => e.kind == DungeonCombatEventKind.projectileDeflected),
+        isTrue,
+      );
+      expect(enemyBolt.isPlayerOwned, isTrue);
+      expect(enemyBolt.vx, greaterThan(120.0));
+
+      // 6. Habeas Aegis Golden Parry: 0 damage, 100ms freeze, +35 Silk refund, counter-blast!
+      combat.activeSkills.clear();
+      player.civicSilk = 40.0;
+      player.resolveHp = 4;
+      player.invulnTimer = 0.0;
+      final parryTarget = _MockCombatTarget(
+        id: 'enemy_parry',
+        hitbox: Rect.fromLTWH(142, 108, 16, 16),
+        hp: 100,
+      );
+      final castParryEvs = <DungeonCombatEvent>[];
+      expect(
+        combat.tryCastSilkSkill(
+          skillId: DungeonSilkSkillId.habeasAegis,
+          player: player,
+          progress: fullProgress,
+          events: castParryEvs,
+        ),
+        isTrue,
+      );
+      expect(combat.isParryActive, isTrue);
+      final parryRes = combat.resolveIncomingPlayerHit(
+        player: player,
+        progress: fullProgress,
+        damage: 2,
+        sourceX: 150,
+        sourceY: 114,
+        targets: <DungeonCombatTarget>[parryTarget],
+        events: castParryEvs,
+      );
+      expect(parryRes.parried, isTrue);
+      expect(parryRes.damaged, isFalse);
+      expect(player.resolveHp, 4); // 0 damage taken!
+      expect(player.civicSilk, closeTo(55.0, 0.5)); // 40 - 20 + 35 = 55!
+      expect(combat.hitStop.remainingSec, closeTo(0.100, 0.005));
+      expect(parryTarget.hp, lessThan(100)); // counter-blasted!
+
+      // 7. Silk Bind healing channel (Babaylan Fast-Bind = 0.46s -> +3 Resolve Masks!)
+      player.resolveHp = 2;
+      player.civicSilk = 50.0;
+      final bindEvs = <DungeonCombatEvent>[];
+      for (var i = 0; i < 35; i++) {
+        bindEvs.addAll(
+          combat.step(
+            dt: 1 / 60,
+            player: player,
+            chamber: chamber,
+            input: const DungeonPlayerInput(healHeld: true),
+            progress: fullProgress,
+            physicsEngine: physics,
+          ),
+        );
+      }
+      expect(
+        bindEvs.any((e) => e.kind == DungeonCombatEventKind.bindCompleted),
+        isTrue,
+      );
+      expect(player.resolveHp, 5); // 2 + 3 = 5!
+
+      // 8. Sovereign Sunburst ultimate beam hits distant enemy across the arena
+      player.x = 32;
+      player.y = 110;
+      player.facing = 1;
+      player.civicSilk = 80.0;
+      final farBoss = _MockCombatTarget(
+        id: 'boss_far',
+        hitbox: Rect.fromLTWH(200, 108, 22, 22),
+        hp: 300,
+      );
+      final beamEvs = <DungeonCombatEvent>[];
+      expect(
+        combat.tryCastSilkSkill(
+          skillId: DungeonSilkSkillId.sovereignSunburst,
+          player: player,
+          progress: fullProgress,
+          events: beamEvs,
+        ),
+        isTrue,
+      );
+      combat.step(
+        dt: 1 / 60,
+        player: player,
+        chamber: chamber,
+        input: const DungeonPlayerInput(),
+        progress: fullProgress,
+        physicsEngine: physics,
+        targets: <DungeonCombatTarget>[farBoss],
+      );
+      expect(farBoss.hp, lessThan(250)); // 15 * 4.2 = 63 dmg!
+
+      // 9. Breakables: Crate ('X' col 5), Crystal ('*' col 8), Switch ('S' col 11 -> unlocks 'D' col 14), Secret ('?' col 17)
+      // Break crate at col 5, row 8
+      player.x = 4 * kDungeonTileSize;
+      player.y = 8 * kDungeonTileSize;
+      player.facing = 1;
+      combat.slashCooldownTimer = 0.0;
+      combat.activeSlashes.clear();
+      combat.step(
+        dt: 1 / 60,
+        player: player,
+        chamber: chamber,
+        input: const DungeonPlayerInput(slashJustPressed: true),
+        progress: fullProgress,
+        physicsEngine: physics,
+      );
+      expect(chamber.effectiveTileAt(5, 8), DungeonTileType.empty);
+      expect(chamber.lootDrops, isNotEmpty);
+
+      // Hit switch at col 11, row 8 -> unlocks gate 'D' at col 14, row 8
+      expect(chamber.isSolidAt(14, 8), isTrue);
+      player.x = 10 * kDungeonTileSize;
+      combat.slashCooldownTimer = 0.0;
+      combat.activeSlashes.clear();
+      combat.step(
+        dt: 1 / 60,
+        player: player,
+        chamber: chamber,
+        input: const DungeonPlayerInput(slashJustPressed: true),
+        progress: fullProgress,
+        physicsEngine: physics,
+      );
+      expect(chamber.roomGateUnlocked, isTrue);
+      expect(chamber.isSolidAt(14, 8), isFalse);
+
+      // Break secret wall '?' at col 17, row 8 (takes 2 hits)
+      expect(chamber.isSolidAt(17, 8), isTrue);
+      player.x = 16 * kDungeonTileSize;
+      for (var h = 0; h < 2; h++) {
+        combat.slashCooldownTimer = 0.0;
+        combat.activeSlashes.clear();
+        combat.step(
+          dt: 1 / 60,
+          player: player,
+          chamber: chamber,
+          input: const DungeonPlayerInput(slashJustPressed: true),
+          progress: fullProgress,
+          physicsEngine: physics,
+        );
+      }
+      expect(chamber.isSolidAt(17, 8), isFalse);
+
+      // 10. All 22 Procedural WAV SFX cues synthesize valid RIFF/WAVE PCM buffers
+      expect(DungeonSfxCue.values.length, 22);
+      for (final cue in DungeonSfxCue.values) {
+        final wav = DungeonAudioService.synthesizeCueWav(cue);
+        expect(wav.length, greaterThan(44));
+        expect(String.fromCharCodes(wav.sublist(0, 4)), 'RIFF');
+        expect(String.fromCharCodes(wav.sublist(8, 12)), 'WAVE');
+      }
+    },
+  );
+}
+
+class _MockCombatTarget implements DungeonCombatTarget {
+  @override
+  final String id;
+  @override
+  final Rect hitbox;
+  @override
+  int hp;
+  @override
+  final int maxHp;
+  @override
+  final bool isBoss;
+  @override
+  final bool isShieldedFront;
+  @override
+  final int facing;
+
+  _MockCombatTarget({
+    required this.id,
+    required this.hitbox,
+    required this.hp,
+    this.isBoss = false,
+    this.isShieldedFront = false,
+    this.facing = -1,
+  }) : maxHp = hp;
+
+  @override
+  bool get isAlive => hp > 0;
+
+  @override
+  int receiveDamage({
+    required int amount,
+    required double knockbackVx,
+    required double knockbackVy,
+    required bool isSkillOrCrit,
+    required double attackerCenterX,
+    required double attackerCenterY,
+  }) {
+    if (isShieldedFront && !isSkillOrCrit) {
+      final fromFront =
+          (facing > 0 && attackerCenterX > hitbox.center.dx) ||
+              (facing < 0 && attackerCenterX < hitbox.center.dx);
+      if (fromFront) return 0;
+    }
+    hp = hp - amount < 0 ? 0 : hp - amount;
+    return amount;
+  }
 }
