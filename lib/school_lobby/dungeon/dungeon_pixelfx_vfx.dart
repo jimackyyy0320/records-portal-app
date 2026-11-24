@@ -14,7 +14,6 @@ class _VfxSheetBurst {
   final double rotationRad;
   final Color glowColor;
   final double durationSec;
-  final BlendMode blendMode;
   double ageSec = 0.0;
 
   _VfxSheetBurst({
@@ -26,7 +25,6 @@ class _VfxSheetBurst {
     required this.rotationRad,
     required this.glowColor,
     required this.durationSec,
-    this.blendMode = BlendMode.srcOver,
   });
 
   bool get isExpired => ageSec >= durationSec;
@@ -495,7 +493,6 @@ class DungeonPixelfxVfxManager {
         flipX: b.flipX,
         rotationRad: b.rotationRad,
         opacity: (1.15 - b.progress * 0.65).clamp(0.0, 1.0),
-        blendMode: b.blendMode,
       );
 
       if (!drew) {

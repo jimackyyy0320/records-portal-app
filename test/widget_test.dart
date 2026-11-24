@@ -3775,7 +3775,7 @@ void main() {
       );
       final combat = DungeonCombatEngine();
       const progress = DungeonProgressSave(
-        bladeTier: DungeonBladeTier.sovereignBlade,
+        bladeTier: DungeonBladeTier.sovereignGold,
       );
       final cam = DungeonCameraRig()..snapTo(hero, arenaSpec);
       final vfx = DungeonPixelfxVfxManager();

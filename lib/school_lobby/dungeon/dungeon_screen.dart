@@ -268,8 +268,8 @@ class _SovereignDungeonScreenState extends State<SovereignDungeonScreen>
     if (liveBoss != null) {
       final act = actSpecForNumber(spec.actNumber);
       _bossIntroEraTag = liveBoss.archetype.isRival
-          ? 'RIVAL DUEL • ${act.eraYearLabel.toUpperCase()}'
-          : 'ACT ${act.actNumber} ERA BOSS • ${act.eraYearLabel.toUpperCase()}';
+          ? 'RIVAL DUEL • ${act.eraYear.toUpperCase()}'
+          : 'ACT ${act.actNumber} ERA BOSS • ${act.eraYear.toUpperCase()}';
       _bossIntroTitle = liveBoss.archetype.displayName.toUpperCase();
       _bossIntroSubtitle = liveBoss.archetype.subtitle.toUpperCase();
       _bossIntroTimer = _kBossIntroDuration;
