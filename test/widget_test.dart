@@ -2776,7 +2776,7 @@ void main() {
 
       // 4. Custom School Lobby Avatar Sprite Rendering in Dungeon (with Dungeon-Only Gear)
       // Verify frame selection across idle-right, walk-left, airborne, and ladder climb
-      hero.onLadder = false;
+      hero.isOnLadder = false;
       hero.isGrounded = true;
       hero.facing = 1;
       hero.vx = 0.0;
@@ -2787,10 +2787,10 @@ void main() {
       hero.runAnimTime = 2.0;
       expect(computeDungeonHeroAvatarFrameIndex(hero, 0.5), inInclusiveRange(36, 41));
 
-      hero.onLadder = true;
+      hero.isOnLadder = true;
       hero.vy = -50.0;
       expect(computeDungeonHeroAvatarFrameIndex(hero, 1.0), inInclusiveRange(30, 35));
-      hero.onLadder = false;
+      hero.isOnLadder = false;
       hero.facing = 1;
 
       // Render a real 48-frame (1536x64) custom avatar sprite strip through DungeonWorldPainter

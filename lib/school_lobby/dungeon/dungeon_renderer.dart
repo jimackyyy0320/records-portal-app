@@ -238,18 +238,18 @@ int computeDungeonHeroAvatarFrameIndex(
   double worldTimeSec,
 ) {
   final AvatarFacing facing;
-  if (player.onLadder) {
+  if (player.isOnLadder) {
     facing = AvatarFacing.up;
   } else {
     facing = player.facing >= 0 ? AvatarFacing.right : AvatarFacing.left;
   }
 
-  final isMoving = player.onLadder
+  final isMoving = player.isOnLadder
       ? player.vy.abs() > 8.0
       : (player.isDashing || !player.isGrounded || player.vx.abs() > 14.0);
 
   int stepFrame;
-  if (player.onLadder) {
+  if (player.isOnLadder) {
     stepFrame = isMoving ? (worldTimeSec * 9.0).floor() : 0;
   } else if (player.isDashing) {
     stepFrame = 2; // Dynamic forward lunge stride
@@ -1293,7 +1293,7 @@ class DungeonWorldPainter extends CustomPainter {
     }
 
     // 3. Dungeon-Only Shoulder Armor Pauldron & Constitutional Crest (never shown in School Lobby!)
-    if (!player.onLadder) {
+    if (!player.isOnLadder) {
       final hasUpgradedArmor =
           progress.bladeTier.index >= 1 || progress.hasCharmEquipped('sovereign_heart');
       final pauldronColor = progress.bladeTier.index >= 3
