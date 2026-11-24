@@ -34,10 +34,12 @@ import 'package:student_portal_app/school_lobby/spritecast_engine.dart';
 import 'package:student_portal_app/school_lobby/dungeon/dungeon_audio.dart';
 import 'package:student_portal_app/school_lobby/dungeon/dungeon_combat.dart';
 import 'package:student_portal_app/school_lobby/dungeon/dungeon_enemies.dart';
+import 'package:student_portal_app/school_lobby/dungeon/dungeon_enemy_sprites.dart';
 import 'package:student_portal_app/school_lobby/dungeon/dungeon_hud_and_menus.dart';
 import 'package:student_portal_app/school_lobby/dungeon/dungeon_maps.dart';
 import 'package:student_portal_app/school_lobby/dungeon/dungeon_models.dart';
 import 'package:student_portal_app/school_lobby/dungeon/dungeon_physics.dart';
+import 'package:student_portal_app/school_lobby/dungeon/dungeon_pixelfx_vfx.dart';
 import 'package:student_portal_app/school_lobby/dungeon/dungeon_renderer.dart';
 import 'package:student_portal_app/school_lobby/dungeon/dungeon_screen.dart';
 import 'package:student_portal_app/theme/portal_theme.dart';
@@ -3702,6 +3704,289 @@ void main() {
       await gesture.up();
       await tester.pump();
       expect(latestVec, Offset.zero);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'Overhaul Phases B–D & Part 8: pixelfx Sprite Sheets, All 22 Unique Pixel Characters, Dual-Buffer VFX & Boss Intro Banner',
+    (WidgetTester tester) async {
+      // 1. Verify all 8 exported `pixelfx` PNG sprite sheets exist on disk & match declared grid dimensions!
+      expect(DungeonPixelfxSheetCache.kSpecs.length, 8);
+      for (final entry in DungeonPixelfxSheetCache.kSpecs.entries) {
+        final spec = entry.value;
+        final file = File(spec.assetPath);
+        expect(
+          file.existsSync(),
+          isTrue,
+          reason: 'Missing exported pixelfx sprite sheet: ${spec.assetPath}',
+        );
+        final bytes = file.readAsBytesSync();
+        expect(bytes.length, greaterThan(100));
+        // PNG signature: 89 50 4E 47 0D 0A 1A 0A
+        expect(bytes[0], 0x89);
+        expect(bytes[1], 0x50);
+        expect(bytes[2], 0x4E);
+        expect(bytes[3], 0x47);
+        // Big-endian IHDR width (bytes 16..19) & height (bytes 20..23)
+        final pngW = (bytes[16] << 24) |
+            (bytes[17] << 16) |
+            (bytes[18] << 8) |
+            bytes[19];
+        final pngH = (bytes[20] << 24) |
+            (bytes[21] << 16) |
+            (bytes[22] << 8) |
+            bytes[23];
+        final expectedRows = (spec.frames + spec.columns - 1) ~/ spec.columns;
+        expect(
+          pngW,
+          spec.columns * spec.frameWidth,
+          reason: 'Width mismatch for ${spec.key}',
+        );
+        expect(
+          pngH,
+          expectedRows * spec.frameHeight,
+          reason: 'Height mismatch for ${spec.key}',
+        );
+        // Frame rectangle bounds check across first & last frames
+        final firstRect = spec.frameRect(0);
+        final lastRect = spec.frameRect(spec.frames - 1);
+        expect(firstRect.left, 0.0);
+        expect(firstRect.top, 0.0);
+        expect(lastRect.right, lessThanOrEqualTo(pngW.toDouble()));
+        expect(lastRect.bottom, lessThanOrEqualTo(pngH.toDouble()));
+      }
+
+      // 2. Render ALL 22 Unique Archetypes (14 Regular Enemies + Rival Mateo + 7 Multi-Phase Bosses)
+      //    across patrol, windup, attack, recover, staggered & phaseShift states (procedural + sheet paths!)
+      final allArchetypes = <DungeonEnemyArchetype>[
+        ...kDungeonEnemyArchetypes.values,
+        ...kDungeonBossArchetypes.values,
+      ];
+      expect(allArchetypes.length, 22);
+
+      final arenaSpec = lookupDungeonChamber('act7_c5_boss_sovereign');
+      final arenaRuntime = DungeonChamberRuntime(arenaSpec);
+      final hero = DungeonPlayerPhysicsState(
+        x: 64.0,
+        y: 120.0,
+        facing: 1,
+        isGrounded: true,
+      );
+      final combat = DungeonCombatEngine();
+      const progress = DungeonProgressSave(
+        bladeTier: DungeonBladeTier.sovereignBlade,
+      );
+      final cam = DungeonCameraRig()..snapTo(hero, arenaSpec);
+      final vfx = DungeonPixelfxVfxManager();
+
+      // Build live instances for all 22 archetypes and cycle states
+      final states = <DungeonEnemyAiState>[
+        DungeonEnemyAiState.patrol,
+        DungeonEnemyAiState.windup,
+        DungeonEnemyAiState.attack,
+        DungeonEnemyAiState.recover,
+        DungeonEnemyAiState.staggered,
+        DungeonEnemyAiState.phaseShift,
+      ];
+
+      // Pass A: Render procedural pixel-art fallbacks before sheets are injected
+      for (final state in states) {
+        final specs = <DungeonEntityRenderSpec>[];
+        var idx = 0;
+        for (final arch in allArchetypes) {
+          final inst = DungeonEnemyInstance(
+            id: 'test_${arch.id}',
+            archetype: arch,
+            x: 48.0 + (idx % 6) * 32.0,
+            y: 96.0,
+            patrolHalfWidthPx: 24.0,
+          )
+            ..aiState = state
+            ..phase = (idx % 3) + 1
+            ..facing = idx.isEven ? 1 : -1
+            ..vx = state == DungeonEnemyAiState.attack ? 95.0 : 24.0
+            ..hp = (arch.maxHp * 0.7).round()
+            ..hitFlashTimer = state == DungeonEnemyAiState.recover ? 0.08 : 0.0
+            ..aimTelegraphEnd = state == DungeonEnemyAiState.windup
+                ? const Offset(64.0, 120.0)
+                : null;
+          specs.add(inst.toRenderSpec());
+          idx++;
+        }
+
+        final rec = ui.PictureRecorder();
+        final canvas = Canvas(rec);
+        DungeonWorldPainter(
+          chamber: arenaRuntime,
+          player: hero,
+          combat: combat,
+          progress: progress,
+          camera: cam,
+          worldTimeSec: 1.35,
+          entities: specs,
+          pixelfxVfx: vfx,
+        ).paint(canvas, const Size(640, 360));
+        rec.endRecording();
+      }
+
+      // Pass B: Inject GPU `ui.Image` textures for all 8 `pixelfx` sprite sheets & exercise dual-buffer VFX!
+      for (final spec in DungeonPixelfxSheetCache.kSpecs.values) {
+        final rows = (spec.frames + spec.columns - 1) ~/ spec.columns;
+        final sheetRec = ui.PictureRecorder();
+        final sheetCanvas = Canvas(sheetRec);
+        sheetCanvas.drawRect(
+          Rect.fromLTWH(
+            0,
+            0,
+            (spec.columns * spec.frameWidth).toDouble(),
+            (rows * spec.frameHeight).toDouble(),
+          ),
+          Paint()..color = const Color(0xFF4FE0C8),
+        );
+        final img = await sheetRec.endRecording().toImage(
+              spec.columns * spec.frameWidth,
+              rows * spec.frameHeight,
+            );
+        DungeonPixelfxSheetCache.instance.injectForTest(spec.key, img);
+      }
+      expect(DungeonPixelfxSheetCache.instance.isReady, isTrue);
+
+      // Spawn every `pixelfx` dual-buffer VFX primitive & verify step + floor bounce + expiration!
+      vfx.spawnSlashArc(
+        x: 84.0,
+        y: 120.0,
+        facing: 1,
+        isFinisher: true,
+      );
+      vfx.spawnGoldenParry(x: 96.0, y: 118.0, groundY: 136.0);
+      vfx.spawnHitImpact(
+        x: 110.0,
+        y: 116.0,
+        color: const Color(0xFFFEE761),
+        isCritOrKill: true,
+        groundY: 136.0,
+      );
+      vfx.spawnDebrisShatter(
+        x: 124.0,
+        y: 112.0,
+        color: const Color(0xFF8B9BB4),
+        count: 10,
+        groundY: 136.0,
+      );
+      vfx.spawnPickupSparkle(
+        x: 72.0,
+        y: 120.0,
+        color: const Color(0xFF2CE8F5),
+      );
+      expect(vfx.activeBurstCount, greaterThanOrEqualTo(3));
+      expect(vfx.activeRingCount, greaterThanOrEqualTo(1));
+      expect(vfx.activeSparkCount, greaterThan(10));
+
+      // Trigger active slash + Sovereign Sunburst skill + floating combat numbers to verify cached TextPainters
+      combat.floatingNumbers.add(
+        FloatingCombatNumber(
+          text: 'COUNTER-BREAK! 95',
+          color: const Color(0xFFFEE761),
+          x: 96.0,
+          y: 90.0,
+          isCritical: true,
+        ),
+      );
+
+      final allLoadedSpecs = allArchetypes
+          .map(
+            (arch) => (DungeonEnemyInstance(
+              id: 'sheet_${arch.id}',
+              archetype: arch,
+              x: 100.0,
+              y: 96.0,
+              patrolHalfWidthPx: 20.0,
+            )
+                  ..aiState = DungeonEnemyAiState.attack
+                  ..phase = 3)
+                .toRenderSpec(),
+          )
+          .toList();
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: CustomPaint(
+              size: const Size(640, 360),
+              painter: DungeonWorldPainter(
+                chamber: arenaRuntime,
+                player: hero,
+                combat: combat,
+                progress: progress,
+                camera: cam,
+                worldTimeSec: 2.1,
+                entities: allLoadedSpecs,
+                pixelfxVfx: vfx,
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+
+      // Step VFX forward until all one-shots & floor-bounced sparks naturally expire
+      for (var tick = 0; tick < 60; tick++) {
+        vfx.step(0.02);
+      }
+      expect(vfx.activeCount, 0);
+
+      // 3. Verify Cinematic Silksong-Style Boss Arena Intro Title Banner on entering an undefeated Boss Arena!
+      const bossSave = SovereignCampaignSave(
+        dungeonProgress: DungeonProgressSave(
+          checkpointChamberId: 'act1_c5_boss_sanduguan',
+          checkpointCol: 4,
+          checkpointRow: 13,
+        ),
+      );
+      await bossSave.persist('2024-00888');
+
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: SovereignDungeonScreen(
+            session: UserSession(
+              id: '2024-00888',
+              name: 'Maria Clara',
+              isFaculty: false,
+              subjects: <SubjectItem>[],
+            ),
+            playerNickname: 'Maria',
+            playerLook: LobbyAvatarLook(),
+            startDirectlyInDungeon: true,
+          ),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 60));
+      await tester.pump(const Duration(milliseconds: 60));
+
+      expect(find.byType(DungeonBossIntroBanner), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byType(DungeonBossIntroBanner),
+          matching: find.text('DATU MAKISIG'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: find.byType(DungeonBossIntroBanner),
+          matching: find.text('KEEPER OF THE SANDUGUAN'),
+        ),
+        findsOneWidget,
+      );
+      expect(tester.takeException(), isNull);
+
+      // Pump past 2.3s intro duration -> banner fades out cleanly while gameplay continues!
+      for (var step = 0; step < 50; step++) {
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+      expect(find.byType(DungeonBossIntroBanner), findsNothing);
       expect(tester.takeException(), isNull);
     },
   );

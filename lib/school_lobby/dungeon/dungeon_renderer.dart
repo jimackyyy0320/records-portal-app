@@ -5,7 +5,9 @@ import 'package:flutter/material.dart';
 import '../school_lobby_avatar.dart';
 import '../spritecast_engine.dart';
 import 'dungeon_combat.dart';
+import 'dungeon_enemy_sprites.dart';
 import 'dungeon_models.dart';
+import 'dungeon_pixelfx_vfx.dart';
 
 /// Lightweight particle burst element for dust puffs, sparks, bloodless silk shards,
 /// crate splinters, and campfire embers (`craft-game-floors` VFX Floor).
@@ -54,6 +56,14 @@ class DungeonEntityRenderSpec {
   final Color accentColor;
   final double animPhase;
   final Offset? aimTelegraphEnd;
+  final String aiStateName;
+  final int bossPhase;
+  final double stateTimer;
+  final double vx;
+  final double vy;
+  final bool isFlying;
+  final bool isRival;
+  final String bossAttackName;
 
   const DungeonEntityRenderSpec({
     required this.id,
@@ -71,6 +81,14 @@ class DungeonEntityRenderSpec {
     this.hitFlashTimer = 0.0,
     this.animPhase = 0.0,
     this.aimTelegraphEnd,
+    this.aiStateName = 'patrol',
+    this.bossPhase = 1,
+    this.stateTimer = 0.0,
+    this.vx = 0.0,
+    this.vy = 0.0,
+    this.isFlying = false,
+    this.isRival = false,
+    this.bossAttackName = 'dashThrust',
   });
 }
 
@@ -292,6 +310,19 @@ class DungeonWorldPainter extends CustomPainter {
   /// while dungeon-only cape/weapon/armor overlays never affect School Lobby.
   final ui.Image? playerAvatarSheet;
 
+  /// Dual-buffer `pixelfx` combat, parry, crit & floor-shockwave VFX manager.
+  final DungeonPixelfxVfxManager? pixelfxVfx;
+
+  // Pre-allocated static brushes & bounded TextPainter cache for zero-allocation 60 FPS rendering!
+  static final Paint _fill = Paint()
+    ..style = PaintingStyle.fill
+    ..isAntiAlias = false;
+  static final Paint _stroke = Paint()
+    ..style = PaintingStyle.stroke
+    ..isAntiAlias = false;
+  static final Paint _imgPaint = Paint()..filterQuality = FilterQuality.none;
+  static final Map<String, TextPainter> _textCache = <String, TextPainter>{};
+
   const DungeonWorldPainter({
     super.repaint,
     required this.chamber,
@@ -304,7 +335,31 @@ class DungeonWorldPainter extends CustomPainter {
     this.particles = const <DungeonParticle>[],
     this.highlightedGrappleAnchor,
     this.playerAvatarSheet,
+    this.pixelfxVfx,
   });
+
+  static void _drawFilledRect(Canvas canvas, Rect rect, Color color) {
+    _fill.color = color;
+    canvas.drawRect(rect, _fill);
+  }
+
+  static void _drawFilledCircle(Canvas canvas, Offset center, double radius, Color color) {
+    _fill.color = color;
+    canvas.drawCircle(center, radius, _fill);
+  }
+
+  static void _drawStrokedCircle(
+    Canvas canvas,
+    Offset center,
+    double radius,
+    Color color,
+    double strokeWidth,
+  ) {
+    _stroke
+      ..color = color
+      ..strokeWidth = strokeWidth;
+    canvas.drawCircle(center, radius, _stroke);
+  }
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -324,10 +379,7 @@ class DungeonWorldPainter extends CustomPainter {
     final offsetY = (size.height - viewH) * 0.5;
 
     // Deep ink pillar/letterbox backdrop (`ENDESGA-32` ink)
-    canvas.drawRect(
-      Offset.zero & size,
-      Paint()..color = SpriteCastPalette.ink,
-    );
+    _drawFilledRect(canvas, Offset.zero & size, SpriteCastPalette.ink);
 
     canvas.save();
     canvas.translate(offsetX, offsetY);
@@ -453,10 +505,11 @@ class DungeonWorldPainter extends CustomPainter {
       }
     }
 
-    // PASS 3: Loot Drops (Bouncing Shards, Resolve Orbs, Silk Motes)
+    // PASS 3: Loot Drops & Back-Plane `pixelfx` Floor Shockwaves
     _paintLootDrops(canvas, animTick);
+    pixelfxVfx?.paintBack(canvas);
 
-    // PASS 4: Enemies & Multi-Phase Bosses (with Telegraphs, Shields & Stagger Stars)
+    // PASS 4: 22 Unique Pixel-Art Enemies, Rival Mateo & Multi-Phase Bosses
     for (final entity in entities) {
       _drawDungeonEntity(canvas, entity, animTick);
     }
@@ -472,8 +525,9 @@ class DungeonWorldPainter extends CustomPainter {
     _paintActiveSkillEffects(canvas);
     _paintProjectiles(canvas);
 
-    // PASS 7: Particle Bursts (Sparks, Dust, Crate Splinters, Embers)
+    // PASS 7: Particle Bursts & Front-Plane `pixelfx` Dual-Buffer VFX
     _paintParticles(canvas);
+    pixelfxVfx?.paintFront(canvas);
 
     // PASS 8: Terraria-Style Cavern Atmosphere & SpriteCast Stepped Pixel Light Pools
     _paintCavernLightingPass(canvas, cam, theme, lightEmitters, animTick);
@@ -498,75 +552,64 @@ class DungeonWorldPainter extends CustomPainter {
     // Layer 0: Banded pixel-art vertical sky/cavern gradient (4 crisp horizontal bands)
     for (var b = 0; b < 4; b++) {
       final col = Color.lerp(theme.skyTop, theme.skyBottom, b / 3.0)!;
-      canvas.drawRect(
-        Rect.fromLTWH(0, b * 45.0, kDungeonRefWidth, 46.0),
-        Paint()..color = col..isAntiAlias = false,
-      );
+      _drawFilledRect(canvas, Rect.fromLTWH(0, b * 45.0, kDungeonRefWidth, 46.0), col);
     }
 
     // Ambient distant stars / cavern spores (0.08x parallax)
-    final sporePaint = Paint()
-      ..color = theme.accentHighlight.withValues(alpha: 0.35)
-      ..isAntiAlias = false;
+    _fill.color = theme.accentHighlight.withValues(alpha: 0.35);
     for (var i = 0; i < 18; i++) {
       final baseX = SpriteCastEngine.hash01(i * 13, theme.actNumber) * 360.0;
       final baseY = SpriteCastEngine.hash01(i * 29, theme.actNumber + 5) * 140.0;
       final sx = ((baseX - cam.dx * 0.08) % 340.0 + 340.0) % 340.0 - 10.0;
       final sy = baseY + math.sin(worldTimeSec * 1.4 + i) * 3.0;
-      canvas.drawRect(Rect.fromLTWH(sx.roundToDouble(), sy.roundToDouble(), 1.5, 1.5), sporePaint);
+      canvas.drawRect(Rect.fromLTWH(sx.roundToDouble(), sy.roundToDouble(), 1.5, 1.5), _fill);
     }
 
     // Layer 1: Far Era Silhouettes (0.16x parallax)
-    final farPaint = Paint()..color = theme.parallaxFar..isAntiAlias = false;
+    _fill.color = theme.parallaxFar;
     final farOffset = (cam.dx * 0.16) % 80.0;
     for (var i = -1; i < 6; i++) {
       final bx = i * 80.0 - farOffset;
       final pillarH = 72.0 + (i.abs() % 3) * 18.0;
-      // Distant cavern arches / gothic towers / bridge silhouettes
       canvas.drawRect(
         Rect.fromLTWH(bx, kDungeonRefHeight - pillarH, 34.0, pillarH),
-        farPaint,
+        _fill,
       );
       if (theme.actNumber == 2 || theme.actNumber == 3 || theme.actNumber == 7) {
-        // Pointed belltower / Barasoain arch spire silhouette
         canvas.drawRect(
           Rect.fromLTWH(bx + 8.0, kDungeonRefHeight - pillarH - 18.0, 18.0, 18.0),
-          farPaint,
+          _fill,
         );
         canvas.drawRect(
           Rect.fromLTWH(bx + 14.0, kDungeonRefHeight - pillarH - 28.0, 6.0, 10.0),
-          farPaint,
+          _fill,
         );
       } else {
-        // Stalactite / cavern ridge ceiling silhouette
         canvas.drawRect(
           Rect.fromLTWH(bx + 26.0, 0.0, 22.0, 26.0 + (i.abs() % 2) * 14.0),
-          farPaint,
+          _fill,
         );
       }
     }
 
     // Layer 2: Mid-Ground Ruined Pillars & Hanging Chains (0.38x parallax)
-    final midPaint = Paint()..color = theme.parallaxMid..isAntiAlias = false;
+    _fill.color = theme.parallaxMid;
     final midOffset = (cam.dx * 0.38) % 96.0;
     for (var i = -1; i < 5; i++) {
       final px = i * 96.0 - midOffset;
-      // Ruined vertical column
       canvas.drawRect(
         Rect.fromLTWH(px + 12.0, 18.0, 14.0, kDungeonRefHeight - 18.0),
-        midPaint,
+        _fill,
       );
-      // Horizontal ruined lintel
       canvas.drawRect(
         Rect.fromLTWH(px + 4.0, 14.0, 30.0, 8.0),
-        midPaint,
+        _fill,
       );
-      // Hanging iron chain with subtle wind sway
       final chainSway = SpriteCastEngine.windSwayPx(animTick, i * 19, px: 1.0);
       for (var cy = 22.0; cy < 84.0; cy += 6.0) {
         canvas.drawRect(
           Rect.fromLTWH(px + 56.0 + chainSway, cy, 2.0, 4.0),
-          midPaint,
+          _fill,
         );
       }
     }
@@ -592,27 +635,24 @@ class DungeonWorldPainter extends CustomPainter {
     final openW = (mask & 8) == 0;
 
     // Base fill
-    canvas.drawRect(
-      rect,
-      Paint()..color = theme.stoneMid..isAntiAlias = false,
-    );
+    _drawFilledRect(canvas, rect, theme.stoneMid);
 
     // Deterministic ashlar brick seams (breaks up flat tile repetition!)
     final h = SpriteCastEngine.hash01(col * 17 + 3, row * 31 + 7);
-    final mortarPaint = Paint()
-      ..color = theme.stoneDark.withValues(alpha: 0.72)
-      ..isAntiAlias = false;
-    canvas.drawRect(Rect.fromLTWH(rect.left, rect.top + 7, 16, 1), mortarPaint);
+    final mortarCol = theme.stoneDark.withValues(alpha: 0.72);
+    _drawFilledRect(canvas, Rect.fromLTWH(rect.left, rect.top + 7, 16, 1), mortarCol);
     final seamX = (row.isEven ? 7.0 : 12.0);
-    canvas.drawRect(Rect.fromLTWH(rect.left + seamX, rect.top, 1, 7), mortarPaint);
-    canvas.drawRect(
+    _drawFilledRect(canvas, Rect.fromLTWH(rect.left + seamX, rect.top, 1, 7), mortarCol);
+    _drawFilledRect(
+      canvas,
       Rect.fromLTWH(rect.left + ((seamX + 6) % 14), rect.top + 8, 1, 8),
-      mortarPaint,
+      mortarCol,
     );
     if (h > 0.72) {
-      canvas.drawRect(
+      _drawFilledRect(
+        canvas,
         Rect.fromLTWH(rect.left + 3, rect.top + 3, 3, 2),
-        Paint()..color = theme.stoneLight.withValues(alpha: 0.32)..isAntiAlias = false,
+        theme.stoneLight.withValues(alpha: 0.32),
       );
     }
 
@@ -622,116 +662,75 @@ class DungeonWorldPainter extends CustomPainter {
       final crackColor = hasSight
           ? SpriteCastPalette.endesga32[11].withValues(alpha: 0.65)
           : SpriteCastPalette.ink.withValues(alpha: 0.55);
-      canvas.drawRect(Rect.fromLTWH(rect.left + 4, rect.top + 3, 2, 5), Paint()..color = crackColor);
-      canvas.drawRect(Rect.fromLTWH(rect.left + 6, rect.top + 7, 4, 2), Paint()..color = crackColor);
-      canvas.drawRect(Rect.fromLTWH(rect.left + 9, rect.top + 9, 2, 4), Paint()..color = crackColor);
+      _drawFilledRect(canvas, Rect.fromLTWH(rect.left + 4, rect.top + 3, 2, 5), crackColor);
+      _drawFilledRect(canvas, Rect.fromLTWH(rect.left + 6, rect.top + 7, 4, 2), crackColor);
+      _drawFilledRect(canvas, Rect.fromLTWH(rect.left + 9, rect.top + 9, 2, 4), crackColor);
     }
 
     // Exposed Cardinal Edges (Rule-Tile Auto-Tiling!)
     if (openN) {
       if (tile == DungeonTileType.mossyStone) {
         final sway = SpriteCastEngine.windSwayPx(animTick, col * 11 + row, px: 0.8);
-        canvas.drawRect(
-          Rect.fromLTWH(rect.left, rect.top, 16, 3),
-          Paint()..color = theme.mossOrTrim..isAntiAlias = false,
-        );
-        canvas.drawRect(
-          Rect.fromLTWH(rect.left + 2 + sway, rect.top + 3, 3, 2),
-          Paint()..color = theme.mossOrTrim..isAntiAlias = false,
-        );
-        canvas.drawRect(
-          Rect.fromLTWH(rect.left + 10, rect.top + 3, 4, 2),
-          Paint()..color = theme.mossOrTrim..isAntiAlias = false,
-        );
+        _drawFilledRect(canvas, Rect.fromLTWH(rect.left, rect.top, 16, 3), theme.mossOrTrim);
+        _drawFilledRect(canvas, Rect.fromLTWH(rect.left + 2 + sway, rect.top + 3, 3, 2), theme.mossOrTrim);
+        _drawFilledRect(canvas, Rect.fromLTWH(rect.left + 10, rect.top + 3, 4, 2), theme.mossOrTrim);
       } else {
-        canvas.drawRect(
-          Rect.fromLTWH(rect.left, rect.top + 1, 16, 2),
-          Paint()..color = theme.stoneLight..isAntiAlias = false,
-        );
+        _drawFilledRect(canvas, Rect.fromLTWH(rect.left, rect.top + 1, 16, 2), theme.stoneLight);
       }
-      canvas.drawRect(
-        Rect.fromLTWH(rect.left, rect.top, 16, 1),
-        Paint()..color = SpriteCastPalette.ink..isAntiAlias = false,
-      );
+      _drawFilledRect(canvas, Rect.fromLTWH(rect.left, rect.top, 16, 1), SpriteCastPalette.ink);
     }
 
     if (openS) {
-      canvas.drawRect(
-        Rect.fromLTWH(rect.left, rect.bottom - 3, 16, 2),
-        Paint()..color = theme.stoneDark..isAntiAlias = false,
-      );
-      canvas.drawRect(
-        Rect.fromLTWH(rect.left, rect.bottom - 1, 16, 1),
-        Paint()..color = SpriteCastPalette.ink..isAntiAlias = false,
-      );
-      // Hanging cavern stalactite nub on occasional exposed ceilings
+      _drawFilledRect(canvas, Rect.fromLTWH(rect.left, rect.bottom - 3, 16, 2), theme.stoneDark);
+      _drawFilledRect(canvas, Rect.fromLTWH(rect.left, rect.bottom - 1, 16, 1), SpriteCastPalette.ink);
       if (h > 0.78) {
-        canvas.drawRect(
-          Rect.fromLTWH(rect.left + 6, rect.bottom, 4, 3),
-          Paint()..color = theme.stoneDark..isAntiAlias = false,
-        );
-        canvas.drawRect(
-          Rect.fromLTWH(rect.left + 7, rect.bottom + 3, 2, 2),
-          Paint()..color = SpriteCastPalette.ink..isAntiAlias = false,
-        );
+        _drawFilledRect(canvas, Rect.fromLTWH(rect.left + 6, rect.bottom, 4, 3), theme.stoneDark);
+        _drawFilledRect(canvas, Rect.fromLTWH(rect.left + 7, rect.bottom + 3, 2, 2), SpriteCastPalette.ink);
       }
     }
 
     if (openW) {
-      canvas.drawRect(
-        Rect.fromLTWH(rect.left, rect.top, 1, 16),
-        Paint()..color = SpriteCastPalette.ink..isAntiAlias = false,
-      );
-      canvas.drawRect(
+      _drawFilledRect(canvas, Rect.fromLTWH(rect.left, rect.top, 1, 16), SpriteCastPalette.ink);
+      _drawFilledRect(
+        canvas,
         Rect.fromLTWH(rect.left + 1, rect.top + 1, 1, 14),
-        Paint()..color = theme.stoneLight.withValues(alpha: 0.45)..isAntiAlias = false,
+        theme.stoneLight.withValues(alpha: 0.45),
       );
     }
 
     if (openE) {
-      canvas.drawRect(
-        Rect.fromLTWH(rect.right - 1, rect.top, 1, 16),
-        Paint()..color = SpriteCastPalette.ink..isAntiAlias = false,
-      );
-      canvas.drawRect(
-        Rect.fromLTWH(rect.right - 2, rect.top + 1, 1, 14),
-        Paint()..color = theme.stoneDark..isAntiAlias = false,
-      );
+      _drawFilledRect(canvas, Rect.fromLTWH(rect.right - 1, rect.top, 1, 16), SpriteCastPalette.ink);
+      _drawFilledRect(canvas, Rect.fromLTWH(rect.right - 2, rect.top + 1, 1, 14), theme.stoneDark);
     }
   }
 
   void _drawOneWayBridge(Canvas canvas, Rect r) {
-    // Beveled cedar wooden bridge plank with underside shadow & iron bolts
-    canvas.drawRect(Rect.fromLTWH(r.left, r.top, 16, 5), Paint()..color = SpriteCastPalette.ink);
-    canvas.drawRect(Rect.fromLTWH(r.left, r.top + 1, 16, 2), Paint()..color = SpriteCastPalette.woodLight);
-    canvas.drawRect(Rect.fromLTWH(r.left, r.top + 3, 16, 1), Paint()..color = SpriteCastPalette.woodDark);
-    // Support joists
-    canvas.drawRect(Rect.fromLTWH(r.left + 2, r.top + 5, 2, 3), Paint()..color = SpriteCastPalette.woodEdge);
-    canvas.drawRect(Rect.fromLTWH(r.right - 4, r.top + 5, 2, 3), Paint()..color = SpriteCastPalette.woodEdge);
-    // Iron bolt studs
-    canvas.drawRect(Rect.fromLTWH(r.left + 2, r.top + 1.5, 1.5, 1.5), Paint()..color = SpriteCastPalette.endesga32[20]);
-    canvas.drawRect(Rect.fromLTWH(r.right - 3.5, r.top + 1.5, 1.5, 1.5), Paint()..color = SpriteCastPalette.endesga32[20]);
+    _drawFilledRect(canvas, Rect.fromLTWH(r.left, r.top, 16, 5), SpriteCastPalette.ink);
+    _drawFilledRect(canvas, Rect.fromLTWH(r.left, r.top + 1, 16, 2), SpriteCastPalette.woodLight);
+    _drawFilledRect(canvas, Rect.fromLTWH(r.left, r.top + 3, 16, 1), SpriteCastPalette.woodDark);
+    _drawFilledRect(canvas, Rect.fromLTWH(r.left + 2, r.top + 5, 2, 3), SpriteCastPalette.woodEdge);
+    _drawFilledRect(canvas, Rect.fromLTWH(r.right - 4, r.top + 5, 2, 3), SpriteCastPalette.woodEdge);
+    _drawFilledRect(canvas, Rect.fromLTWH(r.left + 2, r.top + 1.5, 1.5, 1.5), SpriteCastPalette.endesga32[20]);
+    _drawFilledRect(canvas, Rect.fromLTWH(r.right - 3.5, r.top + 1.5, 1.5, 1.5), SpriteCastPalette.endesga32[20]);
   }
 
   void _drawLadderVine(Canvas canvas, Rect r, DungeonEraTheme theme) {
-    // Dual bamboo rails + cross rungs
-    canvas.drawRect(Rect.fromLTWH(r.left + 3, r.top, 2, 16), Paint()..color = SpriteCastPalette.woodDark);
-    canvas.drawRect(Rect.fromLTWH(r.right - 5, r.top, 2, 16), Paint()..color = SpriteCastPalette.woodDark);
-    canvas.drawRect(Rect.fromLTWH(r.left + 3.5, r.top, 1, 16), Paint()..color = SpriteCastPalette.woodLight);
-    canvas.drawRect(Rect.fromLTWH(r.right - 4.5, r.top, 1, 16), Paint()..color = SpriteCastPalette.woodLight);
+    _drawFilledRect(canvas, Rect.fromLTWH(r.left + 3, r.top, 2, 16), SpriteCastPalette.woodDark);
+    _drawFilledRect(canvas, Rect.fromLTWH(r.right - 5, r.top, 2, 16), SpriteCastPalette.woodDark);
+    _drawFilledRect(canvas, Rect.fromLTWH(r.left + 3.5, r.top, 1, 16), SpriteCastPalette.woodLight);
+    _drawFilledRect(canvas, Rect.fromLTWH(r.right - 4.5, r.top, 1, 16), SpriteCastPalette.woodLight);
     for (var y = 2.0; y < 16.0; y += 5.0) {
-      canvas.drawRect(Rect.fromLTWH(r.left + 4, r.top + y, 8, 2), Paint()..color = SpriteCastPalette.woodMid);
+      _drawFilledRect(canvas, Rect.fromLTWH(r.left + 4, r.top + y, 8, 2), SpriteCastPalette.woodMid);
     }
   }
 
   void _drawSpikesTile(Canvas canvas, Rect r, int col, int row) {
-    // 3 razor-sharp pixel iron spikes with metallic sheen tips
     for (var i = 0; i < 3; i++) {
       final bx = r.left + 1.0 + i * 5.0;
-      canvas.drawRect(Rect.fromLTWH(bx, r.bottom - 4, 4, 4), Paint()..color = SpriteCastPalette.ink);
-      canvas.drawRect(Rect.fromLTWH(bx + 1, r.bottom - 8, 2, 6), Paint()..color = SpriteCastPalette.endesga32[22]);
-      canvas.drawRect(Rect.fromLTWH(bx + 1.5, r.bottom - 11, 1, 4), Paint()..color = SpriteCastPalette.endesga32[20]);
-      canvas.drawRect(Rect.fromLTWH(bx + 1.5, r.bottom - 12, 1, 1.5), Paint()..color = SpriteCastPalette.endesga32[19]);
+      _drawFilledRect(canvas, Rect.fromLTWH(bx, r.bottom - 4, 4, 4), SpriteCastPalette.ink);
+      _drawFilledRect(canvas, Rect.fromLTWH(bx + 1, r.bottom - 8, 2, 6), SpriteCastPalette.endesga32[22]);
+      _drawFilledRect(canvas, Rect.fromLTWH(bx + 1.5, r.bottom - 11, 1, 4), SpriteCastPalette.endesga32[20]);
+      _drawFilledRect(canvas, Rect.fromLTWH(bx + 1.5, r.bottom - 12, 1, 1.5), SpriteCastPalette.endesga32[19]);
     }
   }
 
@@ -741,40 +740,21 @@ class DungeonWorldPainter extends CustomPainter {
         ? math.sin(worldTimeSec * 68.0) * 1.6
         : 0.0;
     final shifted = r.shift(Offset(jitterX, 0));
-    canvas.drawRect(shifted, Paint()..color = SpriteCastPalette.ink);
-    canvas.drawRect(shifted.deflate(1), Paint()..color = SpriteCastPalette.woodMid);
-    canvas.drawRect(
-      Rect.fromLTWH(shifted.left + 1, shifted.top + 1, 14, 2),
-      Paint()..color = SpriteCastPalette.cream,
-    );
-    // Diagonal stress cracks
-    canvas.drawRect(Rect.fromLTWH(shifted.left + 4, shifted.top + 4, 2, 6), Paint()..color = SpriteCastPalette.ink);
-    canvas.drawRect(Rect.fromLTWH(shifted.left + 9, shifted.top + 6, 3, 5), Paint()..color = SpriteCastPalette.ink);
+    _drawFilledRect(canvas, shifted, SpriteCastPalette.ink);
+    _drawFilledRect(canvas, shifted.deflate(1), SpriteCastPalette.woodMid);
+    _drawFilledRect(canvas, Rect.fromLTWH(shifted.left + 1, shifted.top + 1, 14, 2), SpriteCastPalette.cream);
+    _drawFilledRect(canvas, Rect.fromLTWH(shifted.left + 4, shifted.top + 4, 2, 6), SpriteCastPalette.ink);
+    _drawFilledRect(canvas, Rect.fromLTWH(shifted.left + 9, shifted.top + 6, 3, 5), SpriteCastPalette.ink);
   }
 
   void _drawPogoLantern(Canvas canvas, Rect r, DungeonEraTheme theme, int animTick) {
     final bob = math.sin(worldTimeSec * 3.2 + r.left) * 1.2;
     final cy = r.center.dy + bob;
-    // Hanging iron chain
-    canvas.drawRect(Rect.fromLTWH(r.center.dx - 0.5, r.top, 1.5, 4), Paint()..color = SpriteCastPalette.endesga32[22]);
-    // Outer brass/iron ring
-    canvas.drawRect(
-      Rect.fromCenter(center: Offset(r.center.dx, cy), width: 10, height: 10),
-      Paint()..color = SpriteCastPalette.ink,
-    );
-    canvas.drawRect(
-      Rect.fromCenter(center: Offset(r.center.dx, cy), width: 8, height: 8),
-      Paint()..color = SpriteCastPalette.endesga32[10],
-    );
-    // Glowing inner core (signals pogo-bounceable!)
-    canvas.drawRect(
-      Rect.fromCenter(center: Offset(r.center.dx, cy), width: 5, height: 5),
-      Paint()..color = SpriteCastPalette.endesga32[11],
-    );
-    canvas.drawRect(
-      Rect.fromCenter(center: Offset(r.center.dx, cy), width: 2.5, height: 2.5),
-      Paint()..color = SpriteCastPalette.endesga32[19],
-    );
+    _drawFilledRect(canvas, Rect.fromLTWH(r.center.dx - 0.5, r.top, 1.5, 4), SpriteCastPalette.endesga32[22]);
+    _drawFilledRect(canvas, Rect.fromCenter(center: Offset(r.center.dx, cy), width: 10, height: 10), SpriteCastPalette.ink);
+    _drawFilledRect(canvas, Rect.fromCenter(center: Offset(r.center.dx, cy), width: 8, height: 8), SpriteCastPalette.endesga32[10]);
+    _drawFilledRect(canvas, Rect.fromCenter(center: Offset(r.center.dx, cy), width: 5, height: 5), SpriteCastPalette.endesga32[11]);
+    _drawFilledRect(canvas, Rect.fromCenter(center: Offset(r.center.dx, cy), width: 2.5, height: 2.5), SpriteCastPalette.endesga32[19]);
   }
 
   void _drawGrappleRing(Canvas canvas, Rect r, int animTick) {
@@ -783,25 +763,16 @@ class DungeonWorldPainter extends CustomPainter {
     final ringCol = isHighlighted
         ? SpriteCastPalette.endesga32[18]
         : SpriteCastPalette.endesga32[10];
-    // Ornate brass grapple anchor ring
-    canvas.drawCircle(r.center, 5.5, Paint()..color = SpriteCastPalette.ink);
-    canvas.drawCircle(
-      r.center,
-      4.2,
-      Paint()
-        ..color = ringCol
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 2.0,
-    );
+    _drawFilledCircle(canvas, r.center, 5.5, SpriteCastPalette.ink);
+    _drawStrokedCircle(canvas, r.center, 4.2, ringCol, 2.0);
     if (isHighlighted) {
       final pulse = 6.5 + math.sin(worldTimeSec * 8.0) * 1.8;
-      canvas.drawCircle(
+      _drawStrokedCircle(
+        canvas,
         r.center,
         pulse,
-        Paint()
-          ..color = SpriteCastPalette.endesga32[18].withValues(alpha: 0.65)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 1.0,
+        SpriteCastPalette.endesga32[18].withValues(alpha: 0.65),
+        1.0,
       );
     }
   }
@@ -810,16 +781,16 @@ class DungeonWorldPainter extends CustomPainter {
     final br = chamber.breakables['${col}_$row'];
     final flash = br != null && br.hitFlashTimer > 0.0;
     final box = Rect.fromLTWH(r.left + 1, r.top + 2, 14, 14);
-    canvas.drawRect(box, Paint()..color = SpriteCastPalette.ink);
-    canvas.drawRect(
+    _drawFilledRect(canvas, box, SpriteCastPalette.ink);
+    _drawFilledRect(
+      canvas,
       box.deflate(1),
-      Paint()..color = flash ? SpriteCastPalette.endesga32[19] : SpriteCastPalette.woodMid,
+      flash ? SpriteCastPalette.endesga32[19] : SpriteCastPalette.woodMid,
     );
     if (!flash) {
-      canvas.drawRect(Rect.fromLTWH(box.left + 1, box.top + 1, 12, 2), Paint()..color = SpriteCastPalette.woodLight);
-      canvas.drawRect(Rect.fromLTWH(box.left + 2, box.top + 6, 10, 2), Paint()..color = SpriteCastPalette.woodDark);
-      // Cross brace
-      canvas.drawRect(Rect.fromLTWH(box.left + 6, box.top + 2, 2, 10), Paint()..color = SpriteCastPalette.woodDark);
+      _drawFilledRect(canvas, Rect.fromLTWH(box.left + 1, box.top + 1, 12, 2), SpriteCastPalette.woodLight);
+      _drawFilledRect(canvas, Rect.fromLTWH(box.left + 2, box.top + 6, 10, 2), SpriteCastPalette.woodDark);
+      _drawFilledRect(canvas, Rect.fromLTWH(box.left + 6, box.top + 2, 2, 10), SpriteCastPalette.woodDark);
     }
   }
 
@@ -837,113 +808,109 @@ class DungeonWorldPainter extends CustomPainter {
     final colMain = shimmer
         ? SpriteCastPalette.endesga32[18]
         : SpriteCastPalette.endesga32[17];
-    // Draw 1..3 jagged crystal shards proportional to remaining ore HP
     if (hp >= 1) {
-      canvas.drawRect(Rect.fromLTWH(r.left + 5, r.bottom - 11, 5, 11), Paint()..color = SpriteCastPalette.ink);
-      canvas.drawRect(Rect.fromLTWH(r.left + 6, r.bottom - 10, 3, 9), Paint()..color = colMain);
-      canvas.drawRect(Rect.fromLTWH(r.left + 6.5, r.bottom - 9, 1, 4), Paint()..color = SpriteCastPalette.endesga32[19]);
+      _drawFilledRect(canvas, Rect.fromLTWH(r.left + 5, r.bottom - 11, 5, 11), SpriteCastPalette.ink);
+      _drawFilledRect(canvas, Rect.fromLTWH(r.left + 6, r.bottom - 10, 3, 9), colMain);
+      _drawFilledRect(canvas, Rect.fromLTWH(r.left + 6.5, r.bottom - 9, 1, 4), SpriteCastPalette.endesga32[19]);
     }
     if (hp >= 2) {
-      canvas.drawRect(Rect.fromLTWH(r.left + 1, r.bottom - 7, 4, 7), Paint()..color = SpriteCastPalette.ink);
-      canvas.drawRect(Rect.fromLTWH(r.left + 2, r.bottom - 6, 2, 5), Paint()..color = SpriteCastPalette.endesga32[17]);
+      _drawFilledRect(canvas, Rect.fromLTWH(r.left + 1, r.bottom - 7, 4, 7), SpriteCastPalette.ink);
+      _drawFilledRect(canvas, Rect.fromLTWH(r.left + 2, r.bottom - 6, 2, 5), SpriteCastPalette.endesga32[17]);
     }
     if (hp >= 3) {
-      canvas.drawRect(Rect.fromLTWH(r.left + 10, r.bottom - 8, 5, 8), Paint()..color = SpriteCastPalette.ink);
-      canvas.drawRect(Rect.fromLTWH(r.left + 11, r.bottom - 7, 3, 6), Paint()..color = colMain);
+      _drawFilledRect(canvas, Rect.fromLTWH(r.left + 10, r.bottom - 8, 5, 8), SpriteCastPalette.ink);
+      _drawFilledRect(canvas, Rect.fromLTWH(r.left + 11, r.bottom - 7, 3, 6), colMain);
     }
   }
 
   void _drawSwitchPedestal(Canvas canvas, Rect r, int col, int row, int animTick) {
     final br = chamber.breakables['${col}_$row'];
     final active = (br?.brokenOrTriggered ?? false) || chamber.roomGateUnlocked;
-    canvas.drawRect(Rect.fromLTWH(r.left + 3, r.bottom - 12, 10, 12), Paint()..color = SpriteCastPalette.ink);
-    canvas.drawRect(Rect.fromLTWH(r.left + 4, r.bottom - 11, 8, 10), Paint()..color = SpriteCastPalette.endesga32[22]);
-    // Crystal orb switch cap
-    canvas.drawRect(
+    _drawFilledRect(canvas, Rect.fromLTWH(r.left + 3, r.bottom - 12, 10, 12), SpriteCastPalette.ink);
+    _drawFilledRect(canvas, Rect.fromLTWH(r.left + 4, r.bottom - 11, 8, 10), SpriteCastPalette.endesga32[22]);
+    _drawFilledRect(
+      canvas,
       Rect.fromLTWH(r.left + 5, r.top + 1, 6, 5),
-      Paint()
-        ..color = active
-            ? SpriteCastPalette.endesga32[18]
-            : SpriteCastPalette.endesga32[8],
+      active ? SpriteCastPalette.endesga32[18] : SpriteCastPalette.endesga32[8],
     );
   }
 
   void _drawLockedGate(Canvas canvas, Rect r, DungeonEraTheme theme) {
-    canvas.drawRect(Rect.fromLTWH(r.left + 1, r.top, 14, 16), Paint()..color = SpriteCastPalette.ink);
+    _drawFilledRect(canvas, Rect.fromLTWH(r.left + 1, r.top, 14, 16), SpriteCastPalette.ink);
     for (var bx = 3.0; bx <= 11.0; bx += 4.0) {
-      canvas.drawRect(Rect.fromLTWH(r.left + bx, r.top, 2, 16), Paint()..color = SpriteCastPalette.endesga32[21]);
+      _drawFilledRect(canvas, Rect.fromLTWH(r.left + bx, r.top, 2, 16), SpriteCastPalette.endesga32[21]);
     }
-    canvas.drawRect(Rect.fromLTWH(r.left + 2, r.top + 6, 12, 3), Paint()..color = SpriteCastPalette.endesga32[10]);
+    _drawFilledRect(canvas, Rect.fromLTWH(r.left + 2, r.top + 6, 12, 3), SpriteCastPalette.endesga32[10]);
   }
 
   void _drawCampfireBench(Canvas canvas, Rect r, int animTick) {
-    // Iconic Bahay-Pulungan Sanctuary Bench + crackling pixel campfire!
-    // Wooden bench on left half
-    canvas.drawRect(Rect.fromLTWH(r.left - 4, r.bottom - 8, 15, 8), Paint()..color = SpriteCastPalette.ink);
-    canvas.drawRect(Rect.fromLTWH(r.left - 3, r.bottom - 7, 13, 2), Paint()..color = SpriteCastPalette.woodLight);
-    canvas.drawRect(Rect.fromLTWH(r.left - 3, r.bottom - 4, 13, 2), Paint()..color = SpriteCastPalette.woodMid);
-    // Campfire logs & animated 3-tone pixel flame on right
+    _drawFilledRect(canvas, Rect.fromLTWH(r.left - 4, r.bottom - 8, 15, 8), SpriteCastPalette.ink);
+    _drawFilledRect(canvas, Rect.fromLTWH(r.left - 3, r.bottom - 7, 13, 2), SpriteCastPalette.woodLight);
+    _drawFilledRect(canvas, Rect.fromLTWH(r.left - 3, r.bottom - 4, 13, 2), SpriteCastPalette.woodMid);
     final flick = (animTick ~/ 4) % 3;
-    canvas.drawRect(Rect.fromLTWH(r.right - 4, r.bottom - 3, 7, 3), Paint()..color = SpriteCastPalette.woodDark);
-    canvas.drawRect(
+    _drawFilledRect(canvas, Rect.fromLTWH(r.right - 4, r.bottom - 3, 7, 3), SpriteCastPalette.woodDark);
+    _drawFilledRect(
+      canvas,
       Rect.fromLTWH(r.right - 3, r.bottom - 8 - flick * 0.8, 5, 6),
-      Paint()..color = SpriteCastPalette.endesga32[9],
+      SpriteCastPalette.endesga32[9],
     );
-    canvas.drawRect(
+    _drawFilledRect(
+      canvas,
       Rect.fromLTWH(r.right - 2, r.bottom - 6 - flick * 0.5, 3, 4),
-      Paint()..color = SpriteCastPalette.endesga32[11],
+      SpriteCastPalette.endesga32[11],
     );
   }
 
   void _drawLoreTablet(Canvas canvas, Rect r, DungeonEraTheme theme, int animTick) {
     final pulse = 0.65 + 0.35 * math.sin(worldTimeSec * 3.5);
-    canvas.drawRect(Rect.fromLTWH(r.left + 2, r.top + 1, 12, 15), Paint()..color = SpriteCastPalette.ink);
-    canvas.drawRect(Rect.fromLTWH(r.left + 3, r.top + 2, 10, 13), Paint()..color = SpriteCastPalette.endesga32[23]);
-    // Glowing Baybayin / Constitutional rune lines
+    _drawFilledRect(canvas, Rect.fromLTWH(r.left + 2, r.top + 1, 12, 15), SpriteCastPalette.ink);
+    _drawFilledRect(canvas, Rect.fromLTWH(r.left + 3, r.top + 2, 10, 13), SpriteCastPalette.endesga32[23]);
     final runeCol = SpriteCastPalette.endesga32[18].withValues(alpha: pulse);
-    canvas.drawRect(Rect.fromLTWH(r.left + 5, r.top + 4, 6, 1.5), Paint()..color = runeCol);
-    canvas.drawRect(Rect.fromLTWH(r.left + 5, r.top + 7, 5, 1.5), Paint()..color = runeCol);
-    canvas.drawRect(Rect.fromLTWH(r.left + 5, r.top + 10, 6, 1.5), Paint()..color = runeCol);
+    _drawFilledRect(canvas, Rect.fromLTWH(r.left + 5, r.top + 4, 6, 1.5), runeCol);
+    _drawFilledRect(canvas, Rect.fromLTWH(r.left + 5, r.top + 7, 5, 1.5), runeCol);
+    _drawFilledRect(canvas, Rect.fromLTWH(r.left + 5, r.top + 10, 6, 1.5), runeCol);
   }
 
   void _drawTreasureChest(Canvas canvas, Rect r, int col, int row) {
     final chestKey = '${chamber.spec.id}:${col}_$row';
     final opened = progress.openedChestIds.contains(chestKey);
-    canvas.drawRect(Rect.fromLTWH(r.left + 1, r.bottom - 11, 14, 11), Paint()..color = SpriteCastPalette.ink);
-    canvas.drawRect(Rect.fromLTWH(r.left + 2, r.bottom - 10, 12, 9), Paint()..color = SpriteCastPalette.woodMid);
-    canvas.drawRect(
+    _drawFilledRect(canvas, Rect.fromLTWH(r.left + 1, r.bottom - 11, 14, 11), SpriteCastPalette.ink);
+    _drawFilledRect(canvas, Rect.fromLTWH(r.left + 2, r.bottom - 10, 12, 9), SpriteCastPalette.woodMid);
+    _drawFilledRect(
+      canvas,
       Rect.fromLTWH(r.left + 2, r.bottom - 10, 12, 2),
-      Paint()..color = opened ? SpriteCastPalette.woodDark : SpriteCastPalette.endesga32[10],
+      opened ? SpriteCastPalette.woodDark : SpriteCastPalette.endesga32[10],
     );
-    canvas.drawRect(
+    _drawFilledRect(
+      canvas,
       Rect.fromLTWH(r.left + 6.5, r.bottom - 7, 3, 3),
-      Paint()..color = opened ? SpriteCastPalette.endesga32[22] : SpriteCastPalette.endesga32[11],
+      opened ? SpriteCastPalette.endesga32[22] : SpriteCastPalette.endesga32[11],
     );
   }
 
   void _drawRoomPortal(Canvas canvas, Rect r, DungeonEraTheme theme, int animTick) {
     final glow = 0.55 + 0.45 * math.sin(worldTimeSec * 4.0);
-    canvas.drawRect(Rect.fromLTWH(r.left + 1, r.top - 4, 14, 20), Paint()..color = SpriteCastPalette.ink);
-    canvas.drawRect(
+    _drawFilledRect(canvas, Rect.fromLTWH(r.left + 1, r.top - 4, 14, 20), SpriteCastPalette.ink);
+    _drawFilledRect(
+      canvas,
       Rect.fromLTWH(r.left + 3, r.top - 2, 10, 18),
-      Paint()..color = theme.accentHighlight.withValues(alpha: 0.35 + 0.30 * glow),
+      theme.accentHighlight.withValues(alpha: 0.35 + 0.30 * glow),
     );
-    canvas.drawRect(
+    _drawFilledRect(
+      canvas,
       Rect.fromLTWH(r.left + 5, r.top + 1, 6, 15),
-      Paint()..color = SpriteCastPalette.endesga32[19].withValues(alpha: 0.45 * glow),
+      SpriteCastPalette.endesga32[19].withValues(alpha: 0.45 * glow),
     );
   }
 
   void _drawWallTorch(Canvas canvas, Rect r, DungeonEraTheme theme, int animTick) {
     final flick = (animTick ~/ 5) % 2;
-    canvas.drawRect(Rect.fromLTWH(r.center.dx - 1.5, r.top + 6, 3, 7), Paint()..color = SpriteCastPalette.woodDark);
-    canvas.drawRect(
-      Rect.fromLTWH(r.center.dx - 2.5, r.top + 2 - flick, 5, 5),
-      Paint()..color = theme.torchGlow,
-    );
-    canvas.drawRect(
+    _drawFilledRect(canvas, Rect.fromLTWH(r.center.dx - 1.5, r.top + 6, 3, 7), SpriteCastPalette.woodDark);
+    _drawFilledRect(canvas, Rect.fromLTWH(r.center.dx - 2.5, r.top + 2 - flick, 5, 5), theme.torchGlow);
+    _drawFilledRect(
+      canvas,
       Rect.fromLTWH(r.center.dx - 1.2, r.top + 3.5 - flick * 0.5, 2.4, 2.8),
-      Paint()..color = SpriteCastPalette.endesga32[19],
+      SpriteCastPalette.endesga32[19],
     );
   }
 
@@ -971,18 +938,9 @@ class DungeonWorldPainter extends CustomPainter {
           col = SpriteCastPalette.endesga32[29];
           break;
       }
-      canvas.drawRect(
-        Rect.fromCenter(center: pos, width: 5.5, height: 5.5),
-        Paint()..color = SpriteCastPalette.ink,
-      );
-      canvas.drawRect(
-        Rect.fromCenter(center: pos, width: 3.5, height: 3.5),
-        Paint()..color = col,
-      );
-      canvas.drawRect(
-        Rect.fromLTWH(pos.dx - 1, pos.dy - 1, 1.2, 1.2),
-        Paint()..color = SpriteCastPalette.endesga32[19],
-      );
+      _drawFilledRect(canvas, Rect.fromCenter(center: pos, width: 5.5, height: 5.5), SpriteCastPalette.ink);
+      _drawFilledRect(canvas, Rect.fromCenter(center: pos, width: 3.5, height: 3.5), col);
+      _drawFilledRect(canvas, Rect.fromLTWH(pos.dx - 1, pos.dy - 1, 1.2, 1.2), SpriteCastPalette.endesga32[19]);
     }
   }
 
@@ -991,112 +949,29 @@ class DungeonWorldPainter extends CustomPainter {
     DungeonEntityRenderSpec e,
     int animTick,
   ) {
-    final hb = e.hitbox;
-    final bob = math.sin(e.animPhase * 4.0) * (e.isBoss ? 1.4 : 0.9);
-    final drawRect = hb.shift(Offset(0, bob));
-
-    // Aim telegraph laser line for marksmen / bosses before firing
-    if (e.aimTelegraphEnd != null) {
-      canvas.drawLine(
-        hb.center,
-        e.aimTelegraphEnd!,
-        Paint()
-          ..color = SpriteCastPalette.endesga32[26].withValues(alpha: 0.72)
-          ..strokeWidth = 1.2,
-      );
-    }
-
-    // Contact shadow beneath grounded entities
-    SpriteCastEngine.drawSteppedContactShadow(
-      canvas,
-      Rect.fromCenter(
-        center: Offset(hb.center.dx, hb.bottom + 0.5),
-        width: hb.width * 0.9,
-        height: 3.5,
-      ),
-      castDx: 1.5,
-      castDy: 1.0,
-      strength: 0.7,
-      oval: true,
+    DungeonEnemySpritePainter.paintEntity(
+      canvas: canvas,
+      e: e,
+      worldTimeSec: worldTimeSec,
+      animTick: animTick,
     );
-
-    final isFlashing = e.hitFlashTimer > 0.0;
-    final bodyColor = isFlashing
-        ? SpriteCastPalette.endesga32[19]
-        : (e.isTelegraphing
-            ? Color.lerp(e.primaryColor, SpriteCastPalette.endesga32[11], 0.55)!
-            : e.primaryColor);
-
-    // Crisp 1px ink outline silhouette + shaded torso + head/crest
-    canvas.drawRect(drawRect.inflate(1.0), Paint()..color = SpriteCastPalette.ink);
-    canvas.drawRect(drawRect, Paint()..color = bodyColor);
-    // Accent shoulder/helm band
-    canvas.drawRect(
-      Rect.fromLTWH(drawRect.left + 1, drawRect.top + 1, drawRect.width - 2, drawRect.height * 0.30),
-      Paint()..color = isFlashing ? SpriteCastPalette.endesga32[19] : e.accentColor,
-    );
-    // Glowing eyes facing Alon
-    final eyeX = e.facing >= 0 ? drawRect.right - 4.0 : drawRect.left + 2.0;
-    canvas.drawRect(
-      Rect.fromLTWH(eyeX, drawRect.top + 3.0, 2.0, 2.0),
-      Paint()..color = e.isTelegraphing ? SpriteCastPalette.endesga32[26] : SpriteCastPalette.endesga32[11],
-    );
-
-    // Front shield indicator (signals to pogo or dash behind!)
-    if (e.isShieldedFront) {
-      final sx = e.facing >= 0 ? drawRect.right : drawRect.left - 3.0;
-      canvas.drawRect(
-        Rect.fromLTWH(sx, drawRect.top + 2.0, 3.0, drawRect.height - 3.0),
-        Paint()..color = SpriteCastPalette.endesga32[20],
-      );
-    }
-
-    // Telegraph warning exclamation glint above enemy before strike!
-    if (e.isTelegraphing) {
-      canvas.drawRect(
-        Rect.fromCenter(center: Offset(drawRect.center.dx, drawRect.top - 6.0), width: 3, height: 6),
-        Paint()..color = SpriteCastPalette.endesga32[26],
-      );
-    }
-
-    // Staggered golden halo stars (signals Constitutional Counter-Break!)
-    if (e.isStaggered) {
-      for (var s = 0; s < 3; s++) {
-        final angle = worldTimeSec * 6.0 + s * (math.pi * 2 / 3);
-        final sx = drawRect.center.dx + math.cos(angle) * 7.0;
-        final sy = drawRect.top - 5.0 + math.sin(angle) * 2.5;
-        canvas.drawRect(
-          Rect.fromCenter(center: Offset(sx, sy), width: 2.5, height: 2.5),
-          Paint()..color = SpriteCastPalette.endesga32[11],
-        );
-      }
-    }
-
-    // Compact HP bar above damaged non-boss enemies
-    if (!e.isBoss && e.hp < e.maxHp && e.maxHp > 0) {
-      final frac = (e.hp / e.maxHp).clamp(0.0, 1.0);
-      final barRect = Rect.fromLTWH(drawRect.left, drawRect.top - 4.5, drawRect.width, 2.5);
-      canvas.drawRect(barRect, Paint()..color = SpriteCastPalette.ink);
-      canvas.drawRect(
-        Rect.fromLTWH(barRect.left + 0.5, barRect.top + 0.5, (barRect.width - 1) * frac, 1.5),
-        Paint()..color = SpriteCastPalette.endesga32[8],
-      );
-    }
   }
 
   void _paintSilkGrappleLine(Canvas canvas) {
     if (!player.grappleActive) return;
+    _stroke
+      ..color = SpriteCastPalette.endesga32[18]
+      ..strokeWidth = 1.6;
     canvas.drawLine(
       Offset(player.centerX, player.centerY),
       Offset(player.grappleTargetX, player.grappleTargetY),
-      Paint()
-        ..color = SpriteCastPalette.endesga32[18]
-        ..strokeWidth = 1.6,
+      _stroke,
     );
-    canvas.drawCircle(
+    _drawFilledCircle(
+      canvas,
       Offset(player.grappleTargetX, player.grappleTargetY),
       3.0,
-      Paint()..color = SpriteCastPalette.endesga32[19],
+      SpriteCastPalette.endesga32[19],
     );
   }
 
@@ -1124,22 +999,21 @@ class DungeonWorldPainter extends CustomPainter {
           drawW,
           drawH,
         );
-        canvas.drawImageRect(
-          sheet,
-          src,
-          dst,
-          Paint()
-            ..filterQuality = FilterQuality.none
-            ..colorFilter = ColorFilter.mode(
-              SpriteCastPalette.endesga32[18].withValues(alpha: a),
-              BlendMode.srcATop,
-            )
-            ..color = Color.fromRGBO(255, 255, 255, a),
-        );
+        _imgPaint
+          ..colorFilter = ColorFilter.mode(
+            SpriteCastPalette.endesga32[18].withValues(alpha: a),
+            BlendMode.srcATop,
+          )
+          ..color = Color.fromRGBO(255, 255, 255, a);
+        canvas.drawImageRect(sheet, src, dst, _imgPaint);
+        _imgPaint
+          ..colorFilter = null
+          ..color = Colors.white;
       } else {
-        canvas.drawRect(
+        _drawFilledRect(
+          canvas,
           Rect.fromLTWH(ghost.x, ghost.y, player.width, player.height),
-          Paint()..color = SpriteCastPalette.endesga32[18].withValues(alpha: a),
+          SpriteCastPalette.endesga32[18].withValues(alpha: a),
         );
       }
     }
@@ -1151,23 +1025,16 @@ class DungeonWorldPainter extends CustomPainter {
     int animTick,
     List<({Offset pos, Color color, double radius})> lightEmitters,
   ) {
-    // Orbiting Tarsier familiar trailing smoothly behind Alon's shoulder
     final ux = player.centerX - player.facing * 11.0;
     final uy = player.y - 5.0 + math.sin(worldTimeSec * 4.4) * 2.2;
     final pos = Offset(ux, uy);
 
-    canvas.drawRect(
-      Rect.fromCenter(center: pos, width: 6.5, height: 6.5),
-      Paint()..color = SpriteCastPalette.ink,
-    );
-    canvas.drawRect(
-      Rect.fromCenter(center: pos, width: 4.5, height: 4.5),
-      Paint()..color = SpriteCastPalette.woodLight,
-    );
-    // Big bright Tarsier eyes + glowing lantern pixel
-    canvas.drawRect(
+    _drawFilledRect(canvas, Rect.fromCenter(center: pos, width: 6.5, height: 6.5), SpriteCastPalette.ink);
+    _drawFilledRect(canvas, Rect.fromCenter(center: pos, width: 4.5, height: 4.5), SpriteCastPalette.woodLight);
+    _drawFilledRect(
+      canvas,
       Rect.fromLTWH(pos.dx + (player.facing > 0 ? 0.5 : -2.0), pos.dy - 1.0, 1.5, 1.5),
-      Paint()..color = SpriteCastPalette.endesga32[11],
+      SpriteCastPalette.endesga32[11],
     );
 
     final lanternRadius =
@@ -1180,7 +1047,6 @@ class DungeonWorldPainter extends CustomPainter {
   }
 
   void _paintAlonHero(Canvas canvas, DungeonEraTheme theme, int animTick) {
-    // Invulnerability flicker after damage (never hides during Silk Dash)
     if (player.invulnTimer > 0.0 && !player.isDashing && (animTick % 4 < 2)) {
       return;
     }
@@ -1188,7 +1054,6 @@ class DungeonWorldPainter extends CustomPainter {
     final cx = player.centerX;
     final bottomY = player.bottom;
 
-    // Grounded contact shadow when near floor
     if (player.isGrounded) {
       SpriteCastEngine.drawSteppedContactShadow(
         canvas,
@@ -1222,14 +1087,12 @@ class DungeonWorldPainter extends CustomPainter {
       ..lineTo(-f * 3.5 + capeSway * 0.5, -1.8)
       ..lineTo(f * 1.0, -h + 6.5 + breathY)
       ..close();
-    canvas.drawPath(capePath, Paint()..color = SpriteCastPalette.endesga32[8]);
-    canvas.drawPath(
-      capePath,
-      Paint()
-        ..color = SpriteCastPalette.ink
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.0,
-    );
+    _fill.color = SpriteCastPalette.endesga32[8];
+    canvas.drawPath(capePath, _fill);
+    _stroke
+      ..color = SpriteCastPalette.ink
+      ..strokeWidth = 1.0;
+    canvas.drawPath(capePath, _stroke);
 
     // 2. Playable Hero Sprite: Student's Custom School Lobby Character when loaded,
     //    or crisp SpriteCast fallback silhouette while loading / in headless tests.
@@ -1250,46 +1113,19 @@ class DungeonWorldPainter extends CustomPainter {
         drawW,
         drawH,
       );
-      canvas.drawImageRect(
-        sheet,
-        src,
-        dst,
-        Paint()..filterQuality = FilterQuality.none,
-      );
+      _imgPaint
+        ..colorFilter = null
+        ..color = Colors.white;
+      canvas.drawImageRect(sheet, src, dst, _imgPaint);
     } else {
-      // Crisp dark-ink outline torso + boots fallback
-      canvas.drawRect(
-        Rect.fromLTWH(-w * 0.5 - 0.5, -h + breathY, w + 1.0, h - 1.0),
-        Paint()..color = SpriteCastPalette.ink,
-      );
-      canvas.drawRect(
-        Rect.fromLTWH(-w * 0.42, -h + 5.5 + breathY, w * 0.84, 5.5),
-        Paint()..color = SpriteCastPalette.endesga32[2],
-      );
-      canvas.drawRect(
-        Rect.fromLTWH(-3.2 + stride * 0.5, -3.5, 2.4, 3.5),
-        Paint()..color = SpriteCastPalette.endesga32[24],
-      );
-      canvas.drawRect(
-        Rect.fromLTWH(0.8 - stride * 0.5, -3.5, 2.4, 3.5),
-        Paint()..color = SpriteCastPalette.endesga32[24],
-      );
-      canvas.drawRect(
-        Rect.fromLTWH(-4.0, -h + 0.8 + breathY, 8.0, 5.0),
-        Paint()..color = SpriteCastPalette.endesga32[30],
-      );
-      canvas.drawRect(
-        Rect.fromLTWH(-4.4, -h - 0.4 + breathY, 8.8, 2.4),
-        Paint()..color = SpriteCastPalette.endesga32[25],
-      );
-      canvas.drawRect(
-        Rect.fromLTWH(-4.0, -h + 1.4 + breathY, 8.0, 1.0),
-        Paint()..color = theme.accentHighlight,
-      );
-      canvas.drawRect(
-        Rect.fromLTWH(f > 0 ? 1.2 : -3.0, -h + 3.0 + breathY, 1.5, 1.5),
-        Paint()..color = SpriteCastPalette.ink,
-      );
+      _drawFilledRect(canvas, Rect.fromLTWH(-w * 0.5 - 0.5, -h + breathY, w + 1.0, h - 1.0), SpriteCastPalette.ink);
+      _drawFilledRect(canvas, Rect.fromLTWH(-w * 0.42, -h + 5.5 + breathY, w * 0.84, 5.5), SpriteCastPalette.endesga32[2]);
+      _drawFilledRect(canvas, Rect.fromLTWH(-3.2 + stride * 0.5, -3.5, 2.4, 3.5), SpriteCastPalette.endesga32[24]);
+      _drawFilledRect(canvas, Rect.fromLTWH(0.8 - stride * 0.5, -3.5, 2.4, 3.5), SpriteCastPalette.endesga32[24]);
+      _drawFilledRect(canvas, Rect.fromLTWH(-4.0, -h + 0.8 + breathY, 8.0, 5.0), SpriteCastPalette.endesga32[30]);
+      _drawFilledRect(canvas, Rect.fromLTWH(-4.4, -h - 0.4 + breathY, 8.8, 2.4), SpriteCastPalette.endesga32[25]);
+      _drawFilledRect(canvas, Rect.fromLTWH(-4.0, -h + 1.4 + breathY, 8.0, 1.0), theme.accentHighlight);
+      _drawFilledRect(canvas, Rect.fromLTWH(f > 0 ? 1.2 : -3.0, -h + 3.0 + breathY, 1.5, 1.5), SpriteCastPalette.ink);
     }
 
     // 3. Dungeon-Only Shoulder Armor Pauldron & Constitutional Crest (never shown in School Lobby!)
@@ -1297,37 +1133,20 @@ class DungeonWorldPainter extends CustomPainter {
       final hasUpgradedArmor =
           progress.bladeTier.index >= 1 || progress.hasCharmEquipped('sovereign_heart');
       final pauldronColor = progress.bladeTier.index >= 3
-          ? SpriteCastPalette.endesga32[10] // Forged gold pauldron
+          ? SpriteCastPalette.endesga32[10]
           : (hasUpgradedArmor
-              ? SpriteCastPalette.endesga32[20] // Tempered steel pauldron
-              : SpriteCastPalette.woodLight); // Starter woven rattan guard
+              ? SpriteCastPalette.endesga32[20]
+              : SpriteCastPalette.woodLight);
       final px = f > 0 ? -3.8 : 0.6;
-      canvas.drawRect(
-        Rect.fromLTWH(px - 0.5, -9.8 + breathY, 3.8, 2.8),
-        Paint()..color = SpriteCastPalette.ink,
-      );
-      canvas.drawRect(
-        Rect.fromLTWH(px, -9.3 + breathY, 2.8, 1.8),
-        Paint()..color = pauldronColor,
-      );
+      _drawFilledRect(canvas, Rect.fromLTWH(px - 0.5, -9.8 + breathY, 3.8, 2.8), SpriteCastPalette.ink);
+      _drawFilledRect(canvas, Rect.fromLTWH(px, -9.3 + breathY, 2.8, 1.8), pauldronColor);
 
       // 4. Dungeon-Only Forged Melee Weapon (Bamboo Spear -> Sovereign Blade)
       final bladeLen = 6.0 + progress.bladeTier.index * 1.1;
       final bladeX = f > 0 ? 3.2 : -3.2 - bladeLen;
-      // Dark ink outline + metallic blade + golden hilt
-      canvas.drawRect(
-        Rect.fromLTWH(bladeX - 0.5, -7.5 + breathY, bladeLen + 1.0, 2.6),
-        Paint()..color = SpriteCastPalette.ink,
-      );
-      canvas.drawRect(
-        Rect.fromLTWH(bladeX, -7.0 + breathY, bladeLen, 1.6),
-        Paint()..color = progress.bladeTier.slashArcColor,
-      );
-      // Hilt guard
-      canvas.drawRect(
-        Rect.fromLTWH(f > 0 ? 2.6 : -4.0, -8.0 + breathY, 1.4, 3.6),
-        Paint()..color = SpriteCastPalette.endesga32[10],
-      );
+      _drawFilledRect(canvas, Rect.fromLTWH(bladeX - 0.5, -7.5 + breathY, bladeLen + 1.0, 2.6), SpriteCastPalette.ink);
+      _drawFilledRect(canvas, Rect.fromLTWH(bladeX, -7.0 + breathY, bladeLen, 1.6), progress.bladeTier.slashArcColor);
+      _drawFilledRect(canvas, Rect.fromLTWH(f > 0 ? 2.6 : -4.0, -8.0 + breathY, 1.4, 3.6), SpriteCastPalette.endesga32[10]);
     }
 
     canvas.restore();
@@ -1335,110 +1154,130 @@ class DungeonWorldPainter extends CustomPainter {
     // 5. Active Silk Bind golden healing thread cocoon
     if (combat.isChannelingBind) {
       final p = combat.bindProgress;
-      canvas.drawCircle(
+      _drawStrokedCircle(
+        canvas,
         Offset(cx, player.centerY),
         10.0 + (1.0 - p) * 6.0,
-        Paint()
-          ..color = SpriteCastPalette.endesga32[12].withValues(alpha: 0.78)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 1.8,
+        SpriteCastPalette.endesga32[12].withValues(alpha: 0.78),
+        1.8,
       );
     }
 
     // 6. Active Habeas Aegis Parry Dome!
     if (combat.isParryActive) {
-      canvas.drawCircle(
+      _drawFilledCircle(
+        canvas,
         Offset(cx, player.centerY),
         13.0,
-        Paint()
-          ..color = SpriteCastPalette.endesga32[12].withValues(alpha: 0.28),
+        SpriteCastPalette.endesga32[12].withValues(alpha: 0.28),
       );
-      canvas.drawCircle(
+      _drawStrokedCircle(
+        canvas,
         Offset(cx, player.centerY),
         13.0,
-        Paint()
-          ..color = SpriteCastPalette.endesga32[11]
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 1.6,
+        SpriteCastPalette.endesga32[11],
+        1.6,
       );
     }
   }
 
   void _paintActiveSlashes(Canvas canvas) {
+    final cache = DungeonPixelfxSheetCache.instance;
     for (final slash in combat.activeSlashes) {
       final hb = slash.worldHitbox(player);
       final alpha = (1.0 - slash.progress * 0.85).clamp(0.15, 1.0);
-      final outerPaint = Paint()
-        ..color = slash.arcColor.withValues(alpha: alpha)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = slash.comboStep == 2 ? 4.2 : 2.8;
-      final corePaint = Paint()
-        ..color = SpriteCastPalette.endesga32[19].withValues(alpha: alpha)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.4;
 
       double startAngle;
+      double sheetRot = 0.0;
+      bool sheetFlipX = false;
       const sweepAngle = math.pi * 0.82;
       switch (slash.direction) {
         case DungeonSlashDirection.right:
           startAngle = -math.pi * 0.41;
+          sheetFlipX = false;
           break;
         case DungeonSlashDirection.left:
           startAngle = math.pi - math.pi * 0.41;
+          sheetFlipX = true;
           break;
         case DungeonSlashDirection.up:
           startAngle = -math.pi * 0.91;
+          sheetRot = -math.pi * 0.5;
           break;
         case DungeonSlashDirection.down:
           startAngle = math.pi * 0.09;
+          sheetRot = math.pi * 0.5;
           break;
       }
-      canvas.drawArc(hb, startAngle, sweepAngle, false, outerPaint);
-      canvas.drawArc(hb.deflate(2.0), startAngle, sweepAngle, false, corePaint);
+
+      // Layer 1: Exported `pixelfx` `sword_slash.png` frame when loaded
+      cache.drawSheetFrame(
+        canvas: canvas,
+        reusablePaint: _imgPaint,
+        key: 'sword_slash',
+        worldX: hb.center.dx,
+        worldY: hb.center.dy,
+        frameIndex: (slash.progress * 7.0).floor().clamp(0, 6),
+        scale: slash.comboStep == 2 ? 0.34 : 0.27,
+        flipX: sheetFlipX,
+        rotationRad: sheetRot,
+        opacity: alpha,
+      );
+
+      // Layer 2: Forged-blade-colored outer crescent + hot white core!
+      _stroke
+        ..color = slash.arcColor.withValues(alpha: alpha)
+        ..strokeWidth = slash.comboStep == 2 ? 4.2 : 2.8;
+      canvas.drawArc(hb, startAngle, sweepAngle, false, _stroke);
+
+      _stroke
+        ..color = SpriteCastPalette.endesga32[19].withValues(alpha: alpha)
+        ..strokeWidth = 1.4;
+      canvas.drawArc(hb.deflate(2.0), startAngle, sweepAngle, false, _stroke);
     }
   }
 
   void _paintActiveSkillEffects(Canvas canvas) {
+    final cache = DungeonPixelfxSheetCache.instance;
     for (final fx in combat.activeSkills) {
       final hb = fx.worldHitbox(player);
       final alpha = (1.0 - fx.progress * 0.75).clamp(0.15, 1.0);
       if (fx.skillId == DungeonSilkSkillId.scalesTempest ||
           fx.skillId == DungeonSilkSkillId.habeasAegis) {
         final r = fx.radiusOrLength * (0.65 + 0.35 * fx.progress);
-        canvas.drawCircle(
-          hb.center,
-          r,
-          Paint()
-            ..color = fx.color.withValues(alpha: alpha * 0.25),
-        );
-        canvas.drawCircle(
-          hb.center,
-          r,
-          Paint()
-            ..color = fx.color.withValues(alpha: alpha)
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = 2.6,
-        );
-        canvas.drawCircle(
+        _drawFilledCircle(canvas, hb.center, r, fx.color.withValues(alpha: alpha * 0.25));
+        _drawStrokedCircle(canvas, hb.center, r, fx.color.withValues(alpha: alpha), 2.6);
+        _drawStrokedCircle(
+          canvas,
           hb.center,
           r * 0.72,
-          Paint()
-            ..color = SpriteCastPalette.endesga32[19].withValues(alpha: alpha * 0.8)
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = 1.2,
+          SpriteCastPalette.endesga32[19].withValues(alpha: alpha * 0.8),
+          1.2,
         );
       } else if (fx.skillId == DungeonSilkSkillId.sovereignSunburst) {
-        canvas.drawRect(hb, Paint()..color = fx.color.withValues(alpha: alpha * 0.85));
-        canvas.drawRect(
+        _drawFilledRect(canvas, hb, fx.color.withValues(alpha: alpha * 0.85));
+        _drawFilledRect(
+          canvas,
           Rect.fromLTWH(hb.left, hb.center.dy - 5.0, hb.width, 10.0),
-          Paint()..color = SpriteCastPalette.endesga32[19].withValues(alpha: alpha),
+          SpriteCastPalette.endesga32[19].withValues(alpha: alpha),
+        );
+        cache.drawSheetFrame(
+          canvas: canvas,
+          reusablePaint: _imgPaint,
+          key: 'sunburst',
+          worldX: player.centerX,
+          worldY: player.centerY,
+          frameIndex: (fx.progress * 24.0).floor(),
+          scale: 0.42,
+          opacity: alpha,
+          blendMode: BlendMode.plus,
         );
       } else {
-        // Sanduguan Thread blazing lance trail
-        canvas.drawRect(hb, Paint()..color = fx.color.withValues(alpha: alpha * 0.75));
-        canvas.drawRect(
+        _drawFilledRect(canvas, hb, fx.color.withValues(alpha: alpha * 0.75));
+        _drawFilledRect(
+          canvas,
           Rect.fromLTWH(hb.left, hb.center.dy - 2.5, hb.width, 5.0),
-          Paint()..color = SpriteCastPalette.endesga32[11].withValues(alpha: alpha),
+          SpriteCastPalette.endesga32[11].withValues(alpha: alpha),
         );
       }
     }
@@ -1447,20 +1286,20 @@ class DungeonWorldPainter extends CustomPainter {
   void _paintProjectiles(Canvas canvas) {
     for (final p in combat.projectiles) {
       if (p.expired) continue;
-      canvas.drawCircle(Offset(p.x, p.y), p.radius + 1.0, Paint()..color = SpriteCastPalette.ink);
-      canvas.drawCircle(Offset(p.x, p.y), p.radius, Paint()..color = p.color);
-      canvas.drawCircle(Offset(p.x, p.y), p.radius * 0.45, Paint()..color = SpriteCastPalette.endesga32[19]);
+      final center = Offset(p.x, p.y);
+      _drawFilledCircle(canvas, center, p.radius + 1.0, SpriteCastPalette.ink);
+      _drawFilledCircle(canvas, center, p.radius, p.color);
+      _drawFilledCircle(canvas, center, p.radius * 0.45, SpriteCastPalette.endesga32[19]);
     }
   }
 
   void _paintParticles(Canvas canvas) {
     for (final pt in particles) {
       if (pt.isExpired) continue;
-      canvas.drawRect(
+      _drawFilledRect(
+        canvas,
         Rect.fromCenter(center: Offset(pt.x, pt.y), width: pt.size, height: pt.size),
-        Paint()
-          ..color = pt.color.withValues(alpha: pt.alpha)
-          ..isAntiAlias = false,
+        pt.color.withValues(alpha: pt.alpha),
       );
     }
   }
@@ -1480,16 +1319,13 @@ class DungeonWorldPainter extends CustomPainter {
             (chamber.spec.isDarkCavern ? 0.16 : 0.0))
         .clamp(0.0, 0.68);
     if (darkness > 0.05) {
-      // Subtle atmospheric cavern veil
-      canvas.drawRect(
+      _drawFilledRect(
+        canvas,
         Rect.fromLTWH(cam.dx, cam.dy, kDungeonRefWidth, kDungeonRefHeight),
-        Paint()
-          ..color = SpriteCastPalette.ink.withValues(alpha: darkness * 0.55)
-          ..isAntiAlias = false,
+        SpriteCastPalette.ink.withValues(alpha: darkness * 0.55),
       );
     }
 
-    // SpriteCast stepped pixel light pools radiating from torches, benches & Umalo!
     final flicker = 0.92 + 0.08 * math.sin(worldTimeSec * 14.0);
     for (final em in emitters) {
       SpriteCastEngine.drawSteppedPixelLightPool(
@@ -1504,22 +1340,30 @@ class DungeonWorldPainter extends CustomPainter {
   }
 
   void _paintFloatingCombatNumbers(Canvas canvas) {
+    if (_textCache.length > 64) {
+      _textCache.clear();
+    }
     for (final numItem in combat.floatingNumbers) {
       if (numItem.isExpired) continue;
-      final tp = TextPainter(
-        text: TextSpan(
-          text: numItem.text,
-          style: TextStyle(
-            color: numItem.color.withValues(alpha: numItem.opacity),
-            fontSize: numItem.isCritical ? 8.5 : 7.0,
-            fontWeight: FontWeight.w900,
-            shadows: const [
-              Shadow(color: SpriteCastPalette.ink, offset: Offset(1, 1)),
-            ],
+      final alphaStep = (numItem.opacity * 5.0).round().clamp(1, 5);
+      final cacheKey =
+          '${numItem.text}|${numItem.isCritical}|${numItem.color.hashCode}|$alphaStep';
+      final tp = _textCache.putIfAbsent(cacheKey, () {
+        return TextPainter(
+          text: TextSpan(
+            text: numItem.text,
+            style: TextStyle(
+              color: numItem.color.withValues(alpha: alphaStep / 5.0),
+              fontSize: numItem.isCritical ? 8.5 : 7.0,
+              fontWeight: FontWeight.w900,
+              shadows: const [
+                Shadow(color: SpriteCastPalette.ink, offset: Offset(1, 1)),
+              ],
+            ),
           ),
-        ),
-        textDirection: TextDirection.ltr,
-      )..layout();
+          textDirection: TextDirection.ltr,
+        )..layout();
+      });
       tp.paint(canvas, Offset(numItem.x - tp.width * 0.5, numItem.y - tp.height * 0.5));
     }
   }

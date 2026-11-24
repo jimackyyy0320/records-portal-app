@@ -1070,6 +1070,14 @@ class DungeonEnemyInstance implements DungeonCombatTarget {
       accentColor: archetype.accentColor,
       animPhase: animPhase,
       aimTelegraphEnd: aimTelegraphEnd,
+      aiStateName: aiState.name,
+      bossPhase: phase,
+      stateTimer: stateTimer,
+      vx: vx,
+      vy: vy,
+      isFlying: archetype.isFlying,
+      isRival: archetype.isRival,
+      bossAttackName: currentBossAttack.name,
     );
   }
 }

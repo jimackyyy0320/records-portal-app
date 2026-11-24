@@ -14,10 +14,12 @@ import '../spritecast_engine.dart';
 import 'dungeon_audio.dart';
 import 'dungeon_combat.dart';
 import 'dungeon_enemies.dart';
+import 'dungeon_enemy_sprites.dart';
 import 'dungeon_hud_and_menus.dart';
 import 'dungeon_maps.dart';
 import 'dungeon_models.dart';
 import 'dungeon_physics.dart';
+import 'dungeon_pixelfx_vfx.dart';
 import 'dungeon_renderer.dart';
 
 enum _DungeonShellMode {
@@ -87,6 +89,7 @@ class _SovereignDungeonScreenState extends State<SovereignDungeonScreen>
   final DungeonCombatEngine _combat = DungeonCombatEngine();
   final DungeonEnemyManager _enemyManager = DungeonEnemyManager();
   final DungeonCameraRig _camera = DungeonCameraRig();
+  final DungeonPixelfxVfxManager _pixelfxVfx = DungeonPixelfxVfxManager();
   final List<DungeonParticle> _particles = <DungeonParticle>[];
   final math.Random _rng = math.Random(1898);
 
@@ -107,6 +110,13 @@ class _SovereignDungeonScreenState extends State<SovereignDungeonScreen>
   DungeonLoreTabletSpec? _activeLoreTablet;
   String? _toastMessage;
   double _toastTimer = 0.0;
+
+  // Cinematic Silksong-Style Boss Arena Intro Title Banner State
+  static const double _kBossIntroDuration = 2.2;
+  String? _bossIntroEraTag;
+  String? _bossIntroTitle;
+  String? _bossIntroSubtitle;
+  double _bossIntroTimer = 0.0;
 
   // Unified Keyboard + Mobile Touch Input State
   final Set<LogicalKeyboardKey> _heldKeys = <LogicalKeyboardKey>{};
@@ -151,7 +161,10 @@ class _SovereignDungeonScreenState extends State<SovereignDungeonScreen>
     _campaignSave = loadedCampaign;
     _progress = loadedCampaign.dungeonProgress;
 
-    // 2. Load student's exact custom School Lobby character sprite sheet
+    // 2. Preload `pixelfx` sprite sheets & student's custom School Lobby character sprite sheet
+    try {
+      await DungeonPixelfxSheetCache.instance.preloadAll();
+    } catch (_) {}
     try {
       final look = widget.playerLook ??
           await AvatarSpriteCache.instance.loadSavedLook(
@@ -239,6 +252,7 @@ class _SovereignDungeonScreenState extends State<SovereignDungeonScreen>
 
     _combat.resetRoomCombat();
     _particles.clear();
+    _pixelfxVfx.clear();
 
     final bossAlreadyDefeated =
         spec.bossId != null && _progress.defeatedBossIds.contains(spec.bossId);
@@ -248,6 +262,23 @@ class _SovereignDungeonScreenState extends State<SovereignDungeonScreen>
       defeatedIds: _progress.defeatedBossIds,
     );
     _camera.snapTo(_player, spec);
+
+    // Trigger Silksong-style Boss Arena Intro Title Banner on undefeated Boss / Rival chamber!
+    final liveBoss = _enemyManager.activeBoss;
+    if (liveBoss != null) {
+      final act = actSpecForNumber(spec.actNumber);
+      _bossIntroEraTag = liveBoss.archetype.isRival
+          ? 'RIVAL DUEL • ${act.eraYearLabel.toUpperCase()}'
+          : 'ACT ${act.actNumber} ERA BOSS • ${act.eraYearLabel.toUpperCase()}';
+      _bossIntroTitle = liveBoss.archetype.displayName.toUpperCase();
+      _bossIntroSubtitle = liveBoss.archetype.subtitle.toUpperCase();
+      _bossIntroTimer = _kBossIntroDuration;
+    } else {
+      _bossIntroTimer = 0.0;
+      _bossIntroTitle = null;
+      _bossIntroSubtitle = null;
+      _bossIntroEraTag = null;
+    }
 
     if (!_progress.discoveredChamberIds.contains(spec.id)) {
       _progress = _progress.copyWith(
@@ -303,6 +334,10 @@ class _SovereignDungeonScreenState extends State<SovereignDungeonScreen>
       _toastTimer = math.max(0.0, _toastTimer - rawDt);
       if (_toastTimer <= 0.0) _toastMessage = null;
     }
+    if (_bossIntroTimer > 0.0) {
+      _bossIntroTimer = math.max(0.0, _bossIntroTimer - rawDt);
+      if (_bossIntroTimer <= 0.0) _bossIntroTitle = null;
+    }
 
     // 1. Sample unified Keyboard + Mobile Touch Input
     final input = _consumeCurrentFrameInput();
@@ -353,6 +388,7 @@ class _SovereignDungeonScreenState extends State<SovereignDungeonScreen>
     }
 
     _stepParticles(rawDt);
+    _pixelfxVfx.step(rawDt);
     _camera.update(dt: rawDt, player: _player, spec: _chamber.spec);
 
     // 7. Check Player Defeat -> Respawn at Sanctuary Bench screen
@@ -434,6 +470,12 @@ class _SovereignDungeonScreenState extends State<SovereignDungeonScreen>
         case DungeonPhysicsEventKind.landed:
           DungeonAudioService.instance.play(DungeonSfxCue.land);
           _emitBurst(ev.x, ev.y, SpriteCastPalette.endesga32[2], count: 4);
+          _pixelfxVfx.spawnFloorShockwave(
+            x: ev.x,
+            groundY: ev.y,
+            color: SpriteCastPalette.endesga32[2],
+            maxRadiusX: 14.0,
+          );
           break;
         case DungeonPhysicsEventKind.dashed:
           DungeonAudioService.instance.play(DungeonSfxCue.silkDash);
@@ -442,6 +484,12 @@ class _SovereignDungeonScreenState extends State<SovereignDungeonScreen>
         case DungeonPhysicsEventKind.pogoBounced:
           DungeonAudioService.instance.play(DungeonSfxCue.pogoBounce);
           _emitBurst(ev.x, ev.y, SpriteCastPalette.endesga32[11], count: 7);
+          _pixelfxVfx.spawnFloorShockwave(
+            x: ev.x,
+            groundY: ev.y,
+            color: SpriteCastPalette.endesga32[11],
+            maxRadiusX: 20.0,
+          );
           break;
         case DungeonPhysicsEventKind.grappleStarted:
           DungeonAudioService.instance.play(DungeonSfxCue.grappleZip);
@@ -486,6 +534,7 @@ class _SovereignDungeonScreenState extends State<SovereignDungeonScreen>
             );
           }
           _emitBurst(ev.x, ev.y, burstColor, count: 6);
+          _pixelfxVfx.spawnPickupSparkle(x: ev.x, y: ev.y, color: burstColor);
           break;
       }
     }
@@ -499,27 +548,71 @@ class _SovereignDungeonScreenState extends State<SovereignDungeonScreen>
           DungeonAudioService.instance.play(
             ev.value >= 2 ? DungeonSfxCue.slashFinisher : DungeonSfxCue.slashLight,
           );
+          if (ev.value >= 2) {
+            _pixelfxVfx.spawnSlashArc(
+              x: ev.x,
+              y: ev.y,
+              facing: _player.facing,
+              isFinisher: true,
+              glowColor: _progress.bladeTier.slashArcColor,
+            );
+          }
           break;
         case DungeonCombatEventKind.enemyHit:
           DungeonAudioService.instance.play(DungeonSfxCue.enemyHit);
           _emitBurst(ev.x, ev.y, SpriteCastPalette.endesga32[11], count: 7);
+          _pixelfxVfx.spawnHitImpact(
+            x: ev.x,
+            y: ev.y,
+            color: _progress.bladeTier.slashArcColor,
+            isCritOrKill: ev.value >= 26,
+          );
           break;
         case DungeonCombatEventKind.enemyBlockedByShield:
           DungeonAudioService.instance.play(DungeonSfxCue.shieldClang);
           _emitBurst(ev.x, ev.y, SpriteCastPalette.endesga32[20], count: 6);
+          _pixelfxVfx.spawnHitImpact(
+            x: ev.x,
+            y: ev.y,
+            color: SpriteCastPalette.endesga32[20],
+          );
           break;
         case DungeonCombatEventKind.enemyDefeated:
           DungeonAudioService.instance.play(DungeonSfxCue.enemyHit);
           _emitBurst(ev.x, ev.y, SpriteCastPalette.endesga32[9], count: 12);
+          _pixelfxVfx.spawnHitImpact(
+            x: ev.x,
+            y: ev.y,
+            color: SpriteCastPalette.endesga32[11],
+            isCritOrKill: true,
+          );
+          _pixelfxVfx.spawnDebrisShatter(
+            x: ev.x,
+            y: ev.y,
+            color: SpriteCastPalette.endesga32[9],
+            shadeColor: SpriteCastPalette.endesga32[7],
+            count: 7,
+          );
           break;
         case DungeonCombatEventKind.skillCast:
           DungeonAudioService.instance.play(DungeonSfxCue.skillCast);
           _emitBurst(ev.x, ev.y, SpriteCastPalette.endesga32[18], count: 10);
+          _pixelfxVfx.spawnFloorShockwave(
+            x: ev.x,
+            groundY: _player.bottom,
+            color: SpriteCastPalette.endesga32[18],
+            maxRadiusX: 34.0,
+          );
           break;
         case DungeonCombatEventKind.parrySuccess:
           DungeonAudioService.instance.play(DungeonSfxCue.parryGoldenClang);
           HapticFeedback.heavyImpact();
           _emitBurst(ev.x, ev.y, SpriteCastPalette.endesga32[11], count: 14);
+          _pixelfxVfx.spawnGoldenParry(
+            x: ev.x,
+            y: ev.y,
+            groundY: _player.bottom,
+          );
           break;
         case DungeonCombatEventKind.bindStarted:
           _emitBurst(ev.x, ev.y, SpriteCastPalette.endesga32[12], count: 5);
@@ -527,30 +620,70 @@ class _SovereignDungeonScreenState extends State<SovereignDungeonScreen>
         case DungeonCombatEventKind.bindCompleted:
           DungeonAudioService.instance.play(DungeonSfxCue.silkBindHeal);
           _emitBurst(ev.x, ev.y, SpriteCastPalette.endesga32[12], count: 12);
+          _pixelfxVfx.spawnFloorShockwave(
+            x: ev.x,
+            groundY: _player.bottom,
+            color: SpriteCastPalette.endesga32[12],
+            maxRadiusX: 28.0,
+          );
           break;
         case DungeonCombatEventKind.bindInterrupted:
           break;
         case DungeonCombatEventKind.projectileDeflected:
           DungeonAudioService.instance.play(DungeonSfxCue.projectileDeflect);
           _emitBurst(ev.x, ev.y, SpriteCastPalette.endesga32[18], count: 8);
+          _pixelfxVfx.spawnGoldenParry(x: ev.x, y: ev.y);
           break;
         case DungeonCombatEventKind.playerDamaged:
           DungeonAudioService.instance.play(DungeonSfxCue.playerHurt);
           HapticFeedback.mediumImpact();
           _emitBurst(ev.x, ev.y, SpriteCastPalette.endesga32[8], count: 10);
+          _pixelfxVfx.spawnHitImpact(
+            x: ev.x,
+            y: ev.y,
+            color: SpriteCastPalette.endesga32[8],
+            isCritOrKill: true,
+          );
           break;
         case DungeonCombatEventKind.crateBroken:
           DungeonAudioService.instance.play(DungeonSfxCue.crateShatter);
           _emitBurst(ev.x, ev.y, SpriteCastPalette.woodLight, count: 8);
+          _pixelfxVfx.spawnDebrisShatter(
+            x: ev.x,
+            y: ev.y,
+            color: SpriteCastPalette.woodLight,
+            shadeColor: SpriteCastPalette.woodDark,
+            count: 9,
+          );
           break;
         case DungeonCombatEventKind.crystalMined:
           DungeonAudioService.instance.play(DungeonSfxCue.crystalMine);
           _emitBurst(ev.x, ev.y, SpriteCastPalette.endesga32[18], count: 8);
+          _pixelfxVfx.spawnDebrisShatter(
+            x: ev.x,
+            y: ev.y,
+            color: SpriteCastPalette.endesga32[18],
+            shadeColor: SpriteCastPalette.endesga32[16],
+            count: 8,
+          );
           break;
         case DungeonCombatEventKind.secretWallBroken:
           if (ev.value > 0) {
             DungeonAudioService.instance.play(DungeonSfxCue.secretDiscovered);
             _emitBurst(ev.x, ev.y, SpriteCastPalette.endesga32[11], count: 14);
+            _pixelfxVfx.spawnHitImpact(
+              x: ev.x,
+              y: ev.y,
+              color: SpriteCastPalette.endesga32[11],
+              isCritOrKill: true,
+            );
+            _pixelfxVfx.spawnDebrisShatter(
+              x: ev.x,
+              y: ev.y,
+              color: SpriteCastPalette.endesga32[22],
+              shadeColor: SpriteCastPalette.endesga32[24],
+              count: 12,
+            );
             _showToast('SECRET PASSAGE DISCOVERED!');
           }
           if (ev.tileKey != null) {
@@ -593,15 +726,57 @@ class _SovereignDungeonScreenState extends State<SovereignDungeonScreen>
       if (ev.sfx != null) DungeonAudioService.instance.play(ev.sfx!);
       if (ev.shakeIntensity > 0.0) _camera.addShake(ev.shakeIntensity);
 
-      if (ev.kind == DungeonEnemyEventKind.bossPhaseChanged &&
+      if (ev.kind == DungeonEnemyEventKind.enemyAttacked &&
+          ev.shakeIntensity >= 2.2) {
+        _pixelfxVfx.spawnFloorShockwave(
+          x: ev.x,
+          groundY: ev.y + 8.0,
+          color: SpriteCastPalette.endesga32[9],
+          maxRadiusX: 38.0,
+        );
+      } else if (ev.kind == DungeonEnemyEventKind.bossPhaseChanged &&
           ev.message != null) {
         _showToast(ev.message!, duration: 2.2);
         _emitBurst(ev.x, ev.y, SpriteCastPalette.endesga32[9], count: 16);
+        _pixelfxVfx.spawnHitImpact(
+          x: ev.x,
+          y: ev.y,
+          color: SpriteCastPalette.endesga32[9],
+          isCritOrKill: true,
+        );
+        _pixelfxVfx.spawnFloorShockwave(
+          x: ev.x,
+          groundY: ev.y + 12.0,
+          color: SpriteCastPalette.endesga32[11],
+          maxRadiusX: 48.0,
+        );
       } else if (ev.kind == DungeonEnemyEventKind.bossStaggered) {
         _showToast('STAGGERED! TAP THE CONSTITUTIONAL COUNTER-BREAK!', duration: 3.4);
         _emitBurst(ev.x, ev.y, SpriteCastPalette.endesga32[11], count: 16);
+        _pixelfxVfx.spawnGoldenParry(x: ev.x, y: ev.y, groundY: ev.y + 12.0);
+      } else if (ev.kind == DungeonEnemyEventKind.counterBreakSucceeded) {
+        _pixelfxVfx.spawnHitImpact(
+          x: ev.x,
+          y: ev.y,
+          color: SpriteCastPalette.endesga32[11],
+          isCritOrKill: true,
+        );
+        _pixelfxVfx.spawnFloorShockwave(
+          x: ev.x,
+          groundY: ev.y + 12.0,
+          color: SpriteCastPalette.endesga32[18],
+          maxRadiusX: 52.0,
+        );
       } else if (ev.kind == DungeonEnemyEventKind.bossDefeated) {
         _emitBurst(ev.x, ev.y, SpriteCastPalette.endesga32[11], count: 24);
+        _pixelfxVfx.spawnGoldenParry(x: ev.x, y: ev.y, groundY: ev.y + 12.0);
+        _pixelfxVfx.spawnDebrisShatter(
+          x: ev.x,
+          y: ev.y,
+          color: SpriteCastPalette.endesga32[11],
+          shadeColor: SpriteCastPalette.endesga32[10],
+          count: 14,
+        );
         unawaited(_onBossVanquished(ev));
       }
     }
@@ -957,7 +1132,22 @@ class _SovereignDungeonScreenState extends State<SovereignDungeonScreen>
                     particles: _particles,
                     highlightedGrappleAnchor: _highlightedGrapple,
                     playerAvatarSheet: _playerAvatarSheet,
+                    pixelfxVfx: _pixelfxVfx,
                   ),
+                ),
+              ),
+
+            // 1b. Cinematic Silksong-Style Boss Arena Intro Title Banner!
+            if (_shellMode == _DungeonShellMode.playing &&
+                _bossIntroTitle != null &&
+                _bossIntroTimer > 0.0)
+              IgnorePointer(
+                child: DungeonBossIntroBanner(
+                  eraTag: _bossIntroEraTag ?? 'ERA BOSS ENCOUNTER',
+                  bossTitle: _bossIntroTitle!,
+                  bossSubtitle: _bossIntroSubtitle ?? '',
+                  remainingSec: _bossIntroTimer,
+                  totalSec: _kBossIntroDuration,
                 ),
               ),
 
@@ -2078,6 +2268,142 @@ class _TouchHoldButton extends StatelessWidget {
             fontWeight: FontWeight.w900,
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// Dramatic Silksong-style Boss Arena Intro Title Banner (`craft-game-floors` UI Floor).
+///
+/// Appears briefly (`2.2s`) upon stepping into an undefeated Boss or Rival Arena,
+/// framing the viewport with non-blocking letterbox heraldry and gilded rule lines.
+class DungeonBossIntroBanner extends StatelessWidget {
+  final String eraTag;
+  final String bossTitle;
+  final String bossSubtitle;
+  final double remainingSec;
+  final double totalSec;
+
+  const DungeonBossIntroBanner({
+    super.key,
+    required this.eraTag,
+    required this.bossTitle,
+    required this.bossSubtitle,
+    this.remainingSec = 1.5,
+    this.totalSec = 2.2,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final elapsed = (totalSec - remainingSec).clamp(0.0, totalSec);
+    final fadeIn = (elapsed / 0.28).clamp(0.0, 1.0);
+    final fadeOut = (remainingSec / 0.42).clamp(0.0, 1.0);
+    final opacity = math.min(fadeIn, fadeOut).clamp(0.0, 1.0);
+
+    return Opacity(
+      opacity: opacity,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          // Subtle top & bottom cinema framing bars
+          Align(
+            alignment: Alignment.topCenter,
+            child: Container(
+              height: 18,
+              color: SpriteCastPalette.ink.withValues(alpha: 0.72),
+            ),
+          ),
+          Align(
+            alignment: Alignment.bottomCenter,
+            child: Container(
+              height: 18,
+              color: SpriteCastPalette.ink.withValues(alpha: 0.72),
+            ),
+          ),
+          // Center-lower heraldic title plaque
+          Align(
+            alignment: const Alignment(0.0, 0.34),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 460),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 18,
+                    vertical: 10,
+                  ),
+                  decoration: BoxDecoration(
+                    color: SpriteCastPalette.ink.withValues(alpha: 0.88),
+                    border: Border.symmetric(
+                      horizontal: BorderSide(
+                        color: SpriteCastPalette.endesga32[10],
+                        width: 2.0,
+                      ),
+                    ),
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        eraTag,
+                        textAlign: TextAlign.center,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: SpriteCastPalette.endesga32[18],
+                          fontSize: 9.5,
+                          letterSpacing: 1.6,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        bossTitle,
+                        textAlign: TextAlign.center,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: SpriteCastPalette.endesga32[11],
+                          fontSize: 17,
+                          letterSpacing: 1.4,
+                          fontWeight: FontWeight.w900,
+                          shadows: const [
+                            Shadow(
+                              color: Colors.black,
+                              offset: Offset(1.5, 1.5),
+                            ),
+                          ],
+                        ),
+                      ),
+                      if (bossSubtitle.isNotEmpty) ...[
+                        const SizedBox(height: 3),
+                        Container(
+                          width: 140,
+                          height: 1.2,
+                          color: SpriteCastPalette.endesga32[10]
+                              .withValues(alpha: 0.75),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          bossSubtitle,
+                          textAlign: TextAlign.center,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: SpriteCastPalette.endesga32[2],
+                            fontSize: 10.5,
+                            letterSpacing: 1.1,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
