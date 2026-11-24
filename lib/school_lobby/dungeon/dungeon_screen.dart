@@ -155,15 +155,24 @@ class _SovereignDungeonScreenState extends State<SovereignDungeonScreen>
   }
 
   Future<void> _bootstrapAsyncState() async {
-    // 1. Load persisted Story Mode & Dungeon Save
+    // 1. Load persisted Story Mode & Dungeon Save immediately (never blocked by PNG texture decoding!)
     final loadedCampaign = await SovereignCampaignSave.load(widget.session.id);
     if (!mounted) return;
-    _campaignSave = loadedCampaign;
-    _progress = loadedCampaign.dungeonProgress;
+    setState(() {
+      _campaignSave = loadedCampaign;
+      _progress = loadedCampaign.dungeonProgress;
+      _loadChamber(
+        chamberId: _progress.checkpointChamberId,
+        spawnCol: _progress.checkpointCol,
+        spawnRow: _progress.checkpointRow,
+        restoreFullVitals: true,
+      );
+    });
 
     // 2. Preload `pixelfx` sprite sheets & student's custom School Lobby character sprite sheet
     try {
       await DungeonPixelfxSheetCache.instance.preloadAll();
+      if (mounted) setState(() {});
     } catch (_) {}
     try {
       final look = widget.playerLook ??
@@ -181,16 +190,6 @@ class _SovereignDungeonScreenState extends State<SovereignDungeonScreen>
     } catch (_) {
       // Headless unit tests or missing asset bundles cleanly fall back to procedural hero
     }
-
-    if (!mounted) return;
-    setState(() {
-      _loadChamber(
-        chamberId: _progress.checkpointChamberId,
-        spawnCol: _progress.checkpointCol,
-        spawnRow: _progress.checkpointRow,
-        restoreFullVitals: true,
-      );
-    });
   }
 
   @override
