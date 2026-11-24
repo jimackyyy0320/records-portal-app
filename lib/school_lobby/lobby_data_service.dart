@@ -1741,6 +1741,15 @@ class LobbyDataService extends ChangeNotifier {
     return unlockedBadge;
   }
 
+  /// Grants Portal XP earned from Story Mode Dungeon Bench Trials, Forge upgrades,
+  /// or Boss Counter-Breaks and syncs local + cloud saves cleanly.
+  Future<void> awardDungeonXp(int xpAmount) async {
+    if (xpAmount <= 0) return;
+    _progress = _progress.copyWith(xp: _progress.xp + xpAmount);
+    await _saveProgress();
+    notifyListeners();
+  }
+
   /// Teacher can also add custom Pop-Quiz Questions to the Mystery Chest pool.
   Future<MiniQuizQuestion> addQuizQuestion({
     required String subject,

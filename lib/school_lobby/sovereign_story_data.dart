@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'dungeon/dungeon_models.dart';
 import 'pixelfx_engine.dart';
 
 /// Art Bible (`craft-game-floors` Art Direction Floor):
@@ -2080,6 +2081,7 @@ class SovereignCampaignSave {
   final int civicResolveHp;
   final int maxCivicResolveHp;
   final bool completedAltarEnding;
+  final DungeonProgressSave dungeonProgress;
 
   const SovereignCampaignSave({
     this.currentActNumber = 1,
@@ -2090,6 +2092,7 @@ class SovereignCampaignSave {
     this.civicResolveHp = 100,
     this.maxCivicResolveHp = 100,
     this.completedAltarEnding = false,
+    this.dungeonProgress = const DungeonProgressSave(),
   });
 
   SovereignCampaignSave copyWith({
@@ -2101,6 +2104,7 @@ class SovereignCampaignSave {
     int? civicResolveHp,
     int? maxCivicResolveHp,
     bool? completedAltarEnding,
+    DungeonProgressSave? dungeonProgress,
   }) {
     return SovereignCampaignSave(
       currentActNumber: currentActNumber ?? this.currentActNumber,
@@ -2113,6 +2117,7 @@ class SovereignCampaignSave {
       civicResolveHp: civicResolveHp ?? this.civicResolveHp,
       maxCivicResolveHp: maxCivicResolveHp ?? this.maxCivicResolveHp,
       completedAltarEnding: completedAltarEnding ?? this.completedAltarEnding,
+      dungeonProgress: dungeonProgress ?? this.dungeonProgress,
     );
   }
 
@@ -2147,6 +2152,7 @@ class SovereignCampaignSave {
       civicResolveHp: mergedHp,
       maxCivicResolveHp: mergedMaxHp,
       completedAltarEnding: completedAltarEnding || other.completedAltarEnding,
+      dungeonProgress: dungeonProgress.mergeWith(other.dungeonProgress),
     );
   }
 
@@ -2159,9 +2165,11 @@ class SovereignCampaignSave {
         'civicResolveHp': civicResolveHp,
         'maxCivicResolveHp': maxCivicResolveHp,
         'completedAltarEnding': completedAltarEnding,
+        'dungeonProgress': dungeonProgress.toJson(),
       };
 
   factory SovereignCampaignSave.fromJson(Map<String, dynamic> json) {
+    final rawDungeon = json['dungeonProgress'];
     return SovereignCampaignSave(
       currentActNumber:
           ((json['currentActNumber'] as num?)?.toInt() ?? 1).clamp(1, 7),
@@ -2186,6 +2194,9 @@ class SovereignCampaignSave {
       maxCivicResolveHp:
           ((json['maxCivicResolveHp'] as num?)?.toInt() ?? 100).clamp(100, 200),
       completedAltarEnding: json['completedAltarEnding'] == true,
+      dungeonProgress: rawDungeon is Map
+          ? DungeonProgressSave.fromJson(Map<String, dynamic>.from(rawDungeon))
+          : const DungeonProgressSave(),
     );
   }
 

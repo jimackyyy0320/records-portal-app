@@ -7,6 +7,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../models/portal_models.dart';
 import '../theme/portal_theme.dart';
+import 'dungeon/dungeon_screen.dart';
 import 'lobby_agency_agents.dart';
 import 'lobby_audio_service.dart';
 import 'lobby_data_service.dart';
@@ -19,7 +20,6 @@ import 'school_lobby_config.dart';
 import 'school_lobby_controls.dart';
 import 'school_lobby_engine.dart';
 import 'school_lobby_modals.dart';
-import 'sovereign_story_screen.dart';
 
 /// Self-Contained 2D Pixel "Mini School Lobby" Screen for the MIS-SHS Learner App.
 /// Includes:
@@ -1086,9 +1086,10 @@ class _SchoolLobbyScreenState extends State<SchoolLobbyScreen> {
         transitionDuration: const Duration(milliseconds: 420),
         pageBuilder: (ctx, anim, secAnim) => FadeTransition(
           opacity: anim,
-          child: SovereignStoryScreen(
+          child: SovereignDungeonScreen(
             session: widget.session,
             playerNickname: _playerNickname,
+            playerLook: _playerLook,
           ),
         ),
       ),

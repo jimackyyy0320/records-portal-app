@@ -39,6 +39,7 @@ import 'package:student_portal_app/school_lobby/dungeon/dungeon_maps.dart';
 import 'package:student_portal_app/school_lobby/dungeon/dungeon_models.dart';
 import 'package:student_portal_app/school_lobby/dungeon/dungeon_physics.dart';
 import 'package:student_portal_app/school_lobby/dungeon/dungeon_renderer.dart';
+import 'package:student_portal_app/school_lobby/dungeon/dungeon_screen.dart';
 import 'package:student_portal_app/theme/portal_theme.dart';
 
 void main() {
@@ -3367,6 +3368,110 @@ void main() {
       expect(find.textContaining('EXPLORED: 4 / 35 CHAMBERS'), findsOneWidget);
       await tester.tap(find.text('WARP: ACT 2 BENCH'));
       expect(warpedBenchId, 'act2_c3_sanctuary');
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'Dungeon Part 7/8: Cloud Save Merge with DungeonProgressSave, Dungeon XP Sync & Full SovereignDungeonScreen Playable Shell + Mobile Touch Controls',
+    (WidgetTester tester) async {
+      // 1. Verify SovereignCampaignSave + DungeonProgressSave cloud merge via LobbyDataService.mergeCloudPayload
+      const localCampaign = SovereignCampaignSave(
+        currentActNumber: 2,
+        dungeonProgress: DungeonProgressSave(
+          archipelagoShards: 120,
+          bladeTier: DungeonBladeTier.kampilanEdge,
+          unlockedCharmIds: <String>{'tarsier_lantern', 'magnet_shard'},
+          discoveredChamberIds: <String>{'act1_c1_shore', 'act1_c3_sanctuary'},
+          defeatedBossIds: <String>{'boss_datu_makisig'},
+        ),
+      );
+      const cloudCampaign = SovereignCampaignSave(
+        currentActNumber: 4,
+        dungeonProgress: DungeonProgressSave(
+          archipelagoShards: 90,
+          bladeTier: DungeonBladeTier.malolosSteel,
+          unlockedCharmIds: <String>{'tarsier_lantern', 'quick_slash_bolo'},
+          discoveredChamberIds: <String>{'act1_c1_shore', 'act4_c1_viaduct'},
+          defeatedBossIds: <String>{'boss_valdes'},
+        ),
+      );
+
+      final merged = LobbyDataService.mergeCloudPayload(
+        localProgress: const StudentLobbyProgress(),
+        localCampaign: localCampaign,
+        cloudPayload: <String, dynamic>{
+          ...const StudentLobbyProgress(xp: 200).toJson(),
+          'sovereignCampaign': cloudCampaign.toJson(),
+        },
+      );
+      expect(merged.campaign, isNotNull);
+      final dp = merged.campaign!.dungeonProgress;
+      expect(dp.archipelagoShards, 120);
+      expect(dp.bladeTier, DungeonBladeTier.malolosSteel);
+      expect(dp.unlockedCharmIds, containsAll(<String>['magnet_shard', 'quick_slash_bolo']));
+      expect(dp.discoveredChamberIds, containsAll(<String>['act1_c3_sanctuary', 'act4_c1_viaduct']));
+      expect(dp.defeatedBossIds, containsAll(<String>['boss_datu_makisig', 'boss_valdes']));
+
+      // 2. Verify LobbyDataService.awardDungeonXp adds Portal XP cleanly
+      await LobbyDataService.instance.init('2024-00777');
+      final xpBefore = LobbyDataService.instance.progress.xp;
+      await LobbyDataService.instance.awardDungeonXp(75);
+      expect(LobbyDataService.instance.progress.xp, xpBefore + 75);
+
+      // 3. Full SovereignDungeonScreen Widget Pump: Title -> Live 60 FPS Dungeon -> Touch Controls -> World Map
+      const customLook = LobbyAvatarLook(
+        isPreset: false,
+        body: '3',
+        eyes: '2',
+        outfit: '10-2',
+        hair: '17-4',
+      );
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: SovereignDungeonScreen(
+            session: UserSession(
+              id: '2024-00777',
+              name: 'Juan Dela Cruz',
+              isFaculty: false,
+              subjects: <SubjectItem>[],
+            ),
+            playerNickname: 'AlonScholar',
+            playerLook: customLook,
+          ),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(find.text('CHRONICLES OF THE SOVEREIGN'), findsOneWidget);
+      expect(find.textContaining('AlonScholar'), findsOneWidget);
+      expect(find.text('CONTINUE AT SANCTUARY BENCH'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+
+      // Tap Continue -> Live Dungeon World with Diegetic HUD & Silksong Mobile Touch Controls!
+      await tester.tap(find.text('CONTINUE AT SANCTUARY BENCH'));
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(find.text('SLASH'), findsOneWidget);
+      expect(find.text('JUMP'), findsOneWidget);
+      expect(find.text('DASH'), findsOneWidget);
+      expect(find.text('SKILL'), findsOneWidget);
+      expect(find.text('HOOK'), findsOneWidget);
+      expect(find.text('BIND'), findsOneWidget);
+      expect(find.text('Moonlit Barangay Landing'), findsOneWidget);
+
+      // Simulate pressing SLASH & JUMP touch buttons across multiple frames
+      await tester.tap(find.text('SLASH'));
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.tap(find.text('JUMP'));
+      await tester.pump(const Duration(milliseconds: 50));
+
+      // Open Cartographer World Map via HUD icon & close cleanly
+      await tester.tap(find.byIcon(Icons.map_rounded));
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(find.textContaining('EXPLORED:'), findsOneWidget);
+      await tester.tap(find.byIcon(Icons.close_rounded));
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(find.text('SLASH'), findsOneWidget);
       expect(tester.takeException(), isNull);
     },
   );
