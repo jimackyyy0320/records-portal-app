@@ -34,6 +34,7 @@ import 'package:student_portal_app/school_lobby/spritecast_engine.dart';
 import 'package:student_portal_app/school_lobby/dungeon/dungeon_audio.dart';
 import 'package:student_portal_app/school_lobby/dungeon/dungeon_combat.dart';
 import 'package:student_portal_app/school_lobby/dungeon/dungeon_enemies.dart';
+import 'package:student_portal_app/school_lobby/dungeon/dungeon_hud_and_menus.dart';
 import 'package:student_portal_app/school_lobby/dungeon/dungeon_maps.dart';
 import 'package:student_portal_app/school_lobby/dungeon/dungeon_models.dart';
 import 'package:student_portal_app/school_lobby/dungeon/dungeon_physics.dart';
@@ -3180,6 +3181,193 @@ void main() {
           );
         }
       }
+    },
+  );
+
+  testWidgets(
+    'Dungeon Part 6/8: Terraria Bench Forge, 10-Charm Notch Budget, Saligang Tala Mastery Trials, Diegetic HUD, Counter-Break Overlay & Cartographer Fog-of-War Map',
+    (WidgetTester tester) async {
+      // 1. Verify 14 SHS-aligned Bench Mastery Trials span all 7 Acts (2 per Act)
+      expect(kDungeonMasteryTrials.length, 14);
+      final trialActs = kDungeonMasteryTrials.map((q) => q.actNumber).toSet();
+      expect(trialActs, equals(<int>{1, 2, 3, 4, 5, 6, 7}));
+
+      // 2. Pure DungeonBenchLogic: Blade Forge, Charm Crafting, Strict Notch Budget, Elixir & Notch Expansion
+      var save = const DungeonProgressSave(
+        archipelagoShards: 600,
+        bladeTier: DungeonBladeTier.bambooSpear,
+        maxCharmNotches: 4,
+        unlockedCharmIds: <String>{'tarsier_lantern'},
+        equippedCharmIds: <String>['tarsier_lantern'], // uses 1/4 notches
+        discoveredChamberIds: <String>{
+          'act1_c1_shore',
+          'act1_c2_grotto',
+          'act1_c3_sanctuary',
+          'act2_c3_sanctuary',
+        },
+        elixirCount: 1,
+      );
+
+      // Forge Blade Tier 0 -> 1 -> 2 -> 3
+      final f1 = DungeonBenchLogic.upgradeBladeTier(save);
+      expect(f1.success, isTrue);
+      expect(f1.progress.bladeTier, DungeonBladeTier.kampilanEdge);
+      expect(f1.xpAwarded, 40);
+      save = f1.progress;
+
+      save = DungeonBenchLogic.upgradeBladeTier(save).progress;
+      expect(save.bladeTier, DungeonBladeTier.malolosSteel);
+      save = DungeonBenchLogic.upgradeBladeTier(save).progress;
+      expect(save.bladeTier, DungeonBladeTier.sovereignGold);
+      // Maxed blade refuses further upgrade cleanly
+      expect(DungeonBenchLogic.upgradeBladeTier(save).success, isFalse);
+
+      // Craft Quick-Slash Bolo (2 notches) & Sovereign Heart (3 notches)
+      save = DungeonBenchLogic.craftCharm(save, 'quick_slash_bolo').progress;
+      save = DungeonBenchLogic.craftCharm(save, 'sovereign_heart').progress;
+      expect(save.unlockedCharmIds.contains('quick_slash_bolo'), isTrue);
+      expect(save.unlockedCharmIds.contains('sovereign_heart'), isTrue);
+
+      // Equip Quick-Slash Bolo (1 + 2 = 3/4 notches -> succeeds!)
+      final eq1 = DungeonBenchLogic.toggleEquipCharm(save, 'quick_slash_bolo');
+      expect(eq1.success, isTrue);
+      save = eq1.progress;
+      expect(save.usedCharmNotches, 3);
+
+      // Attempt equipping Sovereign Heart (3 + 3 = 6 > 4 notches -> cleanly rejected!)
+      final eqOver = DungeonBenchLogic.toggleEquipCharm(save, 'sovereign_heart');
+      expect(eqOver.success, isFalse);
+
+      // Forge +2 permanent Charm Notches (4 -> 6) so Sovereign Heart now fits!
+      save = save.copyWith(archipelagoShards: 300);
+      save = DungeonBenchLogic.expandCharmNotch(save).progress;
+      save = DungeonBenchLogic.expandCharmNotch(save).progress;
+      expect(save.maxCharmNotches, 6);
+      final eq2 = DungeonBenchLogic.toggleEquipCharm(save, 'sovereign_heart');
+      expect(eq2.success, isTrue);
+      save = eq2.progress;
+      expect(save.usedCharmNotches, 6);
+      expect(save.effectiveMaxResolveMasks, 8); // 6 base + 2 Sovereign Heart!
+
+      // Brew Resolve Elixirs up to max (5)
+      for (var i = 0; i < 4; i++) {
+        final brew = DungeonBenchLogic.craftResolveElixir(save);
+        expect(brew.success, isTrue);
+        save = brew.progress;
+      }
+      expect(save.elixirCount, DungeonBenchLogic.kMaxElixirs);
+      expect(DungeonBenchLogic.craftResolveElixir(save).success, isFalse);
+
+      // Complete 2 Saligang Tala Mastery Trials -> +1 Max Resolve Mask & +15 Max Civic Silk!
+      final trialRes1 = DungeonBenchLogic.applyMasteryTrialAnswer(
+        progress: save,
+        question: kDungeonMasteryTrials[0],
+        selectedIndex: kDungeonMasteryTrials[0].correctIndex,
+      );
+      expect(trialRes1.success, isTrue);
+      expect(trialRes1.xpAwarded, 50);
+      expect(trialRes1.progress.bonusMaxResolveMasks, 1);
+      save = trialRes1.progress;
+
+      final trialRes2 = DungeonBenchLogic.applyMasteryTrialAnswer(
+        progress: save,
+        question: kDungeonMasteryTrials[1],
+        selectedIndex: kDungeonMasteryTrials[1].correctIndex,
+      );
+      expect(trialRes2.success, isTrue);
+      expect(trialRes2.progress.bonusMaxSilk, 15);
+      save = trialRes2.progress;
+
+      // 3. Widget Smoke Test: Diegetic HUD + Active Multi-Phase Boss Bar + Counter-Break Overlay
+      final hudHero = DungeonPlayerPhysicsState(
+        x: 64,
+        y: 120,
+        resolveHp: 5,
+        maxResolveHp: save.effectiveMaxResolveMasks,
+        civicSilk: 75,
+        maxCivicSilk: save.effectiveMaxSilk,
+      );
+      final bossInst = DungeonEnemyInstance(
+        id: 'hud_boss',
+        archetype: kDungeonBossArchetypes['boss_sovereign_guardian']!,
+        x: 220,
+        y: 110,
+        patrolHalfWidthPx: 64,
+      )
+        ..phase = 2
+        ..aiState = DungeonEnemyAiState.staggered;
+
+      int? chosenCounter;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Stack(
+              children: [
+                DungeonDiegeticHud(
+                  player: hudHero,
+                  progress: save,
+                  chamber: lookupDungeonChamber('act7_c5_boss_sovereign'),
+                  activeBoss: bossInst,
+                  onOpenMap: () {},
+                  onTogglePause: () {},
+                  onUseElixir: () {},
+                ),
+                Align(
+                  alignment: Alignment.bottomCenter,
+                  child: DungeonCounterBreakOverlay(
+                    prompt: bossInst.archetype.counterBreak!,
+                    onChooseOption: (i) => chosenCounter = i,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      expect(find.textContaining('THE SOVEREIGN GUARDIAN — PHASE 2'), findsOneWidget);
+      expect(find.textContaining('ARTICLE II, SECTION 1'), findsOneWidget);
+      await tester.tap(find.text(bossInst.archetype.counterBreak!.options.first));
+      expect(chosenCounter, 0);
+      expect(tester.takeException(), isNull);
+
+      // 4. Widget Smoke Test: Full 4-Tab Bahay-Pulungan Bench Sanctuary & Cartographer Fog-of-War Map
+      String? warpedBenchId;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: DungeonBenchSanctuaryModal(
+              initialProgress: save,
+              currentChamberId: 'act1_c3_sanctuary',
+              currentActNumber: 1,
+              onProgressChanged: (_) {},
+              onFastTravelToBench: (id) => warpedBenchId = id,
+              onClose: () {},
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      expect(find.text('BAHAY-PULUNGAN SANCTUARY BENCH'), findsOneWidget);
+      expect(find.text('Quick-Slash Bolo'), findsOneWidget);
+
+      // Switch to Forge Tab
+      await tester.tap(find.text('FORGE'));
+      await tester.pump();
+      expect(find.text('TERRARIA BLADE FORGE'), findsOneWidget);
+
+      // Switch to Saligang Tala Tab
+      await tester.tap(find.text('SALIGANG TALA'));
+      await tester.pump();
+      expect(find.textContaining('SALIGANG TALA ARCHIVE'), findsOneWidget);
+
+      // Switch to World Map Tab & tap Fast-Travel to Act 2 Bench!
+      await tester.tap(find.text('WORLD MAP'));
+      await tester.pump();
+      expect(find.textContaining('EXPLORED: 4 / 35 CHAMBERS'), findsOneWidget);
+      await tester.tap(find.text('WARP: ACT 2 BENCH'));
+      expect(warpedBenchId, 'act2_c3_sanctuary');
+      expect(tester.takeException(), isNull);
     },
   );
 }
