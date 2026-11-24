@@ -544,186 +544,195 @@ class DungeonDiegeticHud extends StatelessWidget {
           children: [
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 // Top-Left: Resolve Masks + Civic Silk Spool + Shards & Elixir
-                _HudPanelBox(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      // Resolve Masks Row
-                      Wrap(
-                        spacing: 3,
-                        children: List<Widget>.generate(player.maxResolveHp, (i) {
-                          final filled = i < player.resolveHp;
-                          return Container(
-                            width: 12,
-                            height: 12,
-                            decoration: BoxDecoration(
-                              color: filled
-                                  ? SpriteCastPalette.endesga32[8]
-                                  : SpriteCastPalette.endesga32[24],
-                              border: Border.all(
+                Flexible(
+                  child: _HudPanelBox(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // Resolve Masks Row
+                        Wrap(
+                          spacing: 3,
+                          runSpacing: 3,
+                          children: List<Widget>.generate(player.maxResolveHp, (i) {
+                            final filled = i < player.resolveHp;
+                            return Container(
+                              width: 12,
+                              height: 12,
+                              decoration: BoxDecoration(
                                 color: filled
-                                    ? SpriteCastPalette.endesga32[11]
-                                    : SpriteCastPalette.endesga32[22],
-                                width: 1.4,
+                                    ? SpriteCastPalette.endesga32[8]
+                                    : SpriteCastPalette.endesga32[24],
+                                border: Border.all(
+                                  color: filled
+                                      ? SpriteCastPalette.endesga32[11]
+                                      : SpriteCastPalette.endesga32[22],
+                                  width: 1.4,
+                                ),
+                                borderRadius: BorderRadius.circular(3),
                               ),
-                              borderRadius: BorderRadius.circular(3),
-                            ),
-                          );
-                        }),
-                      ),
-                      const SizedBox(height: 5),
-                      // Civic Silk Spool Bar
-                      Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Container(
-                            width: 104,
-                            height: 8,
-                            decoration: BoxDecoration(
-                              color: SpriteCastPalette.ink,
-                              border: Border.all(
-                                color: SpriteCastPalette.endesga32[18],
-                                width: 1.0,
+                            );
+                          }),
+                        ),
+                        const SizedBox(height: 5),
+                        // Civic Silk Spool Bar
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              width: 96,
+                              height: 8,
+                              decoration: BoxDecoration(
+                                color: SpriteCastPalette.ink,
+                                border: Border.all(
+                                  color: SpriteCastPalette.endesga32[18],
+                                  width: 1.0,
+                                ),
+                                borderRadius: BorderRadius.circular(2),
                               ),
-                              borderRadius: BorderRadius.circular(2),
-                            ),
-                            child: FractionallySizedBox(
-                              alignment: Alignment.centerLeft,
-                              widthFactor: silkFrac,
-                              child: Container(
-                                color: silkFrac >= 0.35
-                                    ? SpriteCastPalette.endesga32[18]
-                                    : SpriteCastPalette.endesga32[17],
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 6),
-                          Text(
-                            '${player.civicSilk.round()}',
-                            style: const TextStyle(
-                              color: Color(0xFF2CE8F5),
-                              fontSize: 10,
-                              fontWeight: FontWeight.w900,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 4),
-                      // Shards + Active Skill + Elixir Pill
-                      Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            'SHARDS ${progress.archipelagoShards}',
-                            style: const TextStyle(
-                              color: Color(0xFFFEE761),
-                              fontSize: 10,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 5,
-                              vertical: 1,
-                            ),
-                            decoration: BoxDecoration(
-                              color: activeSkillSpec.fxColor.withValues(alpha: 0.22),
-                              border: Border.all(
-                                color: activeSkillSpec.fxColor,
-                                width: 1,
-                              ),
-                              borderRadius: BorderRadius.circular(3),
-                            ),
-                            child: Text(
-                              activeSkillSpec.name.toUpperCase(),
-                              style: TextStyle(
-                                color: activeSkillSpec.fxColor,
-                                fontSize: 9,
-                                fontWeight: FontWeight.w800,
+                              child: FractionallySizedBox(
+                                alignment: Alignment.centerLeft,
+                                widthFactor: silkFrac,
+                                child: Container(
+                                  color: silkFrac >= 0.35
+                                      ? SpriteCastPalette.endesga32[18]
+                                      : SpriteCastPalette.endesga32[17],
+                                ),
                               ),
                             ),
-                          ),
-                          if (progress.elixirCount > 0 && onUseElixir != null) ...[
                             const SizedBox(width: 6),
-                            GestureDetector(
-                              onTap: onUseElixir,
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 5,
-                                  vertical: 1,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: SpriteCastPalette.endesga32[13]
-                                      .withValues(alpha: 0.3),
-                                  border: Border.all(
-                                    color: SpriteCastPalette.endesga32[12],
-                                  ),
-                                  borderRadius: BorderRadius.circular(3),
-                                ),
-                                child: Text(
-                                  'ELIXIR x${progress.elixirCount}',
-                                  style: const TextStyle(
-                                    color: Color(0xFF63C74D),
-                                    fontSize: 9,
-                                    fontWeight: FontWeight.w800,
-                                  ),
-                                ),
+                            Text(
+                              '${player.civicSilk.round()}',
+                              style: const TextStyle(
+                                color: Color(0xFF2CE8F5),
+                                fontSize: 10,
+                                fontWeight: FontWeight.w900,
                               ),
                             ),
                           ],
-                        ],
-                      ),
-                    ],
+                        ),
+                        const SizedBox(height: 4),
+                        // Shards + Active Skill + Elixir Pill (Wraps cleanly on compact screens!)
+                        Wrap(
+                          spacing: 6,
+                          runSpacing: 3,
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          children: [
+                            Text(
+                              'SHARDS ${progress.archipelagoShards}',
+                              style: const TextStyle(
+                                color: Color(0xFFFEE761),
+                                fontSize: 10,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 5,
+                                vertical: 1,
+                              ),
+                              decoration: BoxDecoration(
+                                color: activeSkillSpec.fxColor.withValues(alpha: 0.22),
+                                border: Border.all(
+                                  color: activeSkillSpec.fxColor,
+                                  width: 1,
+                                ),
+                                borderRadius: BorderRadius.circular(3),
+                              ),
+                              child: Text(
+                                activeSkillSpec.name.toUpperCase(),
+                                style: TextStyle(
+                                  color: activeSkillSpec.fxColor,
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ),
+                            if (progress.elixirCount > 0 && onUseElixir != null)
+                              GestureDetector(
+                                onTap: onUseElixir,
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 5,
+                                    vertical: 1,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: SpriteCastPalette.endesga32[13]
+                                        .withValues(alpha: 0.3),
+                                    border: Border.all(
+                                      color: SpriteCastPalette.endesga32[12],
+                                    ),
+                                    borderRadius: BorderRadius.circular(3),
+                                  ),
+                                  child: Text(
+                                    'ELIXIR x${progress.elixirCount}',
+                                    style: const TextStyle(
+                                      color: Color(0xFF63C74D),
+                                      fontSize: 9,
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
                 ),
 
-                const Spacer(),
+                const SizedBox(width: 8),
 
                 // Top-Right: Chamber Badge + Cartographer Map + Pause
-                _HudPanelBox(
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            chamber.title,
-                            style: const TextStyle(
-                              color: Color(0xFFEAD4AA),
-                              fontSize: 11,
-                              fontWeight: FontWeight.w800,
-                            ),
+                Flexible(
+                  child: _HudPanelBox(
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Flexible(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                chamber.title,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: Color(0xFFEAD4AA),
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                              Text(
+                                chamber.subtitle,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: Color(0xFF8B9BB4),
+                                  fontSize: 9,
+                                ),
+                              ),
+                            ],
                           ),
-                          Text(
-                            chamber.subtitle,
-                            style: const TextStyle(
-                              color: Color(0xFF8B9BB4),
-                              fontSize: 9,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(width: 8),
-                      _HudIconButton(
-                        icon: Icons.map_rounded,
-                        tooltip: 'Cartographer Map (M)',
-                        color: SpriteCastPalette.endesga32[10],
-                        onTap: onOpenMap,
-                      ),
-                      const SizedBox(width: 4),
-                      _HudIconButton(
-                        icon: Icons.pause_rounded,
-                        tooltip: 'Pause',
-                        color: SpriteCastPalette.endesga32[20],
-                        onTap: onTogglePause,
-                      ),
-                    ],
+                        ),
+                        const SizedBox(width: 8),
+                        _HudIconButton(
+                          icon: Icons.map_rounded,
+                          tooltip: 'Cartographer Map (M)',
+                          color: SpriteCastPalette.endesga32[10],
+                          onTap: onOpenMap,
+                        ),
+                        const SizedBox(width: 4),
+                        _HudIconButton(
+                          icon: Icons.pause_rounded,
+                          tooltip: 'Pause',
+                          color: SpriteCastPalette.endesga32[20],
+                          onTap: onTogglePause,
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ],
@@ -1592,7 +1601,10 @@ class DungeonCartographerMapView extends StatelessWidget {
       children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(12, 10, 12, 4),
-          child: Row(
+          child: Wrap(
+            spacing: 12,
+            runSpacing: 4,
+            alignment: WrapAlignment.spaceBetween,
             children: [
               Text(
                 'EXPLORED: $discoveredCount / ${kDungeonChambersById.length} CHAMBERS',
@@ -1602,7 +1614,6 @@ class DungeonCartographerMapView extends StatelessWidget {
                   fontWeight: FontWeight.w900,
                 ),
               ),
-              const Spacer(),
               const Text(
                 'CYAN = YOU  •  AMBER = BENCH  •  RED = BOSS',
                 style: TextStyle(
