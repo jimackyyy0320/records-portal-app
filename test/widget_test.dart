@@ -3581,6 +3581,8 @@ void main() {
           '########################',
           '#......................#',
           '#......................#',
+          '#......................#',
+          '#......................#',
           '#.............====.....#',
           '#......................#',
           '#......................#',
@@ -3588,13 +3590,13 @@ void main() {
           '########################',
         ],
         defaultSpawnCol: 2,
-        defaultSpawnRow: 6,
+        defaultSpawnRow: 8,
         enemySpawns: <DungeonEnemySpawnSpec>[
           DungeonEnemySpawnSpec(
             spawnId: 'mortar_perch',
             archetypeId: 'bunker_mortar',
             col: 15,
-            row: 2, // directly above '=' one-way bridge at row 3!
+            row: 4, // directly above '=' one-way bridge at row 5!
             patrolRadiusTiles: 0,
           ),
         ],
@@ -3607,7 +3609,7 @@ void main() {
       mortar.attackCooldown = 0.0;
       final heroBelow = DungeonPlayerPhysicsState(
         x: 6 * kDungeonTileSize,
-        y: 6 * kDungeonTileSize - 15,
+        y: 8 * kDungeonTileSize - 15,
         facing: 1,
         isGrounded: true,
       );
@@ -3621,15 +3623,15 @@ void main() {
           progress: progress,
         );
       }
-      // Mortar stays perched on row 3 bridge (top = 48px), never falls to row 7 floor (112px)!
-      expect(mortar.hitbox.bottom, closeTo(3 * kDungeonTileSize, 1.0));
+      // Mortar stays perched on row 5 bridge (top = 80px), never falls to row 9 floor (144px)!
+      expect(mortar.hitbox.bottom, closeTo(5 * kDungeonTileSize, 1.0));
       expect(mortar.isGrounded, isTrue);
-      // Fired shell has positive gravity and curves downward over time!
+      // Fired shell has positive gravity and curves downward past apex into falling descent!
       expect(mortarCombat.projectiles, isNotEmpty);
       final shell = mortarCombat.projectiles.first;
       expect(shell.gravity, greaterThan(300.0));
       final initialVy = shell.vy;
-      for (var f = 0; f < 35; f++) {
+      for (var f = 0; f < 30; f++) {
         mortarCombat.step(
           dt: 1 / 60,
           player: heroBelow,
@@ -3639,6 +3641,7 @@ void main() {
           physicsEngine: physics,
         );
       }
+      expect(shell.vy, greaterThan(0.0));
       expect(shell.vy, greaterThan(initialVy + 150.0));
 
       // 4. Rival Mateo per-chamber defeat independence (Act II defeat does NOT skip Act V rematch!)
