@@ -34,6 +34,7 @@ import 'package:student_portal_app/school_lobby/dungeon/dungeon_audio.dart';
 import 'package:student_portal_app/school_lobby/dungeon/dungeon_combat.dart';
 import 'package:student_portal_app/school_lobby/dungeon/dungeon_models.dart';
 import 'package:student_portal_app/school_lobby/dungeon/dungeon_physics.dart';
+import 'package:student_portal_app/school_lobby/dungeon/dungeon_renderer.dart';
 import 'package:student_portal_app/theme/portal_theme.dart';
 
 void main() {
@@ -2469,6 +2470,302 @@ void main() {
         expect(String.fromCharCodes(wav.sublist(0, 4)), 'RIFF');
         expect(String.fromCharCodes(wav.sublist(8, 12)), 'WAVE');
       }
+    },
+  );
+
+  testWidgets(
+    'Dungeon Part 3/8: Pixel-Perfect Camera Rig, 16-Neighbor Rule-Tile Masking, Viewport Culling & Full DungeonWorldPainter Render',
+    (WidgetTester tester) async {
+      // 1. Build a large 60x34 cavern chamber to test viewport culling & camera look-ahead
+      final bigRows = List<String>.generate(34, (r) {
+        if (r == 0 || r == 33) return List.filled(60, '#').join();
+        if (r == 32) return '#${List.filled(58, '=').join()}#';
+        return '#${List.filled(58, '.').join()}#';
+      });
+      final bigSpec = DungeonChamberSpec(
+        id: 'test_big_cavern',
+        actNumber: 3,
+        title: 'Malolos Cavern Test',
+        subtitle: 'Viewport Culling & Camera Rig',
+        asciiGrid: bigRows,
+        spawnCol: 5,
+        spawnRow: 30,
+        isDarkCavern: true,
+      );
+      final player = DungeonPlayerPhysicsState.spawnAt(
+        col: 5,
+        row: 30,
+        maxResolveHp: 8,
+      );
+
+      final camera = DungeonCameraRig();
+      camera.snapTo(player, bigSpec);
+      // Camera is clamped cleanly within [0, worldWidth - kDungeonRefWidth]
+      expect(camera.x, greaterThanOrEqualTo(0.0));
+      expect(camera.x, lessThanOrEqualTo(bigSpec.worldWidth - kDungeonRefWidth));
+      expect(camera.y, greaterThanOrEqualTo(0.0));
+      expect(camera.y, lessThanOrEqualTo(bigSpec.worldHeight - kDungeonRefHeight));
+
+      // Viewport tile culling on a 60x34 chamber only visits ~23x14 tiles, never all 60x34!
+      final bounds = camera.visibleTileBounds(bigSpec.cols, bigSpec.rows);
+      expect(bounds.maxCol - bounds.minCol, lessThan(26));
+      expect(bounds.maxRow - bounds.minRow, lessThan(18));
+
+      // Directional look-ahead shifts smoothly when sprinting right
+      final startCamX = camera.x;
+      player.x = 320.0;
+      player.vx = 180.0;
+      player.facing = 1;
+      for (var i = 0; i < 30; i++) {
+        camera.update(dt: 1 / 60, player: player, spec: bigSpec);
+      }
+      expect(camera.x, greaterThan(startCamX + 80.0));
+      expect(camera.lookAheadX, greaterThan(20.0));
+
+      // Screenshake impulse adds intensity and decays exponentially toward 0
+      camera.addShake(6.0);
+      expect(camera.shakeIntensity, 6.0);
+      for (var i = 0; i < 60; i++) {
+        camera.update(dt: 1 / 60, player: player, spec: bigSpec);
+      }
+      expect(camera.shakeIntensity, lessThan(0.5));
+
+      // 2. 16-Neighbor Rule-Tile Auto-Tiling Mask Verification
+      // Row 0: ########
+      // Row 1: #......#
+      // Row 2: #..#...#  <- isolated stone at (3,2) => mask 0
+      // Row 3: #......#
+      // Row 4: #..==?.#  <- (3,4) has E+S => mask 2|4 = 6; (4,4) has E+S+W => mask 2|4|8 = 14; (5,4) secretWall connects W+S => mask 4|8 = 12
+      // Row 5: #..###.#  <- (4,5) surrounded N+E+S+W => mask 15
+      // Row 6: ########
+      final maskSpec = DungeonChamberSpec(
+        id: 'test_rule_tiles',
+        actNumber: 1,
+        title: 'Rule-Tile Mask Grid',
+        subtitle: '16-Neighbor Bitmask Check',
+        asciiGrid: const <String>[
+          '########',
+          '#......#',
+          '#..#...#',
+          '#......#',
+          '#..==?.#',
+          '#..###.#',
+          '########',
+        ],
+        spawnCol: 1,
+        spawnRow: 5,
+      );
+      final maskChamber = DungeonChamberRuntime(maskSpec);
+      expect(computeSolidNeighborMask(maskChamber, 3, 2), 0); // isolated
+      expect(computeSolidNeighborMask(maskChamber, 3, 4), 2 | 4); // E + S
+      expect(computeSolidNeighborMask(maskChamber, 4, 4), 2 | 4 | 8); // top-exposed floor
+      expect(computeSolidNeighborMask(maskChamber, 5, 4), 4 | 8); // secret wall connects W + S
+      expect(computeSolidNeighborMask(maskChamber, 4, 5), 15); // fully interior
+
+      // 3. Full DungeonWorldPainter Widget Render Pass with ALL 19 Tile Types,
+      //    Active Slashes, Silk Skills, Projectiles, Loot, Enemies, Bosses, Particles & Floating Numbers
+      final showcaseSpec = DungeonChamberSpec(
+        id: 'test_render_all_19',
+        actNumber: 2,
+        title: 'All-19 Tile Showcase Chamber',
+        subtitle: 'Render Smoke & Craft Floor Verification',
+        asciiGrid: const <String>[
+          '########################',
+          '#..T...O...G....T......#',
+          '#..---...C....H........#',
+          '#.............H..B..L..#',
+          '#..X..*..S..D.?..\$..P..#',
+          '#========^^^^==========#',
+          '########################',
+        ],
+        spawnCol: 2,
+        spawnRow: 4,
+        isDarkCavern: true,
+      );
+      final showcaseChamber = DungeonChamberRuntime(showcaseSpec);
+      showcaseChamber.lootDrops.addAll(<DungeonLootDrop>[
+        DungeonLootDrop(
+          id: 'l1',
+          kind: DungeonLootKind.archipelagoShard,
+          amount: 5,
+          x: 64,
+          y: 68,
+          vx: 0,
+          vy: 0,
+        ),
+        DungeonLootDrop(
+          id: 'l2',
+          kind: DungeonLootKind.resolveOrb,
+          amount: 1,
+          x: 78,
+          y: 68,
+          vx: 0,
+          vy: 0,
+        ),
+        DungeonLootDrop(
+          id: 'l3',
+          kind: DungeonLootKind.silkMote,
+          amount: 10,
+          x: 92,
+          y: 68,
+          vx: 0,
+          vy: 0,
+        ),
+        DungeonLootDrop(
+          id: 'l4',
+          kind: DungeonLootKind.relicFragment,
+          amount: 1,
+          x: 106,
+          y: 68,
+          vx: 0,
+          vy: 0,
+        ),
+      ]);
+
+      final hero = DungeonPlayerPhysicsState.spawnAt(
+        col: 3,
+        row: 4,
+        maxResolveHp: 8,
+      );
+      hero.grappleActive = true;
+      hero.grappleTargetX = 184;
+      hero.grappleTargetY = 24;
+      hero.afterimages.add(
+        DashAfterimage(x: hero.x - 10, y: hero.y, facing: 1, alpha: 0.55),
+      );
+
+      const progress = DungeonProgressSave(
+        bladeTier: DungeonBladeTier.sovereignBlade,
+        equippedCharmIds: <String>['tarsier_lantern', 'babaylan_fast_bind'],
+        openedChestIds: <String>{},
+      );
+      final combat = DungeonCombatEngine();
+      combat.isChannelingBind = true;
+      combat.bindElapsedSec = 0.25;
+      combat.parryWindowTimer = 0.12;
+      combat.activeSlashes.add(
+        ActiveSlashArc(
+          id: 1,
+          direction: DungeonSlashDirection.right,
+          comboStep: 2,
+          damage: 25,
+          totalDurationSec: 0.16,
+          reachPx: 32.0,
+          thicknessPx: 22.0,
+          arcColor: progress.bladeTier.slashArcColor,
+        ),
+      );
+      combat.activeSkills.addAll(<ActiveSkillEffect>[
+        ActiveSkillEffect(
+          id: 2,
+          skillId: DungeonSilkSkillId.scalesTempest,
+          x: hero.centerX,
+          y: hero.centerY,
+          facing: 1,
+          damage: 30,
+          radiusOrLength: 42.0,
+          heightPx: 42.0,
+          color: SpriteCastPalette.endesga32[18],
+          durationSec: 0.30,
+        ),
+        ActiveSkillEffect(
+          id: 3,
+          skillId: DungeonSilkSkillId.sovereignSunburst,
+          x: hero.centerX,
+          y: hero.centerY,
+          facing: 1,
+          damage: 60,
+          radiusOrLength: 180.0,
+          heightPx: 22.0,
+          color: SpriteCastPalette.endesga32[11],
+          durationSec: 0.34,
+        ),
+      ]);
+      combat.projectiles.add(
+        DungeonProjectile(
+          id: 'proj_test',
+          isPlayerOwned: false,
+          x: 196,
+          y: 64,
+          vx: -90,
+          vy: 0,
+          damage: 1,
+          color: SpriteCastPalette.endesga32[26],
+        ),
+      );
+      combat.floatingNumbers.add(
+        FloatingCombatNumber(
+          text: 'PARRY!',
+          x: hero.centerX,
+          y: hero.y - 12,
+          color: SpriteCastPalette.endesga32[11],
+          isCritical: true,
+        ),
+      );
+
+      final renderCamera = DungeonCameraRig()..snapTo(hero, showcaseSpec);
+      final testEntities = <DungeonEntityRenderSpec>[
+        const DungeonEntityRenderSpec(
+          id: 'en_guard',
+          archetypeId: 'guardia_halberdier',
+          hitbox: Rect.fromLTWH(150, 62, 16, 18),
+          facing: -1,
+          hp: 30,
+          maxHp: 50,
+          primaryColor: Color(0xFF3A4466),
+          accentColor: Color(0xFFFEAE34),
+          isShieldedFront: true,
+          isTelegraphing: true,
+          aimTelegraphEnd: Offset(60, 68),
+        ),
+        const DungeonEntityRenderSpec(
+          id: 'boss_act2',
+          archetypeId: 'warden_castellan',
+          hitbox: Rect.fromLTWH(230, 52, 26, 28),
+          facing: -1,
+          hp: 180,
+          maxHp: 300,
+          primaryColor: Color(0xFFA22633),
+          accentColor: Color(0xFFFEE761),
+          isBoss: true,
+          isStaggered: true,
+        ),
+      ];
+      final testParticles = <DungeonParticle>[
+        DungeonParticle(
+          x: 90,
+          y: 66,
+          vx: 14,
+          vy: -22,
+          size: 2.5,
+          color: SpriteCastPalette.endesga32[11],
+        ),
+      ];
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Center(
+              child: CustomPaint(
+                size: const Size(640, 360),
+                painter: DungeonWorldPainter(
+                  chamber: showcaseChamber,
+                  player: hero,
+                  combat: combat,
+                  progress: progress,
+                  camera: renderCamera,
+                  worldTimeSec: 1.75,
+                  entities: testEntities,
+                  particles: testParticles,
+                  highlightedGrappleAnchor: const Offset(184, 24),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      expect(tester.takeException(), isNull);
     },
   );
 }
