@@ -34,6 +34,7 @@ import 'package:student_portal_app/school_lobby/spritecast_engine.dart';
 import 'package:student_portal_app/school_lobby/dungeon/dungeon_audio.dart';
 import 'package:student_portal_app/school_lobby/dungeon/dungeon_combat.dart';
 import 'package:student_portal_app/school_lobby/dungeon/dungeon_enemies.dart';
+import 'package:student_portal_app/school_lobby/dungeon/dungeon_maps.dart';
 import 'package:student_portal_app/school_lobby/dungeon/dungeon_models.dart';
 import 'package:student_portal_app/school_lobby/dungeon/dungeon_physics.dart';
 import 'package:student_portal_app/school_lobby/dungeon/dungeon_renderer.dart';
@@ -3119,6 +3120,66 @@ void main() {
       );
       expect(bossMgr.activeBoss, isNull);
       expect(finaleChamber.lootDrops.length, greaterThanOrEqualTo(10));
+    },
+  );
+
+  test(
+    'Dungeon Part 5/8: 7 Interconnected Metroidvania Acts (35 Hand-Crafted Chambers), Structural Integrity, BFS World Reachability, Secret Walls, Benches & Lore/Chest Catalogs',
+    () {
+      // 1. World Scale: 7 Historical Acts x 5 chambers = 35 hand-crafted chambers!
+      expect(kDungeonActWorlds.length, 7);
+      expect(kDungeonChambersById.length, 35);
+      expect(kDungeonChestRewards.length, 14);
+      expect(kDungeonLoreTablets.length, 14);
+
+      // 2. Zero structural errors across ALL 35 chambers (rows, spawns, portals, enemies, bosses, chests, lore)
+      final mapErrors = validateAllDungeonMaps();
+      expect(mapErrors, isEmpty, reason: mapErrors.join('\n'));
+
+      // 3. Full Metroidvania World Graph BFS Reachability: every single one of the 35 chambers
+      //    is reachable by traversing connected portals from Act I's starting shore!
+      final visited = <String>{'act1_c1_shore'};
+      final queue = <String>['act1_c1_shore'];
+      while (queue.isNotEmpty) {
+        final curId = queue.removeAt(0);
+        final spec = lookupDungeonChamber(curId);
+        for (final exit in spec.exits) {
+          if (visited.add(exit.targetRoomId)) {
+            queue.add(exit.targetRoomId);
+          }
+        }
+      }
+      expect(visited.length, 35);
+      expect(visited.contains('act7_c5_boss_sovereign'), isTrue);
+
+      // 4. Every Act contains a Bench Sanctuary ('B'), Secret Wall ('?'), Switch ('S') + Locked Gate ('D'),
+      //    Pogo-Lantern ('O'), Grapple Ring ('G'), Treasure Chest ('K'), Lore Tablet ('L'), and Era Boss!
+      for (final act in kDungeonActWorlds) {
+        final actRooms = chambersForAct(act.actNumber);
+        expect(actRooms.length, 5);
+        final joined = actRooms.expand((r) => r.asciiGrid).join();
+        expect(joined.contains('B'), isTrue, reason: 'Act ${act.actNumber} missing Bench');
+        expect(joined.contains('?'), isTrue, reason: 'Act ${act.actNumber} missing Secret Wall');
+        expect(joined.contains('S'), isTrue, reason: 'Act ${act.actNumber} missing Switch');
+        expect(joined.contains('D'), isTrue, reason: 'Act ${act.actNumber} missing Locked Gate');
+        expect(joined.contains('O'), isTrue, reason: 'Act ${act.actNumber} missing Pogo-Lantern');
+        expect(joined.contains('G'), isTrue, reason: 'Act ${act.actNumber} missing Grapple Ring');
+        expect(joined.contains('K'), isTrue, reason: 'Act ${act.actNumber} missing Chest');
+        expect(joined.contains('L'), isTrue, reason: 'Act ${act.actNumber} missing Lore Tablet');
+        expect(actRooms.any((r) => r.isBossArena && r.bossId == act.bossId), isTrue);
+      }
+
+      // 5. Every chest reward's unlockCharmId resolves cleanly in kDungeonCharmCatalog
+      final validCharmIds = kDungeonCharmCatalog.map((c) => c.id).toSet();
+      for (final chest in kDungeonChestRewards.values) {
+        if (chest.unlockCharmId != null) {
+          expect(
+            validCharmIds.contains(chest.unlockCharmId),
+            isTrue,
+            reason: 'Chest ${chest.id} references unknown charm "${chest.unlockCharmId}"',
+          );
+        }
+      }
     },
   );
 }
