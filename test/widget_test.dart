@@ -2488,13 +2488,16 @@ void main() {
         title: 'Malolos Cavern Test',
         subtitle: 'Viewport Culling & Camera Rig',
         asciiGrid: bigRows,
-        spawnCol: 5,
-        spawnRow: 30,
+        defaultSpawnCol: 5,
+        defaultSpawnRow: 30,
         isDarkCavern: true,
       );
-      final player = DungeonPlayerPhysicsState.spawnAt(
-        col: 5,
-        row: 30,
+      final player = DungeonPlayerPhysicsState(
+        x: 5 * kDungeonTileSize,
+        y: 30 * kDungeonTileSize,
+        facing: 1,
+        isGrounded: true,
+        resolveHp: 8,
         maxResolveHp: 8,
       );
 
@@ -2538,12 +2541,12 @@ void main() {
       // Row 4: #..==?.#  <- (3,4) has E+S => mask 2|4 = 6; (4,4) has E+S+W => mask 2|4|8 = 14; (5,4) secretWall connects W+S => mask 4|8 = 12
       // Row 5: #..###.#  <- (4,5) surrounded N+E+S+W => mask 15
       // Row 6: ########
-      final maskSpec = DungeonChamberSpec(
+      const maskSpec = DungeonChamberSpec(
         id: 'test_rule_tiles',
         actNumber: 1,
         title: 'Rule-Tile Mask Grid',
         subtitle: '16-Neighbor Bitmask Check',
-        asciiGrid: const <String>[
+        asciiGrid: <String>[
           '########',
           '#......#',
           '#..#...#',
@@ -2552,8 +2555,8 @@ void main() {
           '#..###.#',
           '########',
         ],
-        spawnCol: 1,
-        spawnRow: 5,
+        defaultSpawnCol: 1,
+        defaultSpawnRow: 5,
       );
       final maskChamber = DungeonChamberRuntime(maskSpec);
       expect(computeSolidNeighborMask(maskChamber, 3, 2), 0); // isolated
@@ -2564,12 +2567,12 @@ void main() {
 
       // 3. Full DungeonWorldPainter Widget Render Pass with ALL 19 Tile Types,
       //    Active Slashes, Silk Skills, Projectiles, Loot, Enemies, Bosses, Particles & Floating Numbers
-      final showcaseSpec = DungeonChamberSpec(
+      const showcaseSpec = DungeonChamberSpec(
         id: 'test_render_all_19',
         actNumber: 2,
         title: 'All-19 Tile Showcase Chamber',
         subtitle: 'Render Smoke & Craft Floor Verification',
-        asciiGrid: const <String>[
+        asciiGrid: <String>[
           '########################',
           '#..T...O...G....T......#',
           '#..---...C....H........#',
@@ -2578,8 +2581,8 @@ void main() {
           '#========^^^^==========#',
           '########################',
         ],
-        spawnCol: 2,
-        spawnRow: 4,
+        defaultSpawnCol: 2,
+        defaultSpawnRow: 4,
         isDarkCavern: true,
       );
       final showcaseChamber = DungeonChamberRuntime(showcaseSpec);
@@ -2622,9 +2625,12 @@ void main() {
         ),
       ]);
 
-      final hero = DungeonPlayerPhysicsState.spawnAt(
-        col: 3,
-        row: 4,
+      final hero = DungeonPlayerPhysicsState(
+        x: 3 * kDungeonTileSize,
+        y: 4 * kDungeonTileSize,
+        facing: 1,
+        isGrounded: true,
+        resolveHp: 8,
         maxResolveHp: 8,
       );
       hero.grappleActive = true;
@@ -2635,8 +2641,8 @@ void main() {
       );
 
       const progress = DungeonProgressSave(
-        bladeTier: DungeonBladeTier.sovereignBlade,
-        equippedCharmIds: <String>['tarsier_lantern', 'babaylan_fast_bind'],
+        bladeTier: DungeonBladeTier.kampilanEdge,
+        equippedCharmIds: <String>['tarsier_lantern', 'babaylan_bind'],
         openedChestIds: <String>{},
       );
       final combat = DungeonCombatEngine();
