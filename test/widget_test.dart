@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -2772,6 +2773,65 @@ void main() {
       );
       await tester.pump();
       expect(tester.takeException(), isNull);
+
+      // 4. Custom School Lobby Avatar Sprite Rendering in Dungeon (with Dungeon-Only Gear)
+      // Verify frame selection across idle-right, walk-left, airborne, and ladder climb
+      hero.onLadder = false;
+      hero.isGrounded = true;
+      hero.facing = 1;
+      hero.vx = 0.0;
+      expect(computeDungeonHeroAvatarFrameIndex(hero, 0.0), inInclusiveRange(0, 5));
+
+      hero.facing = -1;
+      hero.vx = -120.0;
+      hero.runAnimTime = 2.0;
+      expect(computeDungeonHeroAvatarFrameIndex(hero, 0.5), inInclusiveRange(36, 41));
+
+      hero.onLadder = true;
+      hero.vy = -50.0;
+      expect(computeDungeonHeroAvatarFrameIndex(hero, 1.0), inInclusiveRange(30, 35));
+      hero.onLadder = false;
+      hero.facing = 1;
+
+      // Render a real 48-frame (1536x64) custom avatar sprite strip through DungeonWorldPainter
+      final recorder = ui.PictureRecorder();
+      final recCanvas = Canvas(recorder);
+      recCanvas.drawRect(
+        const Rect.fromLTWH(0, 0, kCharFrameWidth * 48, kCharFrameHeight),
+        Paint()..color = const Color(0xFF4280DD),
+      );
+      final picture = recorder.endRecording();
+      final customSheet = await picture.toImage(
+        (kCharFrameWidth * 48).toInt(),
+        kCharFrameHeight.toInt(),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Center(
+              child: CustomPaint(
+                size: const Size(640, 360),
+                painter: DungeonWorldPainter(
+                  chamber: showcaseChamber,
+                  player: hero,
+                  combat: combat,
+                  progress: progress,
+                  camera: renderCamera,
+                  worldTimeSec: 2.0,
+                  entities: testEntities,
+                  particles: testParticles,
+                  highlightedGrappleAnchor: const Offset(184, 24),
+                  playerAvatarSheet: customSheet,
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+      customSheet.dispose();
     },
   );
 }

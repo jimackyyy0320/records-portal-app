@@ -1,6 +1,8 @@
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 
+import '../school_lobby_avatar.dart';
 import '../spritecast_engine.dart';
 import 'dungeon_combat.dart';
 import 'dungeon_models.dart';
@@ -226,12 +228,53 @@ bool _isAutoTileConnector(DungeonChamberRuntime chamber, int col, int row) {
       t == DungeonTileType.secretWall;
 }
 
+/// Computes the TinyFloor 48-frame sprite strip index (`0..47`) for rendering
+/// the student's custom School Lobby avatar inside the 2D action-platformer dungeon.
+///
+/// Dungeon-only gear (cape, forged weapon, shoulder armor crest) is composited
+/// strictly by [DungeonWorldPainter] and never modifies the student's School Lobby look.
+int computeDungeonHeroAvatarFrameIndex(
+  DungeonPlayerPhysicsState player,
+  double worldTimeSec,
+) {
+  final AvatarFacing facing;
+  if (player.onLadder) {
+    facing = AvatarFacing.up;
+  } else {
+    facing = player.facing >= 0 ? AvatarFacing.right : AvatarFacing.left;
+  }
+
+  final isMoving = player.onLadder
+      ? player.vy.abs() > 8.0
+      : (player.isDashing || !player.isGrounded || player.vx.abs() > 14.0);
+
+  int stepFrame;
+  if (player.onLadder) {
+    stepFrame = isMoving ? (worldTimeSec * 9.0).floor() : 0;
+  } else if (player.isDashing) {
+    stepFrame = 2; // Dynamic forward lunge stride
+  } else if (!player.isGrounded) {
+    stepFrame = player.vy < 0.0 ? 1 : 4; // Rising vs falling mid-air pose
+  } else if (isMoving) {
+    stepFrame = (player.runAnimTime * 1.4).floor();
+  } else {
+    stepFrame = (worldTimeSec * 4.0).floor();
+  }
+
+  return computeCharacterFrameIndex(
+    facing: facing,
+    isWalking: isMoving,
+    stepFrame: stepFrame.abs() % kCharFramesPerDirection,
+  );
+}
+
 /// Pixel-Perfect `320×180` 2D Action-Platformer Dungeon Renderer integrating:
 /// - 4-layer era-shifting parallax backdrops (Acts I–VII)
 /// - 16-neighbor cardinal Rule-Tile auto-tiling with ashlar seams, mossy caps & stalactites
 /// - Crisp SpriteCast pixel art for all 19 tile types (zero system emojis!)
 /// - Terraria-style cavern darkness + flickering torchlight & orbiting Umalo lantern
-/// - Animated Silksong Alon hero (cape, squash-stretch, dash ghosts, grapple silk line, Bind cocoon, Parry dome)
+/// - Student's custom School Lobby character sprite (`playerAvatarSheet`) with dungeon-only
+///   cape, forged blade, armor trim, dash ghosts, grapple silk line, Bind cocoon & Parry dome
 /// - Crescent slash arcs, 5 Silk Skill visuals, enemies/bosses, loot drops, particles & floating numbers!
 class DungeonWorldPainter extends CustomPainter {
   final DungeonChamberRuntime chamber;
@@ -244,6 +287,11 @@ class DungeonWorldPainter extends CustomPainter {
   final List<DungeonParticle> particles;
   final Offset? highlightedGrappleAnchor;
 
+  /// Student's composite 48-frame School Lobby avatar sheet (`AvatarSpriteCache`).
+  /// When provided, the student plays Story Mode as their exact custom character
+  /// while dungeon-only cape/weapon/armor overlays never affect School Lobby.
+  final ui.Image? playerAvatarSheet;
+
   const DungeonWorldPainter({
     super.repaint,
     required this.chamber,
@@ -255,6 +303,7 @@ class DungeonWorldPainter extends CustomPainter {
     this.entities = const <DungeonEntityRenderSpec>[],
     this.particles = const <DungeonParticle>[],
     this.highlightedGrappleAnchor,
+    this.playerAvatarSheet,
   });
 
   @override
@@ -1052,13 +1101,47 @@ class DungeonWorldPainter extends CustomPainter {
   }
 
   void _paintDashAfterimages(Canvas canvas) {
+    final sheet = playerAvatarSheet;
     for (final ghost in player.afterimages) {
-      canvas.drawRect(
-        Rect.fromLTWH(ghost.x, ghost.y, player.width, player.height),
-        Paint()
-          ..color = SpriteCastPalette.endesga32[18]
-              .withValues(alpha: (ghost.alpha * 0.55).clamp(0.0, 0.55)),
-      );
+      final a = (ghost.alpha * 0.55).clamp(0.0, 0.55);
+      if (sheet != null && sheet.width >= kCharFrameWidth * 48) {
+        final frameIdx = computeCharacterFrameIndex(
+          facing: ghost.facing >= 0 ? AvatarFacing.right : AvatarFacing.left,
+          isWalking: true,
+          stepFrame: 2,
+        );
+        final src = Rect.fromLTWH(
+          frameIdx * kCharFrameWidth,
+          0,
+          kCharFrameWidth,
+          kCharFrameHeight,
+        );
+        const drawH = 26.0;
+        const drawW = drawH * (kCharFrameWidth / kCharFrameHeight);
+        final dst = Rect.fromLTWH(
+          ghost.x + player.width * 0.5 - drawW * 0.5,
+          ghost.y + player.height - drawH + 1.5,
+          drawW,
+          drawH,
+        );
+        canvas.drawImageRect(
+          sheet,
+          src,
+          dst,
+          Paint()
+            ..filterQuality = FilterQuality.none
+            ..colorFilter = ColorFilter.mode(
+              SpriteCastPalette.endesga32[18].withValues(alpha: a),
+              BlendMode.srcATop,
+            )
+            ..color = Color.fromRGBO(255, 255, 255, a),
+        );
+      } else {
+        canvas.drawRect(
+          Rect.fromLTWH(ghost.x, ghost.y, player.width, player.height),
+          Paint()..color = SpriteCastPalette.endesga32[18].withValues(alpha: a),
+        );
+      }
     }
   }
 
@@ -1131,13 +1214,13 @@ class DungeonWorldPainter extends CustomPainter {
         ? math.sin(player.runAnimTime) * 2.2
         : 0.0;
 
-    // 1. Flowing Silksong crimson/era cape trailing opposite velocity
+    // 1. Dungeon-Only Flowing Silksong Cape trailing opposite velocity
     final capeSway = math.sin(worldTimeSec * 9.0) * 1.4 - (player.vx * 0.015).clamp(-3.5, 3.5);
     final capePath = Path()
-      ..moveTo(-f * 2.0, -h + 5.0 + breathY)
-      ..lineTo(-f * 8.5 + capeSway, -3.5)
-      ..lineTo(-f * 3.5 + capeSway * 0.5, -2.0)
-      ..lineTo(f * 1.0, -h + 7.0 + breathY)
+      ..moveTo(-f * 2.0, -h + 4.5 + breathY)
+      ..lineTo(-f * 9.0 + capeSway, -3.0)
+      ..lineTo(-f * 3.5 + capeSway * 0.5, -1.8)
+      ..lineTo(f * 1.0, -h + 6.5 + breathY)
       ..close();
     canvas.drawPath(capePath, Paint()..color = SpriteCastPalette.endesga32[8]);
     canvas.drawPath(
@@ -1148,51 +1231,104 @@ class DungeonWorldPainter extends CustomPainter {
         ..strokeWidth = 1.0,
     );
 
-    // 2. Crisp dark-ink outline torso + boots
-    canvas.drawRect(
-      Rect.fromLTWH(-w * 0.5 - 0.5, -h + breathY, w + 1.0, h - 1.0),
-      Paint()..color = SpriteCastPalette.ink,
-    );
-    // Tunic / Barong attire
-    canvas.drawRect(
-      Rect.fromLTWH(-w * 0.42, -h + 5.5 + breathY, w * 0.84, 5.5),
-      Paint()..color = SpriteCastPalette.endesga32[2],
-    );
-    // Animated running legs
-    canvas.drawRect(
-      Rect.fromLTWH(-3.2 + stride * 0.5, -3.5, 2.4, 3.5),
-      Paint()..color = SpriteCastPalette.endesga32[24],
-    );
-    canvas.drawRect(
-      Rect.fromLTWH(0.8 - stride * 0.5, -3.5, 2.4, 3.5),
-      Paint()..color = SpriteCastPalette.endesga32[24],
-    );
+    // 2. Playable Hero Sprite: Student's Custom School Lobby Character when loaded,
+    //    or crisp SpriteCast fallback silhouette while loading / in headless tests.
+    final sheet = playerAvatarSheet;
+    if (sheet != null && sheet.width >= kCharFrameWidth * 48) {
+      final frameIdx = computeDungeonHeroAvatarFrameIndex(player, worldTimeSec);
+      final src = Rect.fromLTWH(
+        frameIdx * kCharFrameWidth,
+        0,
+        kCharFrameWidth,
+        kCharFrameHeight,
+      );
+      const drawH = 26.0;
+      const drawW = drawH * (kCharFrameWidth / kCharFrameHeight);
+      final dst = Rect.fromLTWH(
+        -drawW * 0.5,
+        -drawH + 1.5 + breathY * 0.5,
+        drawW,
+        drawH,
+      );
+      canvas.drawImageRect(
+        sheet,
+        src,
+        dst,
+        Paint()..filterQuality = FilterQuality.none,
+      );
+    } else {
+      // Crisp dark-ink outline torso + boots fallback
+      canvas.drawRect(
+        Rect.fromLTWH(-w * 0.5 - 0.5, -h + breathY, w + 1.0, h - 1.0),
+        Paint()..color = SpriteCastPalette.ink,
+      );
+      canvas.drawRect(
+        Rect.fromLTWH(-w * 0.42, -h + 5.5 + breathY, w * 0.84, 5.5),
+        Paint()..color = SpriteCastPalette.endesga32[2],
+      );
+      canvas.drawRect(
+        Rect.fromLTWH(-3.2 + stride * 0.5, -3.5, 2.4, 3.5),
+        Paint()..color = SpriteCastPalette.endesga32[24],
+      );
+      canvas.drawRect(
+        Rect.fromLTWH(0.8 - stride * 0.5, -3.5, 2.4, 3.5),
+        Paint()..color = SpriteCastPalette.endesga32[24],
+      );
+      canvas.drawRect(
+        Rect.fromLTWH(-4.0, -h + 0.8 + breathY, 8.0, 5.0),
+        Paint()..color = SpriteCastPalette.endesga32[30],
+      );
+      canvas.drawRect(
+        Rect.fromLTWH(-4.4, -h - 0.4 + breathY, 8.8, 2.4),
+        Paint()..color = SpriteCastPalette.endesga32[25],
+      );
+      canvas.drawRect(
+        Rect.fromLTWH(-4.0, -h + 1.4 + breathY, 8.0, 1.0),
+        Paint()..color = theme.accentHighlight,
+      );
+      canvas.drawRect(
+        Rect.fromLTWH(f > 0 ? 1.2 : -3.0, -h + 3.0 + breathY, 1.5, 1.5),
+        Paint()..color = SpriteCastPalette.ink,
+      );
+    }
 
-    // 3. Head, hair crest & focused eyes
-    canvas.drawRect(
-      Rect.fromLTWH(-4.0, -h + 0.8 + breathY, 8.0, 5.0),
-      Paint()..color = SpriteCastPalette.endesga32[30],
-    );
-    // Hair + golden salakot/headband accent
-    canvas.drawRect(
-      Rect.fromLTWH(-4.4, -h - 0.4 + breathY, 8.8, 2.4),
-      Paint()..color = SpriteCastPalette.endesga32[25],
-    );
-    canvas.drawRect(
-      Rect.fromLTWH(-4.0, -h + 1.4 + breathY, 8.0, 1.0),
-      Paint()..color = theme.accentHighlight,
-    );
-    // Crisp eyes pointing in facing direction
-    canvas.drawRect(
-      Rect.fromLTWH(f > 0 ? 1.2 : -3.0, -h + 3.0 + breathY, 1.5, 1.5),
-      Paint()..color = SpriteCastPalette.ink,
-    );
+    // 3. Dungeon-Only Shoulder Armor Pauldron & Constitutional Crest (never shown in School Lobby!)
+    if (!player.onLadder) {
+      final hasUpgradedArmor =
+          progress.bladeTier.index >= 1 || progress.hasCharmEquipped('sovereign_heart');
+      final pauldronColor = progress.bladeTier.index >= 3
+          ? SpriteCastPalette.endesga32[10] // Forged gold pauldron
+          : (hasUpgradedArmor
+              ? SpriteCastPalette.endesga32[20] // Tempered steel pauldron
+              : SpriteCastPalette.woodLight); // Starter woven rattan guard
+      final px = f > 0 ? -3.8 : 0.6;
+      canvas.drawRect(
+        Rect.fromLTWH(px - 0.5, -9.8 + breathY, 3.8, 2.8),
+        Paint()..color = SpriteCastPalette.ink,
+      );
+      canvas.drawRect(
+        Rect.fromLTWH(px, -9.3 + breathY, 2.8, 1.8),
+        Paint()..color = pauldronColor,
+      );
 
-    // 4. Held Needle/Bolo Blade at Alon's side (colored by Blade Tier!)
-    canvas.drawRect(
-      Rect.fromLTWH(f > 0 ? 3.5 : -9.5, -7.0 + breathY, 6.0, 1.8),
-      Paint()..color = progress.bladeTier.slashArcColor,
-    );
+      // 4. Dungeon-Only Forged Melee Weapon (Bamboo Spear -> Sovereign Blade)
+      final bladeLen = 6.0 + progress.bladeTier.index * 1.1;
+      final bladeX = f > 0 ? 3.2 : -3.2 - bladeLen;
+      // Dark ink outline + metallic blade + golden hilt
+      canvas.drawRect(
+        Rect.fromLTWH(bladeX - 0.5, -7.5 + breathY, bladeLen + 1.0, 2.6),
+        Paint()..color = SpriteCastPalette.ink,
+      );
+      canvas.drawRect(
+        Rect.fromLTWH(bladeX, -7.0 + breathY, bladeLen, 1.6),
+        Paint()..color = progress.bladeTier.slashArcColor,
+      );
+      // Hilt guard
+      canvas.drawRect(
+        Rect.fromLTWH(f > 0 ? 2.6 : -4.0, -8.0 + breathY, 1.4, 3.6),
+        Paint()..color = SpriteCastPalette.endesga32[10],
+      );
+    }
 
     canvas.restore();
 
