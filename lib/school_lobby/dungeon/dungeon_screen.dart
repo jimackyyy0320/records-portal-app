@@ -312,7 +312,9 @@ class _SovereignDungeonScreenState extends State<SovereignDungeonScreen>
       player: _player,
       chamber: _chamber,
       input: input,
-      progress: _progress,
+      hasDoubleJumpCharm: _progress.hasCharmEquipped('double_pogo_boots'),
+      hasMagnetCharm: _progress.hasCharmEquipped('magnet_shard'),
+      hasStalwartWardCharm: _progress.hasCharmEquipped('charter_ward'),
     );
     _handlePhysicsEvents(physEvents);
 
