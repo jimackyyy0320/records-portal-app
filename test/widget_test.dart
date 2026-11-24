@@ -2538,7 +2538,7 @@ void main() {
       // Row 1: #......#
       // Row 2: #..#...#  <- isolated stone at (3,2) => mask 0
       // Row 3: #......#
-      // Row 4: #..==?.#  <- (3,4) has E+S => mask 2|4 = 6; (4,4) has E+S+W => mask 2|4|8 = 14; (5,4) secretWall connects W+S => mask 4|8 = 12
+      // Row 4: #..MM?.#  <- (3,4) has E+S => mask 2|4 = 6; (4,4) has E+S+W => mask 2|4|8 = 14; (5,4) secretWall connects W+S => mask 4|8 = 12
       // Row 5: #..###.#  <- (4,5) surrounded N+E+S+W => mask 15
       // Row 6: ########
       const maskSpec = DungeonChamberSpec(
@@ -2551,7 +2551,7 @@ void main() {
           '#......#',
           '#..#...#',
           '#......#',
-          '#..==?.#',
+          '#..MM?.#',
           '#..###.#',
           '########',
         ],
@@ -2575,10 +2575,10 @@ void main() {
         asciiGrid: <String>[
           '########################',
           '#..T...O...G....T......#',
-          '#..---...C....H........#',
+          '#..===...C....H........#',
           '#.............H..B..L..#',
-          '#..X..*..S..D.?..\$..P..#',
-          '#========^^^^==========#',
+          '#..X..*..S..D.?..K..P..#',
+          '#MMMMMMMM^^^^MMMMMMMMMM#',
           '########################',
         ],
         defaultSpawnCol: 2,
