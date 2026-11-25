@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:qr_flutter/qr_flutter.dart';
@@ -30,18 +31,22 @@ import 'package:student_portal_app/school_lobby/school_lobby_engine.dart';
 import 'package:student_portal_app/school_lobby/pixelfx_engine.dart';
 import 'package:student_portal_app/school_lobby/sovereign_story_data.dart';
 import 'package:student_portal_app/school_lobby/sovereign_story_screen.dart';
+import 'package:student_portal_app/school_lobby/account_save_sync_service.dart';
 import 'package:student_portal_app/school_lobby/spritecast_engine.dart';
+import 'package:student_portal_app/school_lobby/dungeon/dungeon_architecture.dart';
 import 'package:student_portal_app/school_lobby/dungeon/dungeon_audio.dart';
 import 'package:student_portal_app/school_lobby/dungeon/dungeon_combat.dart';
 import 'package:student_portal_app/school_lobby/dungeon/dungeon_enemies.dart';
 import 'package:student_portal_app/school_lobby/dungeon/dungeon_enemy_sprites.dart';
 import 'package:student_portal_app/school_lobby/dungeon/dungeon_hud_and_menus.dart';
 import 'package:student_portal_app/school_lobby/dungeon/dungeon_maps.dart';
+import 'package:student_portal_app/school_lobby/dungeon/dungeon_missions.dart';
 import 'package:student_portal_app/school_lobby/dungeon/dungeon_models.dart';
 import 'package:student_portal_app/school_lobby/dungeon/dungeon_physics.dart';
 import 'package:student_portal_app/school_lobby/dungeon/dungeon_pixelfx_vfx.dart';
 import 'package:student_portal_app/school_lobby/dungeon/dungeon_renderer.dart';
 import 'package:student_portal_app/school_lobby/dungeon/dungeon_screen.dart';
+import 'package:student_portal_app/school_lobby/dungeon/dungeon_settings.dart';
 import 'package:student_portal_app/theme/portal_theme.dart';
 
 void main() {
@@ -52,6 +57,7 @@ void main() {
   setUp(() {
     SharedPreferences.setMockInitialValues({});
     SessionService.instance.resetMemoryCacheForTesting();
+    AccountSaveSyncService.instance.resetForTesting();
     LobbyPresenceService.instance.enableNetworkTransport = false;
     LobbyPresenceService.instance.stopPresence();
   });
@@ -2844,8 +2850,8 @@ void main() {
   test(
     'Dungeon Part 4/8: 14 Enemy Archetypes, Shield/Laser AI, Rival Mateo & 7 Multi-Phase Era Bosses with Staggered Constitutional Counter-Breaks',
     () {
-      // 1. Catalog Integrity: 14 regular archetypes + Rival Mateo (15 total) & 7 Multi-Phase Era Bosses (Acts 1..7)
-      expect(kDungeonEnemyArchetypes.length, 15);
+      // 1. Catalog Integrity: 16 regular archetypes (incl. Spanish Conquistador & Japanese Katana Warrior) + Rival Mateo (17 total) & 7 Multi-Phase Era Bosses (Acts 1..7)
+      expect(kDungeonEnemyArchetypes.length, 17);
       expect(kDungeonBossArchetypes.length, 7);
       final bossActs = kDungeonBossArchetypes.values.map((b) => b.actNumber).toSet();
       expect(bossActs, equals(<int>{1, 2, 3, 4, 5, 6, 7}));
@@ -3711,8 +3717,8 @@ void main() {
   testWidgets(
     'Overhaul Phases B–D & Part 8: pixelfx Sprite Sheets, All 22 Unique Pixel Characters, Dual-Buffer VFX & Boss Intro Banner',
     (WidgetTester tester) async {
-      // 1. Verify all 8 exported `pixelfx` PNG sprite sheets exist on disk & match declared grid dimensions!
-      expect(DungeonPixelfxSheetCache.kSpecs.length, 8);
+      // 1. Verify all 12 exported `pixelfx` PNG sprite sheets exist on disk & match declared grid dimensions!
+      expect(DungeonPixelfxSheetCache.kSpecs.length, 12);
       for (final entry in DungeonPixelfxSheetCache.kSpecs.entries) {
         final spec = entry.value;
         final file = File(spec.assetPath);
@@ -3763,7 +3769,7 @@ void main() {
         ...kDungeonEnemyArchetypes.values,
         ...kDungeonBossArchetypes.values,
       ];
-      expect(allArchetypes.length, 22);
+      expect(allArchetypes.length, 24);
 
       final arenaSpec = lookupDungeonChamber('act7_c5_boss_sovereign');
       final arenaRuntime = DungeonChamberRuntime(arenaSpec);
@@ -3988,6 +3994,500 @@ void main() {
       }
       expect(find.byType(DungeonBossIntroBanner), findsNothing);
       expect(tester.takeException(), isNull);
+    },
+  );
+
+  test(
+    'v2.0 Phase 1: Google Sheets Permanent Account Save Roundtrip (Zero Loss on APK Update) & Cascade Wipe on Sheet Account Deletion',
+    () async {
+      final sync = AccountSaveSyncService.instance;
+      sync.resetForTesting();
+
+      String? mockSheetDataJson;
+      var mockSheetRevision = 0;
+      var mockAccountDeletedFromSheet = false;
+
+      sync.debugLoadOverride = ({required String userId, required bool isFaculty}) async {
+        if (mockAccountDeletedFromSheet) {
+          return (
+            accountDeleted: true,
+            revision: 0,
+            dataJson: null,
+            reachable: true,
+          );
+        }
+        return (
+          accountDeleted: false,
+          revision: mockSheetRevision,
+          dataJson: mockSheetDataJson,
+          reachable: true,
+        );
+      };
+      sync.debugSaveOverride = ({
+        required String userId,
+        required String userName,
+        required bool isFaculty,
+        required int level,
+        required int xp,
+        required int sealsCount,
+        required int revision,
+        required String dataJson,
+      }) async {
+        if (mockAccountDeletedFromSheet) {
+          return (success: false, accountDeleted: true, revision: 0);
+        }
+        mockSheetRevision = revision;
+        mockSheetDataJson = dataJson;
+        return (success: true, accountDeleted: false, revision: revision);
+      };
+
+      const studentSession = UserSession(
+        id: '2026-90123',
+        name: 'Gabriela Silang',
+        isFaculty: false,
+        subjects: <SubjectItem>[],
+      );
+      await SessionService.instance.saveSession(studentSession);
+
+      // 1. Build rich student state across School Lobby, Avatar, Dungeon Missions, and Custom Controls!
+      await LobbyDataService.instance.init(studentSession.id);
+      await LobbyDataService.instance.awardDungeonXp(420);
+      await AvatarSpriteCache.instance.saveLook(
+        studentSession.id,
+        const LobbyAvatarLook(
+          isPreset: false,
+          body: '2',
+          eyes: '3',
+          outfit: '7-2',
+          hair: '12-1',
+        ),
+      );
+      await AvatarSpriteCache.instance.saveNickname(studentSession.id, 'GabiHero');
+
+      const savedCampaign = SovereignCampaignSave(
+        currentActNumber: 5,
+        dungeonProgress: DungeonProgressSave(
+          archipelagoShards: 310,
+          bladeTier: DungeonBladeTier.sovereignGold,
+          defeatedBossIds: <String>{'boss_datu_makisig', 'boss_valdes'},
+          completedMissionIds: <String>{
+            'mission_act1_fisherfolk',
+            'mission_act2_fend_spaniards',
+          },
+          rescuedNpcIds: <String>{'npc_act1_lakan', 'npc_act2_elias'},
+        ),
+      );
+      await savedCampaign.persist(studentSession.id);
+
+      final customSettings = DungeonControlAndSettingsProfile(
+        customTouchPositions: const <String, Offset>{
+          'slash': Offset(0.79, 0.77),
+          'jump': Offset(0.91, 0.66),
+        },
+        buttonScale: 1.18,
+        musicVolume: 0.64,
+        sfxVolume: 0.90,
+      );
+      await customSettings.persist(studentSession.id);
+
+      // Push unified envelope to simulated Master Google Sheet (`Account Progress` tab)
+      final pushed = await sync.pushUnifiedAccountSave(
+        userId: studentSession.id,
+        session: studentSession,
+        allowBeforeHydration: true,
+      );
+      expect(pushed, isTrue);
+      expect(mockSheetDataJson, isNotNull);
+      expect(mockSheetRevision, greaterThanOrEqualTo(1));
+
+      // 2. Simulate complete APK uninstall/reinstall or switching to a brand-new phone!
+      SharedPreferences.setMockInitialValues({});
+      sync.resetForTesting();
+      // Re-attach mock Google Sheet transport backed by the saved sheet row
+      sync.debugLoadOverride = ({required String userId, required bool isFaculty}) async => (
+            accountDeleted: mockAccountDeletedFromSheet,
+            revision: mockSheetRevision,
+            dataJson: mockSheetDataJson,
+            reachable: true,
+          );
+      sync.debugSaveOverride = ({
+        required String userId,
+        required String userName,
+        required bool isFaculty,
+        required int level,
+        required int xp,
+        required int sealsCount,
+        required int revision,
+        required String dataJson,
+      }) async =>
+          (success: true, accountDeleted: mockAccountDeletedFromSheet, revision: revision);
+
+      final hydrated = await sync.hydrateFromGoogleSheets(studentSession);
+      expect(hydrated.ok, isTrue);
+      expect(hydrated.accountDeleted, isFalse);
+
+      // Verify 100% zero-loss restoration across ALL 4 domains!
+      await LobbyDataService.instance.init(studentSession.id);
+      expect(LobbyDataService.instance.progress.xp, 420);
+      final restoredLook = await AvatarSpriteCache.instance.loadSavedLook(
+        studentSession.id,
+        isFaculty: false,
+      );
+      expect(restoredLook.outfit, '7-2');
+      expect(await AvatarSpriteCache.instance.loadNickname(studentSession.id), 'GabiHero');
+
+      final restoredCampaign = await SovereignCampaignSave.load(studentSession.id);
+      expect(restoredCampaign.currentActNumber, 5);
+      expect(restoredCampaign.dungeonProgress.archipelagoShards, 310);
+      expect(restoredCampaign.dungeonProgress.bladeTier, DungeonBladeTier.sovereignGold);
+      expect(
+        restoredCampaign.dungeonProgress.completedMissionIds,
+        contains('mission_act2_fend_spaniards'),
+      );
+      expect(
+        restoredCampaign.dungeonProgress.rescuedNpcIds,
+        contains('npc_act2_elias'),
+      );
+
+      final restoredSettings =
+          await DungeonControlAndSettingsProfile.load(studentSession.id);
+      expect(restoredSettings.buttonScale, closeTo(1.18, 0.01));
+      expect(restoredSettings.musicVolume, closeTo(0.64, 0.01));
+      expect(restoredSettings.normalizedTouchPos('slash').dx, closeTo(0.79, 0.01));
+
+      // 3. Simulate Admin deleting this student row from Google Sheets `Credentials`!
+      String? deletedStreamEventId;
+      final sub = sync.accountDeletedStream.listen((uid) {
+        deletedStreamEventId = uid;
+      });
+      await SessionService.instance.saveSession(studentSession);
+      mockAccountDeletedFromSheet = true;
+
+      final delCheck = await sync.hydrateFromGoogleSheets(studentSession);
+      await Future<void>.delayed(Duration.zero);
+      await sub.cancel();
+
+      expect(delCheck.accountDeleted, isTrue);
+      expect(deletedStreamEventId, studentSession.id);
+      expect(await SessionService.instance.restoreSession(), isNull);
+
+      final prefsAfterDelete = await SharedPreferences.getInstance();
+      expect(
+        prefsAfterDelete.getString(
+          '${AccountSaveSyncService.kLobbyProgressPrefix}${studentSession.id}',
+        ),
+        isNull,
+      );
+      expect(
+        prefsAfterDelete.getString(
+          '${AccountSaveSyncService.kSovereignSavePrefix}${studentSession.id}',
+        ),
+        isNull,
+      );
+      expect(
+        prefsAfterDelete.getString(
+          '${AccountSaveSyncService.kAvatarLookPrefix}${studentSession.id}',
+        ),
+        isNull,
+      );
+      expect(
+        prefsAfterDelete.getString(
+          '${AccountSaveSyncService.kDungeonSettingsPrefix}${studentSession.id}',
+        ),
+        isNull,
+      );
+    },
+  );
+
+  testWidgets(
+    'v2.0 Phases 2–4: Volumetric Architectural Backdrops (Acts 1–7), Spanish & Japanese Warriors, NPC Liberation Missions & 5-Move pixelfx Combos',
+    (WidgetTester tester) async {
+      // 1. Render all 7 Philippine Architectural Parallax Backdrops + Volumetric God-Rays
+      for (var act = 1; act <= 7; act++) {
+        final rec = ui.PictureRecorder();
+        final canvas = Canvas(rec);
+        DungeonArchitecturalBackdropPainter.paintBackdrop(
+          canvas: canvas,
+          theme: dungeonThemeForAct(act),
+          cameraOffset: const Offset(140.0, 24.0),
+          worldTimeSec: 2.4,
+          animTick: 58,
+          enableVolumetricRays: true,
+        );
+        rec.endRecording();
+      }
+
+      // 2. Verify Expanded Chambers (`68–76` cols) + Spanish Conquistadors (Act II) & Japanese Katana Warriors (Act V)
+      expect(lookupDungeonChamber('act1_c1_shore').cols, greaterThanOrEqualTo(64));
+      expect(lookupDungeonChamber('act2_c2_belltower').cols, greaterThanOrEqualTo(70));
+      expect(lookupDungeonChamber('act5_c4_mateo_bunker').cols, greaterThanOrEqualTo(72));
+
+      final act2Spawns = chambersForAct(2)
+          .expand((c) => c.enemySpawns.map((s) => s.archetypeId))
+          .toSet();
+      expect(act2Spawns, contains('spanish_conquistador'));
+
+      final act5Spawns = chambersForAct(5)
+          .expand((c) => c.enemySpawns.map((s) => s.archetypeId))
+          .toSet();
+      expect(act5Spawns, contains('japanese_katana_warrior'));
+
+      // 3. Verify Filipino NPC Liberation Missions (Act II Spaniards & Act V Japanese Garrison)
+      expect(kDungeonStoryMissions.length, 7);
+      expect(kDungeonNpcAllies.length, 14);
+      final tracker = DungeonMissionTracker();
+      var prog = const DungeonProgressSave();
+
+      // Rescue Captive Medic Nieves in Act V Corregidor + defeat 6 Imperial garrison foes!
+      final nieves = kDungeonNpcAllies.firstWhere((n) => n.id == 'npc_act5_nieves');
+      final rescueRes = tracker.interactWithNpc(npc: nieves, progress: prog);
+      expect(rescueRes.newlyRescued, isTrue);
+      prog = rescueRes.progress;
+      expect(prog.rescuedNpcIds, contains('npc_act5_nieves'));
+      expect(rescueRes.completedMission, isNull); // Still need 6 enemy clears
+
+      DungeonStoryMissionSpec? finishedMission;
+      for (var k = 0; k < 6; k++) {
+        final r = tracker.recordEnemyDefeated(actNumber: 5, progress: prog);
+        prog = r.progress;
+        if (r.completedMission != null) finishedMission = r.completedMission;
+      }
+      expect(finishedMission, isNotNull);
+      expect(finishedMission!.id, 'mission_act5_japanese_bunkers');
+      expect(prog.completedMissionIds, contains('mission_act5_japanese_bunkers'));
+      expect(prog.archipelagoShards, finishedMission.rewardShards);
+      expect(
+        tracker.buildHudStatusLine(5, prog),
+        contains('LIBERATED'),
+      );
+
+      // Smoke-test DungeonNpcDialogueModal widget
+      var closedModal = false;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: DungeonNpcDialogueModal(
+              npc: nieves,
+              mission: finishedMission,
+              progress: prog,
+              currentKills: 6,
+              justRescued: false,
+              onClose: () => closedModal = true,
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      expect(find.text('Medic Nieves'), findsOneWidget);
+      await tester.tap(find.text('CONTINUE MISSION'));
+      await tester.pump();
+      expect(closedModal, isTrue);
+
+      // 4. Verify 5-Move `pixelfx` Slash Combo Choreography + Sovereign Blade Wave!
+      final shore = DungeonChamberRuntime(lookupDungeonChamber('act1_c1_shore'));
+      final physics = DungeonPhysicsEngine();
+      final combat = DungeonCombatEngine();
+      final hero = DungeonPlayerPhysicsState(
+        x: 120.0,
+        y: 160.0,
+        facing: 1,
+        isGrounded: true,
+      );
+      const goldProg = DungeonProgressSave(bladeTier: DungeonBladeTier.sovereignGold);
+
+      // Swing 1 -> forehandCut (`sword_slash`)
+      combat.step(
+        dt: 1 / 60,
+        player: hero,
+        chamber: shore,
+        input: const DungeonPlayerInput(slashJustPressed: true),
+        progress: goldProg,
+        physicsEngine: physics,
+      );
+      expect(combat.activeSlashes.last.style, DungeonSlashComboStyle.forehandCut);
+      expect(combat.activeSlashes.last.pixelfxSheetKey, 'sword_slash');
+
+      // Swing 2 -> scissorCrossSlash (`double_slash`)
+      combat.slashCooldownTimer = 0.0;
+      combat.step(
+        dt: 1 / 60,
+        player: hero,
+        chamber: shore,
+        input: const DungeonPlayerInput(slashJustPressed: true),
+        progress: goldProg,
+        physicsEngine: physics,
+      );
+      expect(combat.activeSlashes.last.style, DungeonSlashComboStyle.scissorCrossSlash);
+      expect(combat.activeSlashes.last.pixelfxSheetKey, 'double_slash');
+
+      // Swing 3 -> heavyCleaveFinisher (`heavy_cleave`) + spawns `blade_wave_` projectile!
+      combat.slashCooldownTimer = 0.0;
+      combat.step(
+        dt: 1 / 60,
+        player: hero,
+        chamber: shore,
+        input: const DungeonPlayerInput(slashJustPressed: true),
+        progress: goldProg,
+        physicsEngine: physics,
+      );
+      expect(
+        combat.activeSlashes.last.style,
+        DungeonSlashComboStyle.heavyCleaveFinisher,
+      );
+      expect(combat.activeSlashes.last.pixelfxSheetKey, 'heavy_cleave');
+      expect(
+        combat.projectiles.any((p) => p.id.startsWith('blade_wave_') && p.isPlayerOwned),
+        isTrue,
+      );
+
+      // Dash + Slash -> dashThrustLance (`thrust`)!
+      combat.slashCooldownTimer = 0.0;
+      hero.dashTimer = 0.12;
+      combat.step(
+        dt: 1 / 60,
+        player: hero,
+        chamber: shore,
+        input: const DungeonPlayerInput(slashJustPressed: true),
+        progress: goldProg,
+        physicsEngine: physics,
+      );
+      expect(combat.activeSlashes.last.style, DungeonSlashComboStyle.dashThrustLance);
+      expect(combat.activeSlashes.last.pixelfxSheetKey, 'thrust');
+
+      // Up-Slash -> aerialSpinWheel (`spin_slash`)!
+      hero.dashTimer = 0.0;
+      combat.slashCooldownTimer = 0.0;
+      combat.step(
+        dt: 1 / 60,
+        player: hero,
+        chamber: shore,
+        input: const DungeonPlayerInput(moveY: -1.0, slashJustPressed: true),
+        progress: goldProg,
+        physicsEngine: physics,
+      );
+      expect(combat.activeSlashes.last.style, DungeonSlashComboStyle.aerialSpinWheel);
+      expect(combat.activeSlashes.last.pixelfxSheetKey, 'spin_slash');
+    },
+  );
+
+  testWidgets(
+    'v2.0 Phases 5–6: Smooth Damage-Trail Vital Bar, Un-Cramped Controls, Interactive Button Mapper Studio & 5-Track Looping BGM + De-Clicked Smooth SFX',
+    (WidgetTester tester) async {
+      // 1. Verify Smooth Sovereign Vital Bar & Delayed Ghost Damage-Trail Catch-Up!
+      final barKey = GlobalKey<DungeonSmoothVitalBarState>();
+      var hp = 8;
+      await tester.pumpWidget(
+        StatefulBuilder(
+          builder: (context, setState) {
+            return MaterialApp(
+              home: Scaffold(
+                body: Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      DungeonSmoothVitalBar(
+                        key: barKey,
+                        resolveHp: hp,
+                        maxResolveHp: 8,
+                        civicSilk: 60.0,
+                        maxCivicSilk: 100.0,
+                      ),
+                      ElevatedButton(
+                        onPressed: () => setState(() => hp = 4),
+                        child: const Text('TAKE HIT'),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        ),
+      );
+      await tester.pump();
+      expect(barKey.currentState!.currentDisplayHpRatio, closeTo(1.0, 0.01));
+
+      // Trigger 4-HP hit -> during first 100ms, primary HP drops faster while Ghost Trail holds higher!
+      await tester.tap(find.text('TAKE HIT'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 110));
+      final midHp = barKey.currentState!.currentDisplayHpRatio;
+      final midTrail = barKey.currentState!.currentGhostTrailRatio;
+      expect(midTrail, greaterThan(midHp + 0.12));
+
+      // After 650ms total, both primary bar & ghost damage-trail settle smoothly at 0.50!
+      await tester.pump(const Duration(milliseconds: 600));
+      expect(barKey.currentState!.currentDisplayHpRatio, closeTo(0.5, 0.01));
+      expect(barKey.currentState!.currentGhostTrailRatio, closeTo(0.5, 0.01));
+
+      // 2. Verify Interactive Touch Layout Mapper, Keybind Remapper & Audio Mixer Studio!
+      var profile = DungeonControlAndSettingsProfile();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: DungeonSettingsStudioModal(
+              initialProfile: profile,
+              onChanged: (next) => profile = next,
+              onClose: () {},
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      expect(find.text('TOUCH LAYOUT'), findsOneWidget);
+
+      // Drag the SLASH preview node in the Touch Mapper canvas -> updates customTouchPositions!
+      final slashBefore = profile.normalizedTouchPos(DungeonBindAction.slash);
+      await tester.drag(
+        find.byKey(const ValueKey<String>('mapper_node_slash')),
+        const Offset(-60, -40),
+      );
+      await tester.pump();
+      final slashAfter = profile.normalizedTouchPos(DungeonBindAction.slash);
+      expect(slashAfter.dx, lessThan(slashBefore.dx - 0.04));
+
+      // Switch to KEYBINDS tab & remap Melee Slash to Key U!
+      await tester.tap(find.text('KEYBINDS'));
+      await tester.pump();
+      await tester.tap(find.byKey(const ValueKey<String>('keybind_row_slash')));
+      await tester.pump();
+      expect(find.text('PRESS KEY...'), findsOneWidget);
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.keyU);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.keyU);
+      await tester.pump();
+      expect(
+        profile.matchesKey(DungeonBindAction.slash, LogicalKeyboardKey.keyU),
+        isTrue,
+      );
+
+      // Switch to AUDIO & FX tab
+      await tester.tap(find.text('AUDIO & FX'));
+      await tester.pump();
+      expect(find.text('Background Music Volume'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+
+      // 3. Verify all 5 Looping Background Music WAV Tracks, -6dB Pause Ducking & Zero-Click SFX!
+      expect(DungeonBgmTrack.values.length, 5);
+      for (final track in DungeonBgmTrack.values) {
+        final wav = DungeonAudioService.synthesizeBgmLoopWav(track);
+        expect(wav.length, greaterThan(1000));
+        expect(String.fromCharCodes(wav.sublist(0, 4)), 'RIFF');
+        expect(String.fromCharCodes(wav.sublist(8, 12)), 'WAVE');
+        // Verify zero-click loop seam: first & last 16-bit PCM samples are near 0!
+        final bd = ByteData.sublistView(wav);
+        final firstPcm = bd.getInt16(44, Endian.little).abs();
+        final lastPcm = bd.getInt16(wav.length - 2, Endian.little).abs();
+        expect(firstPcm, lessThan(64));
+        expect(lastPcm, lessThan(64));
+      }
+
+      final audio = DungeonAudioService.instance;
+      audio.applyVolumes(musicVolume: 0.80, sfxVolume: 0.90);
+      audio.setBgmDucked(false);
+      expect(audio.effectiveBgmVolume, closeTo(0.80, 0.001));
+      audio.setBgmDucked(true); // -6 dB modal/pause ducking -> 0.40!
+      expect(audio.effectiveBgmVolume, closeTo(0.40, 0.001));
+      audio.stopBgm();
     },
   );
 }

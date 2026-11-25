@@ -155,6 +155,54 @@ class DungeonPixelfxSheetCache {
       fps: 12.0,
       loop: true,
     ),
+    'double_slash': PixelfxSheetSpec(
+      key: 'double_slash',
+      assetPath: 'assets/school_lobby/dungeon_sprites/double_slash.png',
+      frames: 13,
+      frameWidth: 164,
+      frameHeight: 108,
+      pivotX: 54.0,
+      pivotY: 64.0,
+      columns: 3,
+      fps: 18.0,
+      loop: false,
+    ),
+    'heavy_cleave': PixelfxSheetSpec(
+      key: 'heavy_cleave',
+      assetPath: 'assets/school_lobby/dungeon_sprites/heavy_cleave.png',
+      frames: 30,
+      frameWidth: 208,
+      frameHeight: 116,
+      pivotX: 74.0,
+      pivotY: 78.0,
+      columns: 5,
+      fps: 24.0,
+      loop: false,
+    ),
+    'spin_slash': PixelfxSheetSpec(
+      key: 'spin_slash',
+      assetPath: 'assets/school_lobby/dungeon_sprites/spin_slash.png',
+      frames: 13,
+      frameWidth: 208,
+      frameHeight: 104,
+      pivotX: 104.0,
+      pivotY: 66.0,
+      columns: 3,
+      fps: 18.0,
+      loop: false,
+    ),
+    'thrust': PixelfxSheetSpec(
+      key: 'thrust',
+      assetPath: 'assets/school_lobby/dungeon_sprites/thrust.png',
+      frames: 12,
+      frameWidth: 196,
+      frameHeight: 76,
+      pivotX: 40.0,
+      pivotY: 50.0,
+      columns: 3,
+      fps: 18.0,
+      loop: false,
+    ),
   };
 
   final Map<String, ui.Image> _images = <String, ui.Image>{};
@@ -350,6 +398,9 @@ class DungeonEnemySpritePainter {
       case 'guardia_lancer':
         _paintGuardiaLancer(rig, e, stride, crouch, isWindup, isAttack);
         break;
+      case 'spanish_conquistador':
+        _paintSpanishConquistador(rig, e, stride, crouch, isWindup, isAttack, worldTimeSec);
+        break;
       case 'intramuros_musketeer':
         _paintIntramurosMusketeer(rig, e, stride, crouch, isWindup, isAttack, worldTimeSec);
         break;
@@ -373,6 +424,9 @@ class DungeonEnemySpritePainter {
         break;
       case 'imperial_commando':
         _paintImperialCommando(rig, e, stride, crouch, isWindup, isAttack);
+        break;
+      case 'japanese_katana_warrior':
+        _paintJapaneseKatanaWarrior(rig, e, stride, crouch, isWindup, isAttack, worldTimeSec);
         break;
       case 'censor_drone':
         _paintCensorDrone(canvas, rig, e, worldTimeSec, isWindup, isAttack, cache);
@@ -940,6 +994,99 @@ class DungeonEnemySpritePainter {
     final charge = isAttack ? 6.8 : (isWindup ? -3.0 : 0.0);
     rig.blade(-4.0 + charge, 10.0 - crouch, 9.2 + charge, 10.4 - crouch, 1.8, p[5], p[4]);
     rig.blade(8.8 + charge, 10.4 - crouch, 14.8 + charge, 10.6 - crouch, 2.0, p[20], p[19]); // gleaming bayonet!
+  }
+
+  /// 12b. `spanish_conquistador` — Polished Toledo breastplate, Castilian scarlet cape/sash, gilded morion, round rodela buckler & sweeping broadsword!
+  static void _paintSpanishConquistador(
+    _PxRig rig,
+    DungeonEntityRenderSpec e,
+    double stride,
+    double crouch,
+    bool isWindup,
+    bool isAttack,
+    double worldTimeSec,
+  ) {
+    final p = SpriteCastPalette.endesga32;
+    // Flowing Castilian crimson half-cape
+    final sway = math.sin(worldTimeSec * 7.0) * 1.2;
+    rig.box(-6.8 + sway * 0.4, 13.5 - crouch, 3.4, 8.2, p[7], highlight: p[8], shade: p[6]);
+    rig.legs(stride: isAttack ? 1.25 : stride, crouch: crouch, legColor: p[7], bootColor: p[4]);
+    // Puffed Tercio breeches + polished Toledo steel cuirass with gold filigree
+    rig.box(-4.6, 8.2 - crouch, 9.2, 2.8, p[8], highlight: p[10]);
+    rig.box(-4.8, 13.8 - crouch, 9.6, 6.4, p[20], highlight: p[19], shade: p[22]);
+    rig.blade(-3.5, 13.0 - crouch, 3.5, 9.2 - crouch, 1.5, p[8], p[10]); // diagonal royal sash
+    // Bearded Conquistador head + gilded Spanish Morion with crimson-gold plume
+    rig.box(-3.6, 18.2 - crouch, 7.2, 4.8, p[3], shade: p[5]);
+    rig.box(-1.0, 15.0 - crouch, 3.8, 1.8, p[5]); // pointed goatee/beard
+    rig.box(-5.2, 19.6 - crouch, 10.4, 2.6, p[21], highlight: p[10], shade: p[23]);
+    rig.box(-2.4, 22.0 - crouch, 4.8, 2.8, p[10], highlight: p[11]); // gilded comb
+    rig.box(-6.2, 21.8 - crouch, 3.6, 2.6, p[8], highlight: p[11]); // royal plume
+    rig.eye(1.5, 16.6 - crouch, p[25]);
+
+    // Round steel Rodela buckler on off-hand
+    rig.box(-5.6, 11.2 - crouch, 4.2, 5.4, p[21], highlight: p[10], shade: p[23]);
+
+    // Toledo Steel Broadsword (raised overhead in windup, wide sweeping lunge in attack!)
+    if (isWindup) {
+      rig.blade(-2.0, 13.5 - crouch, -5.5, 23.5 - crouch, 2.0, p[20], p[19]);
+      rig.box(-3.2, 14.2 - crouch, 3.4, 1.6, p[10]); // swept hilt guard
+    } else if (isAttack) {
+      rig.blade(2.5, 11.2 - crouch, 16.2, 9.6 - crouch, 2.4, p[19], p[11]);
+      rig.blade(4.0, 13.5 - crouch, 14.8, 7.2 - crouch, 1.4, p[8], p[10]); // crimson-gold slash trail!
+      rig.box(1.5, 11.8 - crouch, 2.8, 3.2, p[10]);
+    } else {
+      rig.blade(1.8, 10.2 - crouch, 11.8, 13.8 - crouch, 1.9, p[20], p[19]);
+      rig.box(1.0, 11.0 - crouch, 2.8, 2.6, p[10]);
+    }
+  }
+
+  /// 12c. `japanese_katana_warrior` — WWII Imperial Gunto Officer: khaki tunic, Sam Browne belt, hachimaki/field cap, scabbard & blazing Shin-Gunto katana!
+  static void _paintJapaneseKatanaWarrior(
+    _PxRig rig,
+    DungeonEntityRenderSpec e,
+    double stride,
+    double crouch,
+    bool isWindup,
+    bool isAttack,
+    double worldTimeSec,
+  ) {
+    final p = SpriteCastPalette.endesga32;
+    final iaidoCrouch = crouch + (isWindup ? 1.6 : 0.0);
+    rig.legs(
+      stride: isAttack ? 1.45 : stride,
+      crouch: iaidoCrouch,
+      legColor: p[4],
+      bootColor: p[24],
+    );
+    // Officer khaki-olive tunic, dark leather cross-strap & hip katana saya (scabbard)
+    rig.box(-4.4, 13.2 - iaidoCrouch, 8.8, 6.6, p[4], highlight: p[10], shade: p[5]);
+    rig.box(-4.5, 8.2 - iaidoCrouch, 9.0, 1.8, p[5], highlight: p[10]); // officer belt
+    rig.blade(-3.2, 12.8 - iaidoCrouch, 3.0, 8.4 - iaidoCrouch, 1.3, p[5], p[6]); // leather cross-strap
+    rig.blade(-7.8, 5.8 - iaidoCrouch, 1.2, 8.8 - iaidoCrouch, 1.6, p[24], p[10]); // lacquered scabbard!
+
+    // Officer field cap with neck-flaps + crimson Hachimaki headband tail
+    rig.box(-3.5, 17.6 - iaidoCrouch, 7.0, 4.6, p[3], highlight: p[30], shade: p[4]);
+    rig.box(-4.2, 19.6 - iaidoCrouch, 8.6, 2.6, p[4], highlight: p[10], shade: p[5]);
+    rig.box(2.0, 18.0 - iaidoCrouch, 3.4, 1.2, p[24]); // visor peak
+    rig.box(-3.8, 17.8 - iaidoCrouch, 7.6, 1.2, p[19], highlight: p[8]); // hachimaki band
+    rig.box(-6.6, 17.2 - iaidoCrouch - stride * 0.5, 3.0, 1.4, p[8]); // crimson ribbon
+    rig.eye(1.5, 16.0 - iaidoCrouch, isWindup ? p[26] : p[25]);
+
+    // Curved Two-Handed Shin-Gunto Katana (coiled at hip scabbard in Iaido windup -> lightning crescent draw!)
+    if (isWindup) {
+      // Iaido Battojutsu coil + gleaming glint at scabbard throat!
+      rig.box(0.4, 9.4 - iaidoCrouch, 2.6, 2.4, p[11], highlight: p[19]);
+      rig.blade(-2.0, 8.6 - iaidoCrouch, 3.6, 9.6 - iaidoCrouch, 1.6, p[19], p[26]);
+    } else if (isAttack) {
+      // Extended two-handed curved katana cleave + blazing crimson-white iaido arc!
+      rig.blade(2.2, 10.6 - iaidoCrouch, 17.6, 11.8 - iaidoCrouch, 2.2, p[19], p[18]);
+      rig.blade(5.5, 14.5 - iaidoCrouch, 16.8, 8.2 - iaidoCrouch, 1.6, p[26], p[19]);
+      rig.box(1.4, 11.2 - iaidoCrouch, 2.2, 2.6, p[10]); // brass tsuba guard
+    } else {
+      // Ready chudan-no-kamae two-handed katana stance
+      rig.blade(1.8, 9.8 - iaidoCrouch, 13.4, 14.2 - iaidoCrouch, 1.8, p[20], p[19]);
+      rig.box(1.2, 10.4 - iaidoCrouch, 2.2, 2.4, p[10]); // brass tsuba guard
+    }
   }
 
   /// 13. `censor_drone` — Genuine `pixelfx` obsidian-ruby eyeball + armor fins & crimson scan cone.

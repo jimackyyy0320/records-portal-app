@@ -1,4 +1,5 @@
 import 'dungeon_enemies.dart';
+import 'dungeon_missions.dart';
 import 'dungeon_models.dart';
 
 /// Metadata describing one of the 7 Historical Era Metroidvania Dungeons.
@@ -73,7 +74,7 @@ class DungeonLoreTabletSpec {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-//  ALL 7 ERA DUNGEON ACTS (35 INTERCONNECTED METROIDVANIA CHAMBERS TOTAL)
+//  ALL 7 ERA DUNGEON ACTS (35 EXPANDED METROIDVANIA CHAMBERS TOTAL)
 // ═══════════════════════════════════════════════════════════════════════════
 
 const List<DungeonActWorldSpec> kDungeonActWorlds = <DungeonActWorldSpec>[
@@ -100,7 +101,7 @@ const List<DungeonActWorldSpec> kDungeonActWorlds = <DungeonActWorldSpec>[
     actNumber: 2,
     title: 'Intramuros Belltower & Citadel',
     eraYear: '1565–1896',
-    subtitle: 'Stone Ramparts, Spires & Press Vaults',
+    subtitle: 'Stone Ramparts, Spanish Garrison & Press Vaults',
     entryChamberId: 'act2_c1_gates',
     sanctuaryChamberId: 'act2_c3_sanctuary',
     bossChamberId: 'act2_c5_boss_valdes',
@@ -156,7 +157,7 @@ const List<DungeonActWorldSpec> kDungeonActWorlds = <DungeonActWorldSpec>[
     actNumber: 5,
     title: 'Corregidor Malinta Bunkers',
     eraYear: '1942–1945',
-    subtitle: 'Fortified Tunnels & Artillery Trenches',
+    subtitle: 'Fortified Tunnels, Katana Garrisons & Artillery Trenches',
     entryChamberId: 'act5_c1_tunnel',
     sanctuaryChamberId: 'act5_c3_sanctuary',
     bossChamberId: 'act5_c5_boss_commander',
@@ -451,7 +452,7 @@ const Map<String, DungeonLoreTabletSpec> kDungeonLoreTablets =
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
-//  DETERMINISTIC RECTANGULAR CHAMBER BUILDER (ZERO JAGGED ROWS!)
+//  DETERMINISTIC RECTANGULAR CHAMBER BUILDER (MULTI-TIERED V2 EXPANSION!)
 // ═══════════════════════════════════════════════════════════════════════════
 
 class _GridBuilder {
@@ -496,12 +497,10 @@ class _GridBuilder {
     }
   }
 
-  /// Carves a spike trench into the floor (`rows - 2`) between `c1..c2`.
   void spikeTrench(int c1, int c2) {
     hLine(c1, c2, rows - 2, '^');
   }
 
-  /// Builds a secret breakable wall alcove on the far-left or upper wall with reward tiles!
   void secretAlcoveRight({
     required int wallCol,
     required int topRow,
@@ -510,27 +509,186 @@ class _GridBuilder {
     String lootChar = 'K',
     String secondChar = '*',
   }) {
-    // Solid roof & floor enclosing the secret chamber
     hLine(wallCol, chamberRightCol, topRow - 1, '#');
     hLine(wallCol, chamberRightCol, bottomRow + 1, 'M');
     fillRect(wallCol + 1, topRow, chamberRightCol, bottomRow, '.');
-    // Breakable secret wall separating main cavern from treasure nook
     vLine(wallCol, topRow, bottomRow, '?');
     put(wallCol + 2, bottomRow, secondChar);
     put(chamberRightCol - 1, bottomRow, lootChar);
     put(wallCol + 2, topRow, 'T');
   }
 
-  /// Builds a locked Charter Gate wall (`'D'`) blocking passage until Switch (`'S'`) is hit!
   void lockedGateWall(int gateCol, int topRow, int bottomRow) {
     vLine(gateCol, topRow, bottomRow, 'D');
+  }
+
+  /// Adds multi-tier upper walkways, climbable ladders, wall torches, crates & crystal veins
+  /// for expanded 68x20 Act Entry / Plaza chambers (`standingRow = 17`).
+  void buildExpandedOutskirts({
+    required bool hasLeftPortal,
+    String stoneFloor = 'M',
+  }) {
+    if (hasLeftPortal) {
+      put(2, 17, 'P');
+    }
+    // Lower & mid-level stepped balconies + ladders
+    hLine(12, 20, 14, '=');
+    vLine(13, 14, 17, 'H');
+    hLine(23, 33, 10, '=');
+    hLine(36, 46, 13, '=');
+    vLine(44, 13, 17, 'H');
+    hLine(48, 55, 9, '=');
+    // Grapple hooks for fast upper traversal
+    put(22, 6, 'G');
+    put(47, 6, 'G');
+    // Interactive crates, crystal veins, lore tablet & torches
+    put(16, 17, 'X');
+    put(17, 17, 'X');
+    put(28, 9, '*');
+    put(41, 12, 'L');
+    put(52, 8, '*');
+    put(6, 13, 'T');
+    put(18, 11, 'T');
+    put(30, 7, 'T');
+    put(42, 10, 'T');
+    put(54, 13, 'T');
+    put(59, 17, 'P');
+    secretAlcoveRight(
+      wallCol: 62,
+      topRow: 14,
+      bottomRow: 17,
+      chamberRightCol: 66,
+      lootChar: 'K',
+      secondChar: '*',
+    );
+  }
+
+  /// Builds an expanded 74x22 multi-path Deep Cavern / Spire / Trench chamber (`standingRow = 19`)
+  /// with both a perilous lower Pogo-Lantern chasm (`cols 18..40`) AND an upper architectural terrace,
+  /// followed by a guarded prisoner/citizen outpost (`cols 44..68`).
+  void buildExpandedMultiPathChasm() {
+    put(2, 19, 'P');
+    // West ascent tower
+    hLine(8, 15, 15, '=');
+    vLine(10, 15, 19, 'H');
+    hLine(12, 20, 11, '=');
+    // Lower pogo-lantern & crumble chasm (cols 18..40)
+    spikeTrench(18, 40);
+    put(21, 17, 'O');
+    hLine(24, 26, 16, 'C');
+    put(29, 17, 'O');
+    hLine(32, 34, 16, 'C');
+    put(38, 17, 'O');
+    // Upper grapple & walkway route over chasm!
+    put(22, 7, 'G');
+    hLine(26, 33, 9, '=');
+    put(36, 7, 'G');
+    // East garrison terrace & lore overlook (captive citizen stands on solid floor around col 54..60, row 19!)
+    hLine(43, 52, 14, '=');
+    vLine(50, 14, 19, 'H');
+    hLine(55, 64, 11, '=');
+    put(47, 13, 'L');
+    put(60, 10, '*');
+    put(45, 19, 'X');
+    // Warm architectural torches across both routes
+    put(9, 12, 'T');
+    put(20, 9, 'T');
+    put(30, 6, 'T');
+    put(46, 11, 'T');
+    put(59, 15, 'T');
+    put(67, 15, 'T');
+    put(71, 19, 'P');
+  }
+
+  /// Builds an expanded 48x18 Campfire Bench Sanctuary (`standingRow = 15`).
+  void buildExpandedSanctuary({required bool secretRightAlcove}) {
+    put(2, 15, 'P');
+    put(22, 15, 'B');
+    put(18, 15, 'L');
+    hLine(8, 15, 11, '=');
+    hLine(27, 34, 11, '=');
+    put(12, 12, 'T');
+    put(25, 12, 'T');
+    put(35, 12, 'T');
+    if (secretRightAlcove) {
+      put(39, 15, 'P');
+      secretAlcoveRight(
+        wallCol: 42,
+        topRow: 12,
+        bottomRow: 15,
+        chamberRightCol: 46,
+        lootChar: 'K',
+        secondChar: '*',
+      );
+    } else {
+      hLine(17, 27, 7, '=');
+      put(22, 10, 'G');
+      put(21, 6, 'K');
+      put(24, 6, '*');
+      put(45, 15, 'P');
+    }
+  }
+
+  /// Builds an expanded 76x20 Fortified Gauntlet / Siege / Rival Courtyard (`standingRow = 17`)
+  /// with upper Charter Switch (`'S'`) and Locked Gate (`'D'` at col 64).
+  void buildExpandedGauntlet({required bool includeChasm}) {
+    put(2, 17, 'P');
+    if (includeChasm) {
+      spikeTrench(14, 28);
+      hLine(16, 18, 15, 'C');
+      put(21, 15, 'O');
+      put(25, 15, 'O');
+    }
+    hLine(10, 19, 13, '=');
+    vLine(11, 13, 17, 'H');
+    hLine(24, 34, 11, '=');
+    hLine(38, 48, 13, '=');
+    vLine(46, 13, 17, 'H');
+    // High central Charter Switch tower!
+    hLine(29, 39, 7, '=');
+    put(34, 6, 'S');
+    put(22, 8, 'G');
+    put(43, 8, 'G');
+    put(52, 10, '=');
+    hLine(52, 59, 10, '=');
+    put(32, 17, 'X');
+    put(55, 9, '*');
+    // Fortified Charter Gate blocking exit until Switch 'S' is struck!
+    fillRect(64, 1, 65, 13, '#');
+    lockedGateWall(64, 14, 17);
+    put(9, 10, 'T');
+    put(27, 9, 'T');
+    put(36, 5, 'T');
+    put(50, 10, 'T');
+    put(68, 13, 'T');
+    put(73, 17, 'P');
+  }
+
+  /// Builds a spacious 52-column Multi-Phase Boss Arena (`52x16` or `52x18`).
+  void buildExpandedBossArena({required bool hasRightExit}) {
+    final standRow = rows - 3;
+    final platRow = standRow - 3;
+    put(2, standRow, 'P');
+    hLine(9, 17, platRow, '=');
+    hLine(34, 42, platRow, '=');
+    hLine(22, 29, platRow - 3, '=');
+    put(20, platRow, 'O');
+    put(31, platRow, 'O');
+    put(16, 5, 'G');
+    put(35, 5, 'G');
+    put(12, platRow - 2, 'T');
+    put(25, platRow - 5, 'T');
+    put(39, platRow - 2, 'T');
+    if (hasRightExit) {
+      put(49, standRow, 'P');
+    }
   }
 
   List<String> build() => _cells.map((row) => row.join()).toList(growable: false);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-//  35 HAND-CRAFTED INTERCONNECTED DUNGEON CHAMBERS (5 PER ACT × 7 ACTS)
+//  35 EXPANDED INTERCONNECTED DUNGEON CHAMBERS (5 PER ACT × 7 ACTS)
 // ═══════════════════════════════════════════════════════════════════════════
 
 final Map<String, DungeonChamberSpec> kDungeonChambersById = _buildAll35Chambers();
@@ -553,117 +711,32 @@ Map<String, DungeonChamberSpec> _buildAll35Chambers() {
 // ─────────────────────────── ACT I (5 CHAMBERS) ───────────────────────────
 
 List<DungeonChamberSpec> _buildAct1Chambers() {
-  // 1. act1_c1_shore (44x16) — Tutorial landing, stepped platforms, crates, secret alcove
-  final g1 = _GridBuilder(44, 16)
-    ..hLine(8, 13, 11, '=')
-    ..hLine(16, 22, 9, '=')
-    ..hLine(25, 31, 11, '=')
-    ..vLine(10, 11, 13, 'H')
-    ..put(5, 11, 'T')
-    ..put(18, 7, 'T')
-    ..put(30, 9, 'T')
-    ..put(12, 13, 'X')
-    ..put(13, 13, 'X')
-    ..put(20, 8, '*')
-    ..put(28, 10, 'L')
-    ..put(35, 13, 'P')
-    ..secretAlcoveRight(
-      wallCol: 38,
-      topRow: 10,
-      bottomRow: 13,
-      chamberRightCol: 42,
-      lootChar: 'K',
-      secondChar: '*',
-    );
-
-  // 2. act1_c2_grotto (46x18) — Vertical shaft + Pogo-Lantern spike trench!
-  final g2 = _GridBuilder(46, 18)
-    ..put(2, 15, 'P')
-    ..hLine(6, 11, 12, '=')
-    ..vLine(7, 12, 15, 'H')
-    ..hLine(14, 19, 9, '=')
-    ..spikeTrench(16, 29)
-    ..put(19, 13, 'O')
-    ..put(23, 13, 'O')
-    ..put(27, 13, 'O')
-    ..put(23, 8, 'G')
-    ..hLine(31, 37, 12, '=')
-    ..put(34, 11, 'L')
-    ..put(10, 11, 'X')
-    ..put(35, 15, '*')
-    ..put(8, 10, 'T')
-    ..put(24, 6, 'T')
-    ..put(39, 11, 'T')
-    ..put(43, 15, 'P');
-
-  // 3. act1_c3_sanctuary (34x16) — Bahay-Pulungan Campfire Bench Sanctuary + Upper Secret Chest
-  final g3 = _GridBuilder(34, 16)
-    ..put(2, 13, 'P')
-    ..put(16, 13, 'B')
-    ..put(13, 13, 'L')
-    ..put(10, 11, 'T')
-    ..put(22, 11, 'T')
-    ..hLine(6, 12, 9, '=')
-    ..hLine(20, 26, 9, '=')
-    ..hLine(13, 21, 6, 'M')
-    ..put(16, 5, 'K')
-    ..put(19, 5, '*')
-    ..put(17, 10, 'G')
-    ..put(31, 13, 'P');
-
-  // 4. act1_c4_gauntlet (48x18) — Crumble blocks, Pogo-Lanterns, Switch 'S' -> Locked Gate 'D'
-  final g4 = _GridBuilder(48, 18)
-    ..put(2, 15, 'P')
-    ..spikeTrench(10, 21)
-    ..hLine(12, 14, 13, 'C')
-    ..put(17, 13, 'O')
-    ..hLine(19, 20, 12, 'C')
-    ..hLine(24, 32, 11, '=')
-    ..vLine(25, 11, 15, 'H')
-    ..hLine(16, 22, 7, '=')
-    ..put(19, 6, 'S') // Switch perched above the chasm!
-    ..put(12, 8, 'G')
-    ..put(29, 8, 'G')
-    ..put(28, 10, 'X')
-    ..put(31, 15, '*')
-    ..fillRect(38, 1, 39, 11, '#')
-    ..lockedGateWall(38, 12, 15)
-    ..put(8, 11, 'T')
-    ..put(26, 9, 'T')
-    ..put(42, 12, 'T')
-    ..put(45, 15, 'P');
-
-  // 5. act1_c5_boss_sanduguan (36x16) — Boss Arena: Datu Makisig!
-  final g5 = _GridBuilder(36, 16)
-    ..put(2, 13, 'P')
-    ..hLine(7, 13, 10, '=')
-    ..hLine(22, 28, 10, '=')
-    ..put(18, 6, 'G')
-    ..put(10, 7, 'T')
-    ..put(25, 7, 'T')
-    ..put(18, 11, 'T')
-    ..put(33, 13, 'P');
+  final g1 = _GridBuilder(68, 20)..buildExpandedOutskirts(hasLeftPortal: false);
+  final g2 = _GridBuilder(74, 22)..buildExpandedMultiPathChasm();
+  final g3 = _GridBuilder(48, 18)..buildExpandedSanctuary(secretRightAlcove: false);
+  final g4 = _GridBuilder(76, 20)..buildExpandedGauntlet(includeChasm: true);
+  final g5 = _GridBuilder(52, 16)..buildExpandedBossArena(hasRightExit: true);
 
   return <DungeonChamberSpec>[
     DungeonChamberSpec(
       id: 'act1_c1_shore',
       actNumber: 1,
       title: 'Moonlit Barangay Landing',
-      subtitle: 'Act I • Coastal Caverns',
+      subtitle: 'Act I • Coastal Barangay & Hiraya\'s Plea',
       asciiGrid: g1.build(),
-      defaultSpawnCol: 3,
-      defaultSpawnRow: 13,
+      defaultSpawnCol: 4,
+      defaultSpawnRow: 17,
       minimapCol: 0,
       minimapRow: 0,
       loreTabletIds: const <String>['lore_act1_barangay_law'],
       chestRewardIds: const <String>['chest_act1_secret_shore'],
       exits: const <DungeonRoomExit>[
         DungeonRoomExit(
-          col: 35,
-          row: 13,
+          col: 59,
+          row: 17,
           targetRoomId: 'act1_c2_grotto',
           targetSpawnCol: 4,
-          targetSpawnRow: 15,
+          targetSpawnRow: 19,
           label: 'Sunken Sanduguan Grotto →',
         ),
       ],
@@ -671,16 +744,23 @@ List<DungeonChamberSpec> _buildAct1Chambers() {
         DungeonEnemySpawnSpec(
           spawnId: 'a1_c1_scout1',
           archetypeId: 'barangay_scout',
-          col: 18,
-          row: 13,
-          patrolRadiusTiles: 4,
+          col: 24,
+          row: 17,
+          patrolRadiusTiles: 5,
         ),
         DungeonEnemySpawnSpec(
           spawnId: 'a1_c1_wisp1',
           archetypeId: 'cave_alimaong',
-          col: 27,
-          row: 7,
-          patrolRadiusTiles: 3,
+          col: 35,
+          row: 9,
+          patrolRadiusTiles: 4,
+        ),
+        DungeonEnemySpawnSpec(
+          spawnId: 'a1_c1_raider1',
+          archetypeId: 'raider_leaper',
+          col: 48,
+          row: 17,
+          patrolRadiusTiles: 5,
         ),
       ],
     ),
@@ -688,10 +768,10 @@ List<DungeonChamberSpec> _buildAct1Chambers() {
       id: 'act1_c2_grotto',
       actNumber: 1,
       title: 'Sunken Sanduguan Grotto',
-      subtitle: 'Act I • Pogo-Lantern Trench',
+      subtitle: 'Act I • Multi-Path Trench & Lakan\'s Rescue',
       asciiGrid: g2.build(),
       defaultSpawnCol: 4,
-      defaultSpawnRow: 15,
+      defaultSpawnRow: 19,
       isDarkCavern: true,
       minimapCol: 1,
       minimapRow: 0,
@@ -699,18 +779,18 @@ List<DungeonChamberSpec> _buildAct1Chambers() {
       exits: const <DungeonRoomExit>[
         DungeonRoomExit(
           col: 2,
-          row: 15,
+          row: 19,
           targetRoomId: 'act1_c1_shore',
-          targetSpawnCol: 33,
-          targetSpawnRow: 13,
+          targetSpawnCol: 56,
+          targetSpawnRow: 17,
           label: '← Barangay Landing',
         ),
         DungeonRoomExit(
-          col: 43,
-          row: 15,
+          col: 71,
+          row: 19,
           targetRoomId: 'act1_c3_sanctuary',
           targetSpawnCol: 4,
-          targetSpawnRow: 13,
+          targetSpawnRow: 15,
           label: 'Bahay-Pulungan Sanctuary →',
         ),
       ],
@@ -718,15 +798,22 @@ List<DungeonChamberSpec> _buildAct1Chambers() {
         DungeonEnemySpawnSpec(
           spawnId: 'a1_c2_wisp1',
           archetypeId: 'cave_alimaong',
-          col: 18,
-          row: 6,
+          col: 26,
+          row: 7,
+          patrolRadiusTiles: 5,
+        ),
+        DungeonEnemySpawnSpec(
+          spawnId: 'a1_c2_scout1',
+          archetypeId: 'barangay_scout',
+          col: 46,
+          row: 19,
           patrolRadiusTiles: 4,
         ),
         DungeonEnemySpawnSpec(
           spawnId: 'a1_c2_raider1',
           archetypeId: 'raider_leaper',
-          col: 35,
-          row: 15,
+          col: 62,
+          row: 19,
           patrolRadiusTiles: 4,
         ),
       ],
@@ -738,7 +825,7 @@ List<DungeonChamberSpec> _buildAct1Chambers() {
       subtitle: 'Act I • Campfire Bench Checkpoint',
       asciiGrid: g3.build(),
       defaultSpawnCol: 4,
-      defaultSpawnRow: 13,
+      defaultSpawnRow: 15,
       isBenchSanctuary: true,
       minimapCol: 2,
       minimapRow: 0,
@@ -747,18 +834,18 @@ List<DungeonChamberSpec> _buildAct1Chambers() {
       exits: const <DungeonRoomExit>[
         DungeonRoomExit(
           col: 2,
-          row: 13,
+          row: 15,
           targetRoomId: 'act1_c2_grotto',
-          targetSpawnCol: 41,
-          targetSpawnRow: 15,
+          targetSpawnCol: 68,
+          targetSpawnRow: 19,
           label: '← Sanduguan Grotto',
         ),
         DungeonRoomExit(
-          col: 31,
-          row: 13,
+          col: 45,
+          row: 15,
           targetRoomId: 'act1_c4_gauntlet',
           targetSpawnCol: 4,
-          targetSpawnRow: 15,
+          targetSpawnRow: 17,
           label: 'Reef Raider Chasm →',
         ),
       ],
@@ -770,22 +857,22 @@ List<DungeonChamberSpec> _buildAct1Chambers() {
       subtitle: 'Act I • Charter Switch Gauntlet',
       asciiGrid: g4.build(),
       defaultSpawnCol: 4,
-      defaultSpawnRow: 15,
+      defaultSpawnRow: 17,
       isDarkCavern: true,
       minimapCol: 3,
       minimapRow: 0,
       exits: const <DungeonRoomExit>[
         DungeonRoomExit(
           col: 2,
-          row: 15,
+          row: 17,
           targetRoomId: 'act1_c3_sanctuary',
-          targetSpawnCol: 29,
-          targetSpawnRow: 13,
+          targetSpawnCol: 42,
+          targetSpawnRow: 15,
           label: '← Tide Sanctuary',
         ),
         DungeonRoomExit(
-          col: 45,
-          row: 15,
+          col: 73,
+          row: 17,
           targetRoomId: 'act1_c5_boss_sanduguan',
           targetSpawnCol: 4,
           targetSpawnRow: 13,
@@ -796,23 +883,23 @@ List<DungeonChamberSpec> _buildAct1Chambers() {
         DungeonEnemySpawnSpec(
           spawnId: 'a1_c4_scout1',
           archetypeId: 'barangay_scout',
-          col: 28,
-          row: 15,
-          patrolRadiusTiles: 3,
+          col: 35,
+          row: 17,
+          patrolRadiusTiles: 5,
         ),
         DungeonEnemySpawnSpec(
           spawnId: 'a1_c4_raider1',
           archetypeId: 'raider_leaper',
-          col: 33,
-          row: 15,
-          patrolRadiusTiles: 3,
+          col: 52,
+          row: 17,
+          patrolRadiusTiles: 5,
         ),
         DungeonEnemySpawnSpec(
           spawnId: 'a1_c4_wisp1',
           archetypeId: 'cave_alimaong',
-          col: 20,
+          col: 34,
           row: 5,
-          patrolRadiusTiles: 4,
+          patrolRadiusTiles: 5,
         ),
       ],
     ),
@@ -826,7 +913,7 @@ List<DungeonChamberSpec> _buildAct1Chambers() {
       defaultSpawnRow: 13,
       isBossArena: true,
       bossId: 'boss_datu_makisig',
-      bossSpawnCol: 26,
+      bossSpawnCol: 38,
       bossSpawnRow: 13,
       minimapCol: 4,
       minimapRow: 0,
@@ -835,16 +922,16 @@ List<DungeonChamberSpec> _buildAct1Chambers() {
           col: 2,
           row: 13,
           targetRoomId: 'act1_c4_gauntlet',
-          targetSpawnCol: 42,
-          targetSpawnRow: 15,
+          targetSpawnCol: 70,
+          targetSpawnRow: 17,
           label: '← Reef Raider Chasm',
         ),
         DungeonRoomExit(
-          col: 33,
+          col: 49,
           row: 13,
           targetRoomId: 'act2_c1_gates',
           targetSpawnCol: 4,
-          targetSpawnRow: 13,
+          targetSpawnRow: 17,
           label: 'Act II: Intramuros Bastion →',
           requiresBossDefeat: true,
         ),
@@ -853,97 +940,24 @@ List<DungeonChamberSpec> _buildAct1Chambers() {
   ];
 }
 
-// ─────────────────────────── ACT II (5 CHAMBERS) ──────────────────────────
+// ─────────────────────────── ACT II — SPANISH INTRAMUROS SIEGE ──────────────────────────
 
 List<DungeonChamberSpec> _buildAct2Chambers() {
-  final g1 = _GridBuilder(46, 16, floorChar: '#')
-    ..put(2, 13, 'P')
-    ..hLine(10, 17, 10, '=')
-    ..hLine(22, 29, 8, '=')
-    ..vLine(12, 10, 13, 'H')
-    ..put(14, 13, 'X')
-    ..put(24, 7, 'L')
-    ..put(9, 11, 'T')
-    ..put(25, 6, 'T')
-    ..put(37, 13, 'P')
-    ..secretAlcoveRight(
-      wallCol: 40,
-      topRow: 10,
-      bottomRow: 13,
-      chamberRightCol: 44,
-      lootChar: 'K',
-      secondChar: '*',
-    );
-
-  final g2 = _GridBuilder(42, 20, floorChar: '#')
-    ..put(2, 17, 'P')
-    ..hLine(6, 13, 14, '=')
-    ..vLine(8, 14, 17, 'H')
-    ..hLine(16, 23, 11, '=')
-    ..vLine(21, 11, 17, 'H')
-    ..hLine(9, 16, 8, '=')
-    ..hLine(25, 34, 8, '=')
-    ..spikeTrench(11, 20)
-    ..put(14, 15, 'O')
-    ..put(18, 15, 'O')
-    ..put(19, 6, 'G')
-    ..put(29, 7, 'L')
-    ..put(32, 17, '*')
-    ..put(12, 6, 'T')
-    ..put(30, 5, 'T')
-    ..put(39, 17, 'P');
-
-  final g3 = _GridBuilder(36, 16, floorChar: '#')
-    ..put(2, 13, 'P')
-    ..put(15, 13, 'B')
-    ..put(12, 13, 'L')
-    ..put(9, 11, 'T')
-    ..put(21, 11, 'T')
-    ..put(27, 13, 'P')
-    ..secretAlcoveRight(
-      wallCol: 30,
-      topRow: 10,
-      bottomRow: 13,
-      chamberRightCol: 34,
-      lootChar: 'K',
-      secondChar: '*',
-    );
-
-  final g4 = _GridBuilder(46, 18, floorChar: '#')
-    ..put(2, 15, 'P')
-    ..hLine(9, 16, 11, '=')
-    ..hLine(22, 29, 11, '=')
-    ..hLine(16, 22, 7, '=')
-    ..put(19, 6, 'S')
-    ..put(14, 8, 'G')
-    ..put(26, 8, 'G')
-    ..fillRect(36, 1, 37, 11, '#')
-    ..lockedGateWall(36, 12, 15)
-    ..put(8, 9, 'T')
-    ..put(28, 9, 'T')
-    ..put(40, 12, 'T')
-    ..put(43, 15, 'P');
-
-  final g5 = _GridBuilder(38, 16, floorChar: '#')
-    ..put(2, 13, 'P')
-    ..hLine(7, 13, 10, '=')
-    ..hLine(24, 30, 10, '=')
-    ..put(14, 6, 'G')
-    ..put(23, 6, 'G')
-    ..put(19, 9, 'O')
-    ..put(9, 7, 'T')
-    ..put(28, 7, 'T')
-    ..put(35, 13, 'P');
+  final g1 = _GridBuilder(68, 20, floorChar: '#')..buildExpandedOutskirts(hasLeftPortal: true);
+  final g2 = _GridBuilder(74, 22, floorChar: '#')..buildExpandedMultiPathChasm();
+  final g3 = _GridBuilder(48, 18, floorChar: '#')..buildExpandedSanctuary(secretRightAlcove: true);
+  final g4 = _GridBuilder(76, 20, floorChar: '#')..buildExpandedGauntlet(includeChasm: false);
+  final g5 = _GridBuilder(52, 16, floorChar: '#')..buildExpandedBossArena(hasRightExit: true);
 
   return <DungeonChamberSpec>[
     DungeonChamberSpec(
       id: 'act2_c1_gates',
       actNumber: 2,
       title: 'Bastion Outer Wall',
-      subtitle: 'Act II • Intramuros Ramparts',
+      subtitle: 'Act II • Fend Off the Spanish Conquistadors',
       asciiGrid: g1.build(),
       defaultSpawnCol: 4,
-      defaultSpawnRow: 13,
+      defaultSpawnRow: 17,
       minimapCol: 0,
       minimapRow: 1,
       loreTabletIds: const <String>['lore_act2_propaganda_press'],
@@ -951,35 +965,49 @@ List<DungeonChamberSpec> _buildAct2Chambers() {
       exits: const <DungeonRoomExit>[
         DungeonRoomExit(
           col: 2,
-          row: 13,
+          row: 17,
           targetRoomId: 'act1_c5_boss_sanduguan',
-          targetSpawnCol: 30,
+          targetSpawnCol: 46,
           targetSpawnRow: 13,
           label: '← Act I: Sanduguan Altar',
         ),
         DungeonRoomExit(
-          col: 37,
-          row: 13,
+          col: 59,
+          row: 17,
           targetRoomId: 'act2_c2_belltower',
           targetSpawnCol: 4,
-          targetSpawnRow: 17,
+          targetSpawnRow: 19,
           label: 'Belltower Spire →',
         ),
       ],
       enemySpawns: const <DungeonEnemySpawnSpec>[
         DungeonEnemySpawnSpec(
+          spawnId: 'a2_c1_conq1',
+          archetypeId: 'spanish_conquistador',
+          col: 22,
+          row: 17,
+          patrolRadiusTiles: 5,
+        ),
+        DungeonEnemySpawnSpec(
           spawnId: 'a2_c1_lancer1',
           archetypeId: 'guardia_lancer',
-          col: 18,
-          row: 13,
-          patrolRadiusTiles: 4,
+          col: 35,
+          row: 17,
+          patrolRadiusTiles: 5,
         ),
         DungeonEnemySpawnSpec(
           spawnId: 'a2_c1_musk1',
           archetypeId: 'intramuros_musketeer',
-          col: 27,
-          row: 7,
+          col: 40,
+          row: 12,
           patrolRadiusTiles: 2,
+        ),
+        DungeonEnemySpawnSpec(
+          spawnId: 'a2_c1_conq2',
+          archetypeId: 'spanish_conquistador',
+          col: 50,
+          row: 17,
+          patrolRadiusTiles: 4,
         ),
       ],
     ),
@@ -987,10 +1015,10 @@ List<DungeonChamberSpec> _buildAct2Chambers() {
       id: 'act2_c2_belltower',
       actNumber: 2,
       title: 'Spire of the Nightwings',
-      subtitle: 'Act II • Belltower Ascent',
+      subtitle: 'Act II • Spanish Garrison & Elias\'s Cell',
       asciiGrid: g2.build(),
       defaultSpawnCol: 4,
-      defaultSpawnRow: 17,
+      defaultSpawnRow: 19,
       isDarkCavern: true,
       minimapCol: 1,
       minimapRow: 1,
@@ -998,18 +1026,18 @@ List<DungeonChamberSpec> _buildAct2Chambers() {
       exits: const <DungeonRoomExit>[
         DungeonRoomExit(
           col: 2,
-          row: 17,
+          row: 19,
           targetRoomId: 'act2_c1_gates',
-          targetSpawnCol: 35,
-          targetSpawnRow: 13,
+          targetSpawnCol: 56,
+          targetSpawnRow: 17,
           label: '← Bastion Outer Wall',
         ),
         DungeonRoomExit(
-          col: 39,
-          row: 17,
+          col: 71,
+          row: 19,
           targetRoomId: 'act2_c3_sanctuary',
           targetSpawnCol: 4,
-          targetSpawnRow: 13,
+          targetSpawnRow: 15,
           label: 'La Solidaridad Sanctuary →',
         ),
       ],
@@ -1017,23 +1045,30 @@ List<DungeonChamberSpec> _buildAct2Chambers() {
         DungeonEnemySpawnSpec(
           spawnId: 'a2_c2_bat1',
           archetypeId: 'belltower_bat',
-          col: 14,
-          row: 5,
-          patrolRadiusTiles: 4,
+          col: 24,
+          row: 6,
+          patrolRadiusTiles: 5,
         ),
         DungeonEnemySpawnSpec(
-          spawnId: 'a2_c2_bat2',
-          archetypeId: 'belltower_bat',
-          col: 28,
-          row: 5,
+          spawnId: 'a2_c2_conq1',
+          archetypeId: 'spanish_conquistador',
+          col: 46,
+          row: 19,
           patrolRadiusTiles: 4,
         ),
         DungeonEnemySpawnSpec(
           spawnId: 'a2_c2_musk1',
           archetypeId: 'intramuros_musketeer',
-          col: 31,
-          row: 7,
+          col: 58,
+          row: 10,
           patrolRadiusTiles: 2,
+        ),
+        DungeonEnemySpawnSpec(
+          spawnId: 'a2_c2_lancer1',
+          archetypeId: 'guardia_lancer',
+          col: 63,
+          row: 19,
+          patrolRadiusTiles: 4,
         ),
       ],
     ),
@@ -1044,7 +1079,7 @@ List<DungeonChamberSpec> _buildAct2Chambers() {
       subtitle: 'Act II • Campfire Bench Checkpoint',
       asciiGrid: g3.build(),
       defaultSpawnCol: 4,
-      defaultSpawnRow: 13,
+      defaultSpawnRow: 15,
       isBenchSanctuary: true,
       minimapCol: 2,
       minimapRow: 1,
@@ -1053,18 +1088,18 @@ List<DungeonChamberSpec> _buildAct2Chambers() {
       exits: const <DungeonRoomExit>[
         DungeonRoomExit(
           col: 2,
-          row: 13,
+          row: 15,
           targetRoomId: 'act2_c2_belltower',
-          targetSpawnCol: 37,
-          targetSpawnRow: 17,
+          targetSpawnCol: 68,
+          targetSpawnRow: 19,
           label: '← Belltower Spire',
         ),
         DungeonRoomExit(
-          col: 27,
-          row: 13,
+          col: 39,
+          row: 15,
           targetRoomId: 'act2_c4_mateo_courtyard',
           targetSpawnCol: 4,
-          targetSpawnRow: 15,
+          targetSpawnRow: 17,
           label: 'Cloister of the Sworn Duel →',
         ),
       ],
@@ -1073,24 +1108,24 @@ List<DungeonChamberSpec> _buildAct2Chambers() {
       id: 'act2_c4_mateo_courtyard',
       actNumber: 2,
       title: 'Cloister of the Sworn Duel',
-      subtitle: 'Act II • Rival Mateo Encounter',
+      subtitle: 'Act II • Rival Mateo & Conquistador Escort',
       asciiGrid: g4.build(),
       defaultSpawnCol: 4,
-      defaultSpawnRow: 15,
+      defaultSpawnRow: 17,
       minimapCol: 3,
       minimapRow: 1,
       exits: const <DungeonRoomExit>[
         DungeonRoomExit(
           col: 2,
-          row: 15,
+          row: 17,
           targetRoomId: 'act2_c3_sanctuary',
-          targetSpawnCol: 25,
-          targetSpawnRow: 13,
+          targetSpawnCol: 36,
+          targetSpawnRow: 15,
           label: '← Press Sanctuary',
         ),
         DungeonRoomExit(
-          col: 43,
-          row: 15,
+          col: 73,
+          row: 17,
           targetRoomId: 'act2_c5_boss_valdes',
           targetSpawnCol: 4,
           targetSpawnRow: 13,
@@ -1099,11 +1134,18 @@ List<DungeonChamberSpec> _buildAct2Chambers() {
       ],
       enemySpawns: const <DungeonEnemySpawnSpec>[
         DungeonEnemySpawnSpec(
+          spawnId: 'a2_c4_conq1',
+          archetypeId: 'spanish_conquistador',
+          col: 22,
+          row: 17,
+          patrolRadiusTiles: 4,
+        ),
+        DungeonEnemySpawnSpec(
           spawnId: 'a2_c4_rival_mateo',
           archetypeId: 'rival_mateo',
-          col: 25,
-          row: 15,
-          patrolRadiusTiles: 6,
+          col: 44,
+          row: 17,
+          patrolRadiusTiles: 8,
         ),
       ],
     ),
@@ -1117,7 +1159,7 @@ List<DungeonChamberSpec> _buildAct2Chambers() {
       defaultSpawnRow: 13,
       isBossArena: true,
       bossId: 'boss_valdes',
-      bossSpawnCol: 28,
+      bossSpawnCol: 38,
       bossSpawnRow: 13,
       minimapCol: 4,
       minimapRow: 1,
@@ -1126,16 +1168,16 @@ List<DungeonChamberSpec> _buildAct2Chambers() {
           col: 2,
           row: 13,
           targetRoomId: 'act2_c4_mateo_courtyard',
-          targetSpawnCol: 40,
-          targetSpawnRow: 15,
+          targetSpawnCol: 70,
+          targetSpawnRow: 17,
           label: '← Cloister Courtyard',
         ),
         DungeonRoomExit(
-          col: 35,
+          col: 49,
           row: 13,
           targetRoomId: 'act3_c1_nave',
           targetSpawnCol: 4,
-          targetSpawnRow: 13,
+          targetSpawnRow: 17,
           label: 'Act III: Barasoain Nave →',
           requiresBossDefeat: true,
         ),
@@ -1147,92 +1189,21 @@ List<DungeonChamberSpec> _buildAct2Chambers() {
 // ─────────────────────────── ACT III (5 CHAMBERS) ─────────────────────────
 
 List<DungeonChamberSpec> _buildAct3Chambers() {
-  final g1 = _GridBuilder(46, 16, floorChar: 'M')
-    ..put(2, 13, 'P')
-    ..hLine(10, 17, 10, '=')
-    ..hLine(23, 31, 9, '=')
-    ..put(13, 13, 'X')
-    ..put(27, 8, 'L')
-    ..put(8, 10, 'T')
-    ..put(20, 8, 'T')
-    ..put(33, 10, 'T')
-    ..put(37, 13, 'P')
-    ..secretAlcoveRight(
-      wallCol: 40,
-      topRow: 10,
-      bottomRow: 13,
-      chamberRightCol: 44,
-      lootChar: 'K',
-      secondChar: '*',
-    );
-
-  final g2 = _GridBuilder(48, 18, floorChar: 'M')
-    ..put(2, 15, 'P')
-    ..spikeTrench(12, 31)
-    ..hLine(13, 15, 13, 'C')
-    ..put(18, 13, 'O')
-    ..put(22, 12, 'O')
-    ..hLine(25, 27, 13, 'C')
-    ..put(29, 13, 'O')
-    ..put(20, 7, 'G')
-    ..put(28, 7, 'G')
-    ..hLine(34, 41, 11, '=')
-    ..put(38, 10, 'L')
-    ..put(35, 15, '*')
-    ..put(9, 11, 'T')
-    ..put(24, 5, 'T')
-    ..put(39, 9, 'T')
-    ..put(45, 15, 'P');
-
-  final g3 = _GridBuilder(36, 16, floorChar: 'M')
-    ..put(2, 13, 'P')
-    ..put(16, 13, 'B')
-    ..put(13, 13, 'L')
-    ..hLine(12, 22, 7, '=')
-    ..put(17, 10, 'G')
-    ..put(17, 6, 'K')
-    ..put(20, 6, '*')
-    ..put(9, 11, 'T')
-    ..put(24, 11, 'T')
-    ..put(33, 13, 'P');
-
-  final g4 = _GridBuilder(48, 18, floorChar: '#')
-    ..put(2, 15, 'P')
-    ..hLine(8, 16, 11, '=')
-    ..hLine(20, 30, 11, '=')
-    ..vLine(10, 11, 15, 'H')
-    ..hLine(15, 23, 7, '=')
-    ..put(19, 6, 'S')
-    ..put(13, 10, 'X')
-    ..put(28, 10, '*')
-    ..fillRect(38, 1, 39, 11, '#')
-    ..lockedGateWall(38, 12, 15)
-    ..put(11, 8, 'T')
-    ..put(27, 8, 'T')
-    ..put(42, 12, 'T')
-    ..put(45, 15, 'P');
-
-  final g5 = _GridBuilder(38, 18, floorChar: '#')
-    ..put(2, 15, 'P')
-    ..hLine(7, 13, 11, '=')
-    ..hLine(24, 30, 11, '=')
-    ..put(16, 10, 'O')
-    ..put(21, 10, 'O')
-    ..put(13, 6, 'G')
-    ..put(24, 6, 'G')
-    ..put(9, 8, 'T')
-    ..put(28, 8, 'T')
-    ..put(35, 15, 'P');
+  final g1 = _GridBuilder(68, 20, floorChar: 'M')..buildExpandedOutskirts(hasLeftPortal: true);
+  final g2 = _GridBuilder(74, 22, floorChar: 'M')..buildExpandedMultiPathChasm();
+  final g3 = _GridBuilder(48, 18, floorChar: 'M')..buildExpandedSanctuary(secretRightAlcove: false);
+  final g4 = _GridBuilder(76, 20, floorChar: '#')..buildExpandedGauntlet(includeChasm: true);
+  final g5 = _GridBuilder(52, 18, floorChar: '#')..buildExpandedBossArena(hasRightExit: true);
 
   return <DungeonChamberSpec>[
     DungeonChamberSpec(
       id: 'act3_c1_nave',
       actNumber: 3,
       title: 'Candlelit Barasoain Nave',
-      subtitle: 'Act III • Malolos Catacombs',
+      subtitle: 'Act III • Malolos Republic Defense',
       asciiGrid: g1.build(),
       defaultSpawnCol: 4,
-      defaultSpawnRow: 13,
+      defaultSpawnRow: 17,
       minimapCol: 0,
       minimapRow: 2,
       loreTabletIds: const <String>['lore_act3_barasoain_assembly'],
@@ -1240,18 +1211,18 @@ List<DungeonChamberSpec> _buildAct3Chambers() {
       exits: const <DungeonRoomExit>[
         DungeonRoomExit(
           col: 2,
-          row: 13,
+          row: 17,
           targetRoomId: 'act2_c5_boss_valdes',
-          targetSpawnCol: 32,
+          targetSpawnCol: 46,
           targetSpawnRow: 13,
           label: '← Act II: Garrison Hall',
         ),
         DungeonRoomExit(
-          col: 37,
-          row: 13,
+          col: 59,
+          row: 17,
           targetRoomId: 'act3_c2_catacombs',
           targetSpawnCol: 4,
-          targetSpawnRow: 15,
+          targetSpawnRow: 19,
           label: 'Sunken Charter Catacombs →',
         ),
       ],
@@ -1259,15 +1230,22 @@ List<DungeonChamberSpec> _buildAct3Chambers() {
         DungeonEnemySpawnSpec(
           spawnId: 'a3_c1_sword1',
           archetypeId: 'malolos_swordsman',
-          col: 18,
-          row: 13,
-          patrolRadiusTiles: 4,
+          col: 24,
+          row: 17,
+          patrolRadiusTiles: 5,
         ),
         DungeonEnemySpawnSpec(
           spawnId: 'a3_c1_acolyte1',
           archetypeId: 'tribunal_acolyte',
-          col: 27,
-          row: 6,
+          col: 38,
+          row: 7,
+          patrolRadiusTiles: 5,
+        ),
+        DungeonEnemySpawnSpec(
+          spawnId: 'a3_c1_sword2',
+          archetypeId: 'malolos_swordsman',
+          col: 50,
+          row: 17,
           patrolRadiusTiles: 4,
         ),
       ],
@@ -1276,10 +1254,10 @@ List<DungeonChamberSpec> _buildAct3Chambers() {
       id: 'act3_c2_catacombs',
       actNumber: 3,
       title: 'Sunken Charter Catacombs',
-      subtitle: 'Act III • Crumble & Pogo Abyss',
+      subtitle: 'Act III • Crumble Abyss & Teodoro\'s Scrolls',
       asciiGrid: g2.build(),
       defaultSpawnCol: 4,
-      defaultSpawnRow: 15,
+      defaultSpawnRow: 19,
       isDarkCavern: true,
       minimapCol: 1,
       minimapRow: 2,
@@ -1287,18 +1265,18 @@ List<DungeonChamberSpec> _buildAct3Chambers() {
       exits: const <DungeonRoomExit>[
         DungeonRoomExit(
           col: 2,
-          row: 15,
+          row: 19,
           targetRoomId: 'act3_c1_nave',
-          targetSpawnCol: 35,
-          targetSpawnRow: 13,
+          targetSpawnCol: 56,
+          targetSpawnRow: 17,
           label: '← Barasoain Nave',
         ),
         DungeonRoomExit(
-          col: 45,
-          row: 15,
+          col: 71,
+          row: 19,
           targetRoomId: 'act3_c3_sanctuary',
           targetSpawnCol: 4,
-          targetSpawnRow: 13,
+          targetSpawnRow: 15,
           label: 'Malolos Assembly Sanctuary →',
         ),
       ],
@@ -1306,15 +1284,22 @@ List<DungeonChamberSpec> _buildAct3Chambers() {
         DungeonEnemySpawnSpec(
           spawnId: 'a3_c2_acolyte1',
           archetypeId: 'tribunal_acolyte',
-          col: 21,
+          col: 28,
           row: 6,
-          patrolRadiusTiles: 4,
+          patrolRadiusTiles: 5,
         ),
         DungeonEnemySpawnSpec(
           spawnId: 'a3_c2_sword1',
           archetypeId: 'malolos_swordsman',
-          col: 38,
-          row: 15,
+          col: 47,
+          row: 19,
+          patrolRadiusTiles: 4,
+        ),
+        DungeonEnemySpawnSpec(
+          spawnId: 'a3_c2_conq1',
+          archetypeId: 'spanish_conquistador',
+          col: 64,
+          row: 19,
           patrolRadiusTiles: 4,
         ),
       ],
@@ -1326,7 +1311,7 @@ List<DungeonChamberSpec> _buildAct3Chambers() {
       subtitle: 'Act III • Campfire Bench Checkpoint',
       asciiGrid: g3.build(),
       defaultSpawnCol: 4,
-      defaultSpawnRow: 13,
+      defaultSpawnRow: 15,
       isBenchSanctuary: true,
       minimapCol: 2,
       minimapRow: 2,
@@ -1335,18 +1320,18 @@ List<DungeonChamberSpec> _buildAct3Chambers() {
       exits: const <DungeonRoomExit>[
         DungeonRoomExit(
           col: 2,
-          row: 13,
+          row: 15,
           targetRoomId: 'act3_c2_catacombs',
-          targetSpawnCol: 43,
-          targetSpawnRow: 15,
+          targetSpawnCol: 68,
+          targetSpawnRow: 19,
           label: '← Charter Catacombs',
         ),
         DungeonRoomExit(
-          col: 33,
-          row: 13,
+          col: 45,
+          row: 15,
           targetRoomId: 'act3_c4_switch_crypt',
           targetSpawnCol: 4,
-          targetSpawnRow: 15,
+          targetSpawnRow: 17,
           label: 'Hall of the Three Branches →',
         ),
       ],
@@ -1358,22 +1343,22 @@ List<DungeonChamberSpec> _buildAct3Chambers() {
       subtitle: 'Act III • Charter Switch Gauntlet',
       asciiGrid: g4.build(),
       defaultSpawnCol: 4,
-      defaultSpawnRow: 15,
+      defaultSpawnRow: 17,
       isDarkCavern: true,
       minimapCol: 3,
       minimapRow: 2,
       exits: const <DungeonRoomExit>[
         DungeonRoomExit(
           col: 2,
-          row: 15,
+          row: 17,
           targetRoomId: 'act3_c3_sanctuary',
-          targetSpawnCol: 31,
-          targetSpawnRow: 13,
+          targetSpawnCol: 42,
+          targetSpawnRow: 15,
           label: '← Malolos Sanctuary',
         ),
         DungeonRoomExit(
-          col: 45,
-          row: 15,
+          col: 73,
+          row: 17,
           targetRoomId: 'act3_c5_boss_calderon',
           targetSpawnCol: 4,
           targetSpawnRow: 15,
@@ -1384,23 +1369,23 @@ List<DungeonChamberSpec> _buildAct3Chambers() {
         DungeonEnemySpawnSpec(
           spawnId: 'a3_c4_lancer1',
           archetypeId: 'guardia_lancer',
-          col: 20,
-          row: 15,
-          patrolRadiusTiles: 4,
+          col: 34,
+          row: 17,
+          patrolRadiusTiles: 5,
         ),
         DungeonEnemySpawnSpec(
           spawnId: 'a3_c4_sword1',
           archetypeId: 'malolos_swordsman',
-          col: 30,
-          row: 15,
-          patrolRadiusTiles: 4,
+          col: 52,
+          row: 17,
+          patrolRadiusTiles: 5,
         ),
         DungeonEnemySpawnSpec(
           spawnId: 'a3_c4_acolyte1',
           archetypeId: 'tribunal_acolyte',
-          col: 24,
+          col: 42,
           row: 6,
-          patrolRadiusTiles: 4,
+          patrolRadiusTiles: 5,
         ),
       ],
     ),
@@ -1414,7 +1399,7 @@ List<DungeonChamberSpec> _buildAct3Chambers() {
       defaultSpawnRow: 15,
       isBossArena: true,
       bossId: 'boss_calderon',
-      bossSpawnCol: 27,
+      bossSpawnCol: 38,
       bossSpawnRow: 10,
       minimapCol: 4,
       minimapRow: 2,
@@ -1423,16 +1408,16 @@ List<DungeonChamberSpec> _buildAct3Chambers() {
           col: 2,
           row: 15,
           targetRoomId: 'act3_c4_switch_crypt',
-          targetSpawnCol: 42,
-          targetSpawnRow: 15,
+          targetSpawnCol: 70,
+          targetSpawnRow: 17,
           label: '← Hall of Three Branches',
         ),
         DungeonRoomExit(
-          col: 35,
+          col: 49,
           row: 15,
           targetRoomId: 'act4_c1_viaduct',
           targetSpawnCol: 4,
-          targetSpawnRow: 13,
+          targetSpawnRow: 17,
           label: 'Act IV: Commonwealth Sky-Bridges →',
           requiresBossDefeat: true,
         ),
@@ -1444,96 +1429,21 @@ List<DungeonChamberSpec> _buildAct3Chambers() {
 // ─────────────────────────── ACT IV (5 CHAMBERS) ──────────────────────────
 
 List<DungeonChamberSpec> _buildAct4Chambers() {
-  final g1 = _GridBuilder(48, 16, floorChar: '#')
-    ..put(2, 13, 'P')
-    ..spikeTrench(14, 22)
-    ..hLine(13, 23, 10, '=')
-    ..put(18, 6, 'G')
-    ..hLine(27, 34, 9, '=')
-    ..put(31, 8, 'L')
-    ..put(10, 11, 'T')
-    ..put(26, 7, 'T')
-    ..put(39, 13, 'P')
-    ..secretAlcoveRight(
-      wallCol: 42,
-      topRow: 10,
-      bottomRow: 13,
-      chamberRightCol: 46,
-      lootChar: 'K',
-      secondChar: '*',
-    );
-
-  final g2 = _GridBuilder(44, 20, floorChar: '#')
-    ..put(2, 17, 'P')
-    ..hLine(7, 13, 14, '=')
-    ..vLine(9, 14, 17, 'H')
-    ..hLine(16, 22, 11, 'C')
-    ..hLine(25, 32, 9, '=')
-    ..put(19, 7, 'G')
-    ..put(28, 6, 'G')
-    ..spikeTrench(13, 27)
-    ..put(16, 15, 'O')
-    ..put(21, 15, 'O')
-    ..put(25, 15, 'O')
-    ..put(30, 8, 'L')
-    ..put(36, 17, '*')
-    ..put(11, 10, 'T')
-    ..put(32, 7, 'T')
-    ..put(41, 17, 'P');
-
-  final g3 = _GridBuilder(36, 16, floorChar: '#')
-    ..put(2, 13, 'P')
-    ..put(15, 13, 'B')
-    ..put(12, 13, 'L')
-    ..put(9, 10, 'T')
-    ..put(21, 10, 'T')
-    ..put(27, 13, 'P')
-    ..secretAlcoveRight(
-      wallCol: 30,
-      topRow: 10,
-      bottomRow: 13,
-      chamberRightCol: 34,
-      lootChar: 'K',
-      secondChar: '*',
-    );
-
-  final g4 = _GridBuilder(50, 18, floorChar: '#')
-    ..put(2, 15, 'P')
-    ..spikeTrench(11, 29)
-    ..put(14, 13, 'O')
-    ..put(18, 9, 'G')
-    ..hLine(20, 22, 12, 'C')
-    ..put(25, 13, 'O')
-    ..put(28, 9, 'G')
-    ..hLine(31, 37, 11, '=')
-    ..hLine(18, 24, 6, '=')
-    ..put(21, 5, 'S')
-    ..fillRect(40, 1, 41, 11, '#')
-    ..lockedGateWall(40, 12, 15)
-    ..put(8, 10, 'T')
-    ..put(24, 4, 'T')
-    ..put(44, 12, 'T')
-    ..put(47, 15, 'P');
-
-  final g5 = _GridBuilder(38, 16, floorChar: '#')
-    ..put(2, 13, 'P')
-    ..hLine(6, 13, 10, '=')
-    ..hLine(24, 31, 10, '=')
-    ..hLine(15, 22, 7, '=')
-    ..put(19, 10, 'O')
-    ..put(11, 6, 'T')
-    ..put(26, 6, 'T')
-    ..put(35, 13, 'P');
+  final g1 = _GridBuilder(68, 20, floorChar: '#')..buildExpandedOutskirts(hasLeftPortal: true);
+  final g2 = _GridBuilder(74, 22, floorChar: '#')..buildExpandedMultiPathChasm();
+  final g3 = _GridBuilder(48, 18, floorChar: '#')..buildExpandedSanctuary(secretRightAlcove: true);
+  final g4 = _GridBuilder(76, 20, floorChar: '#')..buildExpandedGauntlet(includeChasm: true);
+  final g5 = _GridBuilder(52, 16, floorChar: '#')..buildExpandedBossArena(hasRightExit: true);
 
   return <DungeonChamberSpec>[
     DungeonChamberSpec(
       id: 'act4_c1_viaduct',
       actNumber: 4,
       title: 'Manila Deco Viaduct',
-      subtitle: 'Act IV • Commonwealth Sky-Bridges',
+      subtitle: 'Act IV • Art-Deco Sky-Bridge & Tomas\'s Relay',
       asciiGrid: g1.build(),
       defaultSpawnCol: 4,
-      defaultSpawnRow: 13,
+      defaultSpawnRow: 17,
       minimapCol: 0,
       minimapRow: 3,
       loreTabletIds: const <String>['lore_act4_commonwealth_charter'],
@@ -1541,18 +1451,18 @@ List<DungeonChamberSpec> _buildAct4Chambers() {
       exits: const <DungeonRoomExit>[
         DungeonRoomExit(
           col: 2,
-          row: 13,
+          row: 17,
           targetRoomId: 'act3_c5_boss_calderon',
-          targetSpawnCol: 32,
+          targetSpawnCol: 46,
           targetSpawnRow: 15,
           label: '← Act III: First Republic Sanctum',
         ),
         DungeonRoomExit(
-          col: 39,
-          row: 13,
+          col: 59,
+          row: 17,
           targetRoomId: 'act4_c2_clocktower',
           targetSpawnCol: 4,
-          targetSpawnRow: 17,
+          targetSpawnRow: 19,
           label: 'Gearworks Ascent →',
         ),
       ],
@@ -1560,16 +1470,23 @@ List<DungeonChamberSpec> _buildAct4Chambers() {
         DungeonEnemySpawnSpec(
           spawnId: 'a4_c1_auto1',
           archetypeId: 'deco_automaton',
-          col: 28,
-          row: 13,
-          patrolRadiusTiles: 4,
+          col: 26,
+          row: 17,
+          patrolRadiusTiles: 5,
         ),
         DungeonEnemySpawnSpec(
           spawnId: 'a4_c1_sniper1',
           archetypeId: 'skybridge_sniper',
-          col: 32,
-          row: 8,
+          col: 40,
+          row: 12,
           patrolRadiusTiles: 2,
+        ),
+        DungeonEnemySpawnSpec(
+          spawnId: 'a4_c1_auto2',
+          archetypeId: 'deco_automaton',
+          col: 50,
+          row: 17,
+          patrolRadiusTiles: 4,
         ),
       ],
     ),
@@ -1577,52 +1494,52 @@ List<DungeonChamberSpec> _buildAct4Chambers() {
       id: 'act4_c2_clocktower',
       actNumber: 4,
       title: 'Gearworks Ascent',
-      subtitle: 'Act IV • Clockwork Spire',
+      subtitle: 'Act IV • Clockwork Spire & Signal Crew Rescue',
       asciiGrid: g2.build(),
       defaultSpawnCol: 4,
-      defaultSpawnRow: 17,
+      defaultSpawnRow: 19,
       minimapCol: 1,
       minimapRow: 3,
       loreTabletIds: const <String>['lore_act4_womens_suffrage'],
       exits: const <DungeonRoomExit>[
         DungeonRoomExit(
           col: 2,
-          row: 17,
+          row: 19,
           targetRoomId: 'act4_c1_viaduct',
-          targetSpawnCol: 37,
-          targetSpawnRow: 13,
+          targetSpawnCol: 56,
+          targetSpawnRow: 17,
           label: '← Deco Viaduct',
         ),
         DungeonRoomExit(
-          col: 41,
-          row: 17,
+          col: 71,
+          row: 19,
           targetRoomId: 'act4_c3_sanctuary',
           targetSpawnCol: 4,
-          targetSpawnRow: 13,
+          targetSpawnRow: 15,
           label: 'Legislative Concourse →',
         ),
       ],
       enemySpawns: const <DungeonEnemySpawnSpec>[
         DungeonEnemySpawnSpec(
-          spawnId: 'a4_c2_sniper1',
-          archetypeId: 'skybridge_sniper',
-          col: 27,
-          row: 8,
-          patrolRadiusTiles: 2,
-        ),
-        DungeonEnemySpawnSpec(
           spawnId: 'a4_c2_bat1',
           archetypeId: 'belltower_bat',
-          col: 18,
-          row: 5,
-          patrolRadiusTiles: 4,
+          col: 26,
+          row: 6,
+          patrolRadiusTiles: 5,
+        ),
+        DungeonEnemySpawnSpec(
+          spawnId: 'a4_c2_sniper1',
+          archetypeId: 'skybridge_sniper',
+          col: 48,
+          row: 13,
+          patrolRadiusTiles: 2,
         ),
         DungeonEnemySpawnSpec(
           spawnId: 'a4_c2_auto1',
           archetypeId: 'deco_automaton',
-          col: 34,
-          row: 17,
-          patrolRadiusTiles: 3,
+          col: 64,
+          row: 19,
+          patrolRadiusTiles: 4,
         ),
       ],
     ),
@@ -1633,7 +1550,7 @@ List<DungeonChamberSpec> _buildAct4Chambers() {
       subtitle: 'Act IV • Campfire Bench Checkpoint',
       asciiGrid: g3.build(),
       defaultSpawnCol: 4,
-      defaultSpawnRow: 13,
+      defaultSpawnRow: 15,
       isBenchSanctuary: true,
       minimapCol: 2,
       minimapRow: 3,
@@ -1642,18 +1559,18 @@ List<DungeonChamberSpec> _buildAct4Chambers() {
       exits: const <DungeonRoomExit>[
         DungeonRoomExit(
           col: 2,
-          row: 13,
+          row: 15,
           targetRoomId: 'act4_c2_clocktower',
-          targetSpawnCol: 39,
-          targetSpawnRow: 17,
+          targetSpawnCol: 68,
+          targetSpawnRow: 19,
           label: '← Gearworks Ascent',
         ),
         DungeonRoomExit(
-          col: 27,
-          row: 13,
+          col: 39,
+          row: 15,
           targetRoomId: 'act4_c4_sky_gauntlet',
           targetSpawnCol: 4,
-          targetSpawnRow: 15,
+          targetSpawnRow: 17,
           label: 'High-Altitude Trial →',
         ),
       ],
@@ -1665,21 +1582,21 @@ List<DungeonChamberSpec> _buildAct4Chambers() {
       subtitle: 'Act IV • Grapple & Switch Chasm',
       asciiGrid: g4.build(),
       defaultSpawnCol: 4,
-      defaultSpawnRow: 15,
+      defaultSpawnRow: 17,
       minimapCol: 3,
       minimapRow: 3,
       exits: const <DungeonRoomExit>[
         DungeonRoomExit(
           col: 2,
-          row: 15,
+          row: 17,
           targetRoomId: 'act4_c3_sanctuary',
-          targetSpawnCol: 25,
-          targetSpawnRow: 13,
+          targetSpawnCol: 36,
+          targetSpawnRow: 15,
           label: '← Concourse Bench',
         ),
         DungeonRoomExit(
-          col: 47,
-          row: 15,
+          col: 73,
+          row: 17,
           targetRoomId: 'act4_c5_boss_warden',
           targetSpawnCol: 4,
           targetSpawnRow: 13,
@@ -1690,15 +1607,15 @@ List<DungeonChamberSpec> _buildAct4Chambers() {
         DungeonEnemySpawnSpec(
           spawnId: 'a4_c4_auto1',
           archetypeId: 'deco_automaton',
-          col: 35,
-          row: 15,
-          patrolRadiusTiles: 3,
+          col: 36,
+          row: 17,
+          patrolRadiusTiles: 5,
         ),
         DungeonEnemySpawnSpec(
           spawnId: 'a4_c4_sniper1',
           archetypeId: 'skybridge_sniper',
-          col: 34,
-          row: 10,
+          col: 55,
+          row: 9,
           patrolRadiusTiles: 2,
         ),
       ],
@@ -1713,7 +1630,7 @@ List<DungeonChamberSpec> _buildAct4Chambers() {
       defaultSpawnRow: 13,
       isBossArena: true,
       bossId: 'boss_commonwealth_warden',
-      bossSpawnCol: 28,
+      bossSpawnCol: 38,
       bossSpawnRow: 13,
       minimapCol: 4,
       minimapRow: 3,
@@ -1722,16 +1639,16 @@ List<DungeonChamberSpec> _buildAct4Chambers() {
           col: 2,
           row: 13,
           targetRoomId: 'act4_c4_sky_gauntlet',
-          targetSpawnCol: 44,
-          targetSpawnRow: 15,
+          targetSpawnCol: 70,
+          targetSpawnRow: 17,
           label: '← High-Altitude Trial',
         ),
         DungeonRoomExit(
-          col: 35,
+          col: 49,
           row: 13,
           targetRoomId: 'act5_c1_tunnel',
           targetSpawnCol: 4,
-          targetSpawnRow: 13,
+          targetSpawnRow: 17,
           label: 'Act V: Corregidor Tunnels →',
           requiresBossDefeat: true,
         ),
@@ -1740,87 +1657,24 @@ List<DungeonChamberSpec> _buildAct4Chambers() {
   ];
 }
 
-// ─────────────────────────── ACT V (5 CHAMBERS) ───────────────────────────
+// ─────────────────────────── ACT V — WWII IMPERIAL JAPANESE GARRISON ───────────────────────────
 
 List<DungeonChamberSpec> _buildAct5Chambers() {
-  final g1 = _GridBuilder(46, 16, floorChar: '#')
-    ..put(2, 13, 'P')
-    ..hLine(11, 18, 10, '=')
-    ..hLine(23, 31, 9, '=')
-    ..put(15, 13, 'X')
-    ..put(26, 8, 'L')
-    ..put(9, 10, 'T')
-    ..put(25, 7, 'T')
-    ..put(37, 13, 'P')
-    ..secretAlcoveRight(
-      wallCol: 40,
-      topRow: 10,
-      bottomRow: 13,
-      chamberRightCol: 44,
-      lootChar: 'K',
-      secondChar: '*',
-    );
-
-  final g2 = _GridBuilder(48, 18, floorChar: '#')
-    ..put(2, 15, 'P')
-    ..spikeTrench(13, 28)
-    ..put(16, 13, 'O')
-    ..hLine(19, 21, 12, 'C')
-    ..put(24, 13, 'O')
-    ..put(27, 13, 'O')
-    ..put(20, 7, 'G')
-    ..hLine(31, 39, 11, '=')
-    ..put(36, 10, 'L')
-    ..put(34, 15, '*')
-    ..put(10, 11, 'T')
-    ..put(35, 8, 'T')
-    ..put(45, 15, 'P');
-
-  final g3 = _GridBuilder(36, 16, floorChar: '#')
-    ..put(2, 13, 'P')
-    ..put(16, 13, 'B')
-    ..put(13, 13, 'L')
-    ..hLine(12, 22, 8, '=')
-    ..put(17, 7, 'K')
-    ..put(19, 7, 'X')
-    ..vLine(13, 8, 13, 'H')
-    ..put(9, 10, 'T')
-    ..put(24, 10, 'T')
-    ..put(33, 13, 'P');
-
-  final g4 = _GridBuilder(48, 18, floorChar: '#')
-    ..put(2, 15, 'P')
-    ..hLine(10, 17, 11, '=')
-    ..hLine(24, 32, 11, '=')
-    ..hLine(17, 23, 7, '=')
-    ..put(20, 6, 'S')
-    ..put(15, 8, 'G')
-    ..put(26, 8, 'G')
-    ..fillRect(38, 1, 39, 11, '#')
-    ..lockedGateWall(38, 12, 15)
-    ..put(10, 9, 'T')
-    ..put(29, 9, 'T')
-    ..put(42, 12, 'T')
-    ..put(45, 15, 'P');
-
-  final g5 = _GridBuilder(38, 16, floorChar: '#')
-    ..put(2, 13, 'P')
-    ..hLine(7, 14, 10, '=')
-    ..hLine(23, 30, 10, '=')
-    ..put(19, 6, 'G')
-    ..put(10, 7, 'T')
-    ..put(27, 7, 'T')
-    ..put(35, 13, 'P');
+  final g1 = _GridBuilder(68, 20, floorChar: '#')..buildExpandedOutskirts(hasLeftPortal: true);
+  final g2 = _GridBuilder(74, 22, floorChar: '#')..buildExpandedMultiPathChasm();
+  final g3 = _GridBuilder(48, 18, floorChar: '#')..buildExpandedSanctuary(secretRightAlcove: false);
+  final g4 = _GridBuilder(76, 20, floorChar: '#')..buildExpandedGauntlet(includeChasm: false);
+  final g5 = _GridBuilder(52, 16, floorChar: '#')..buildExpandedBossArena(hasRightExit: true);
 
   return <DungeonChamberSpec>[
     DungeonChamberSpec(
       id: 'act5_c1_tunnel',
       actNumber: 5,
       title: 'Malinta West Portal',
-      subtitle: 'Act V • Corregidor Bunkers',
+      subtitle: 'Act V • Fight Imperial Japanese Katana Warriors',
       asciiGrid: g1.build(),
       defaultSpawnCol: 4,
-      defaultSpawnRow: 13,
+      defaultSpawnRow: 17,
       isDarkCavern: true,
       minimapCol: 0,
       minimapRow: 4,
@@ -1829,35 +1683,49 @@ List<DungeonChamberSpec> _buildAct5Chambers() {
       exits: const <DungeonRoomExit>[
         DungeonRoomExit(
           col: 2,
-          row: 13,
+          row: 17,
           targetRoomId: 'act4_c5_boss_warden',
-          targetSpawnCol: 32,
+          targetSpawnCol: 46,
           targetSpawnRow: 13,
           label: '← Act IV: Dome of Checks & Balances',
         ),
         DungeonRoomExit(
-          col: 37,
-          row: 13,
+          col: 59,
+          row: 17,
           targetRoomId: 'act5_c2_trenches',
           targetSpawnCol: 4,
-          targetSpawnRow: 15,
+          targetSpawnRow: 19,
           label: 'Artillery Ravine →',
         ),
       ],
       enemySpawns: const <DungeonEnemySpawnSpec>[
         DungeonEnemySpawnSpec(
+          spawnId: 'a5_c1_katana1',
+          archetypeId: 'japanese_katana_warrior',
+          col: 22,
+          row: 17,
+          patrolRadiusTiles: 5,
+        ),
+        DungeonEnemySpawnSpec(
           spawnId: 'a5_c1_commando1',
           archetypeId: 'imperial_commando',
-          col: 19,
-          row: 13,
-          patrolRadiusTiles: 4,
+          col: 36,
+          row: 17,
+          patrolRadiusTiles: 5,
         ),
         DungeonEnemySpawnSpec(
           spawnId: 'a5_c1_mortar1',
           archetypeId: 'bunker_mortar',
-          col: 29,
-          row: 8,
+          col: 40,
+          row: 12,
           patrolRadiusTiles: 0,
+        ),
+        DungeonEnemySpawnSpec(
+          spawnId: 'a5_c1_katana2',
+          archetypeId: 'japanese_katana_warrior',
+          col: 51,
+          row: 17,
+          patrolRadiusTiles: 4,
         ),
       ],
     ),
@@ -1865,10 +1733,10 @@ List<DungeonChamberSpec> _buildAct5Chambers() {
       id: 'act5_c2_trenches',
       actNumber: 5,
       title: 'Artillery Ravine',
-      subtitle: 'Act V • Mortar & Pogo Crossing',
+      subtitle: 'Act V • Katana Trench & Medic Nieves\'s Liberation',
       asciiGrid: g2.build(),
       defaultSpawnCol: 4,
-      defaultSpawnRow: 15,
+      defaultSpawnRow: 19,
       isDarkCavern: true,
       minimapCol: 1,
       minimapRow: 4,
@@ -1876,18 +1744,18 @@ List<DungeonChamberSpec> _buildAct5Chambers() {
       exits: const <DungeonRoomExit>[
         DungeonRoomExit(
           col: 2,
-          row: 15,
+          row: 19,
           targetRoomId: 'act5_c1_tunnel',
-          targetSpawnCol: 35,
-          targetSpawnRow: 13,
+          targetSpawnCol: 56,
+          targetSpawnRow: 17,
           label: '← Malinta West Portal',
         ),
         DungeonRoomExit(
-          col: 45,
-          row: 15,
+          col: 71,
+          row: 19,
           targetRoomId: 'act5_c3_sanctuary',
           targetSpawnCol: 4,
-          targetSpawnRow: 13,
+          targetSpawnRow: 15,
           label: 'Guerrilla Radio Sanctuary →',
         ),
       ],
@@ -1895,15 +1763,22 @@ List<DungeonChamberSpec> _buildAct5Chambers() {
         DungeonEnemySpawnSpec(
           spawnId: 'a5_c2_mortar1',
           archetypeId: 'bunker_mortar',
-          col: 33,
-          row: 10,
+          col: 48,
+          row: 13,
           patrolRadiusTiles: 0,
+        ),
+        DungeonEnemySpawnSpec(
+          spawnId: 'a5_c2_katana1',
+          archetypeId: 'japanese_katana_warrior',
+          col: 46,
+          row: 19,
+          patrolRadiusTiles: 4,
         ),
         DungeonEnemySpawnSpec(
           spawnId: 'a5_c2_commando1',
           archetypeId: 'imperial_commando',
-          col: 39,
-          row: 15,
+          col: 64,
+          row: 19,
           patrolRadiusTiles: 4,
         ),
       ],
@@ -1915,7 +1790,7 @@ List<DungeonChamberSpec> _buildAct5Chambers() {
       subtitle: 'Act V • Campfire Bench Checkpoint',
       asciiGrid: g3.build(),
       defaultSpawnCol: 4,
-      defaultSpawnRow: 13,
+      defaultSpawnRow: 15,
       isBenchSanctuary: true,
       minimapCol: 2,
       minimapRow: 4,
@@ -1924,18 +1799,18 @@ List<DungeonChamberSpec> _buildAct5Chambers() {
       exits: const <DungeonRoomExit>[
         DungeonRoomExit(
           col: 2,
-          row: 13,
+          row: 15,
           targetRoomId: 'act5_c2_trenches',
-          targetSpawnCol: 43,
-          targetSpawnRow: 15,
+          targetSpawnCol: 68,
+          targetSpawnRow: 19,
           label: '← Artillery Ravine',
         ),
         DungeonRoomExit(
-          col: 33,
-          row: 13,
+          col: 45,
+          row: 15,
           targetRoomId: 'act5_c4_mateo_bunker',
           targetSpawnCol: 4,
-          targetSpawnRow: 15,
+          targetSpawnRow: 17,
           label: 'Battery Way Crossing →',
         ),
       ],
@@ -1944,25 +1819,25 @@ List<DungeonChamberSpec> _buildAct5Chambers() {
       id: 'act5_c4_mateo_bunker',
       actNumber: 5,
       title: 'Battery Way Crossing',
-      subtitle: 'Act V • Rival Mateo Rematch',
+      subtitle: 'Act V • Rival Mateo Rematch & Katana Guard',
       asciiGrid: g4.build(),
       defaultSpawnCol: 4,
-      defaultSpawnRow: 15,
+      defaultSpawnRow: 17,
       isDarkCavern: true,
       minimapCol: 3,
       minimapRow: 4,
       exits: const <DungeonRoomExit>[
         DungeonRoomExit(
           col: 2,
-          row: 15,
+          row: 17,
           targetRoomId: 'act5_c3_sanctuary',
-          targetSpawnCol: 31,
-          targetSpawnRow: 13,
+          targetSpawnCol: 42,
+          targetSpawnRow: 15,
           label: '← Radio Sanctuary',
         ),
         DungeonRoomExit(
-          col: 45,
-          row: 15,
+          col: 73,
+          row: 17,
           targetRoomId: 'act5_c5_boss_commander',
           targetSpawnCol: 4,
           targetSpawnRow: 13,
@@ -1971,17 +1846,24 @@ List<DungeonChamberSpec> _buildAct5Chambers() {
       ],
       enemySpawns: const <DungeonEnemySpawnSpec>[
         DungeonEnemySpawnSpec(
+          spawnId: 'a5_c4_katana1',
+          archetypeId: 'japanese_katana_warrior',
+          col: 22,
+          row: 17,
+          patrolRadiusTiles: 4,
+        ),
+        DungeonEnemySpawnSpec(
           spawnId: 'a5_c4_rival_mateo',
           archetypeId: 'rival_mateo',
-          col: 26,
-          row: 15,
-          patrolRadiusTiles: 6,
+          col: 44,
+          row: 17,
+          patrolRadiusTiles: 7,
         ),
         DungeonEnemySpawnSpec(
           spawnId: 'a5_c4_mortar1',
           archetypeId: 'bunker_mortar',
-          col: 30,
-          row: 10,
+          col: 55,
+          row: 9,
           patrolRadiusTiles: 0,
         ),
       ],
@@ -1997,7 +1879,7 @@ List<DungeonChamberSpec> _buildAct5Chambers() {
       isBossArena: true,
       isDarkCavern: true,
       bossId: 'boss_imperial_commander',
-      bossSpawnCol: 28,
+      bossSpawnCol: 38,
       bossSpawnRow: 13,
       minimapCol: 4,
       minimapRow: 4,
@@ -2006,16 +1888,16 @@ List<DungeonChamberSpec> _buildAct5Chambers() {
           col: 2,
           row: 13,
           targetRoomId: 'act5_c4_mateo_bunker',
-          targetSpawnCol: 42,
-          targetSpawnRow: 15,
+          targetSpawnCol: 70,
+          targetSpawnRow: 17,
           label: '← Battery Way Crossing',
         ),
         DungeonRoomExit(
-          col: 35,
+          col: 49,
           row: 13,
           targetRoomId: 'act6_c1_precinct',
           targetSpawnCol: 4,
-          targetSpawnRow: 13,
+          targetSpawnRow: 17,
           label: 'Act VI: The Obsidian Vault →',
           requiresBossDefeat: true,
         ),
@@ -2027,97 +1909,21 @@ List<DungeonChamberSpec> _buildAct5Chambers() {
 // ─────────────────────────── ACT VI (5 CHAMBERS) ──────────────────────────
 
 List<DungeonChamberSpec> _buildAct6Chambers() {
-  final g1 = _GridBuilder(46, 16, floorChar: '#')
-    ..put(2, 13, 'P')
-    ..hLine(10, 18, 10, '=')
-    ..hLine(24, 32, 10, '=')
-    ..put(13, 13, 'X')
-    ..put(28, 9, 'L')
-    ..put(9, 10, 'T')
-    ..put(26, 7, 'T')
-    ..put(37, 13, 'P')
-    ..secretAlcoveRight(
-      wallCol: 40,
-      topRow: 10,
-      bottomRow: 13,
-      chamberRightCol: 44,
-      lootChar: 'K',
-      secondChar: '*',
-    );
-
-  final g2 = _GridBuilder(44, 20, floorChar: '#')
-    ..put(2, 17, 'P')
-    ..hLine(6, 13, 14, '=')
-    ..vLine(8, 14, 17, 'H')
-    ..hLine(16, 24, 11, '=')
-    ..hLine(26, 35, 8, '=')
-    ..spikeTrench(12, 27)
-    ..put(15, 15, 'O')
-    ..put(20, 15, 'O')
-    ..put(25, 15, 'O')
-    ..put(18, 7, 'G')
-    ..put(28, 5, 'G')
-    ..put(32, 7, 'L')
-    ..put(36, 17, '*')
-    ..put(10, 10, 'T')
-    ..put(31, 5, 'T')
-    ..put(41, 17, 'P');
-
-  final g3 = _GridBuilder(36, 16, floorChar: '#')
-    ..put(2, 13, 'P')
-    ..put(15, 13, 'B')
-    ..put(12, 13, 'L')
-    ..put(9, 10, 'T')
-    ..put(21, 10, 'T')
-    ..put(27, 13, 'P')
-    ..secretAlcoveRight(
-      wallCol: 30,
-      topRow: 10,
-      bottomRow: 13,
-      chamberRightCol: 34,
-      lootChar: 'K',
-      secondChar: '*',
-    );
-
-  final g4 = _GridBuilder(50, 18, floorChar: '#')
-    ..put(2, 15, 'P')
-    ..spikeTrench(12, 24)
-    ..hLine(14, 16, 13, 'C')
-    ..put(19, 13, 'O')
-    ..put(22, 13, 'O')
-    ..hLine(26, 36, 11, '=')
-    ..hLine(16, 22, 7, '=')
-    ..put(19, 6, 'S')
-    ..put(15, 9, 'G')
-    ..put(25, 9, 'G')
-    ..fillRect(40, 1, 41, 11, '#')
-    ..lockedGateWall(40, 12, 15)
-    ..put(9, 10, 'T')
-    ..put(29, 8, 'T')
-    ..put(44, 12, 'T')
-    ..put(47, 15, 'P');
-
-  final g5 = _GridBuilder(40, 18, floorChar: '#')
-    ..put(2, 15, 'P')
-    ..hLine(7, 14, 11, '=')
-    ..hLine(25, 32, 11, '=')
-    ..put(16, 10, 'O')
-    ..put(23, 10, 'O')
-    ..put(14, 6, 'G')
-    ..put(25, 6, 'G')
-    ..put(10, 8, 'T')
-    ..put(29, 8, 'T')
-    ..put(37, 15, 'P');
+  final g1 = _GridBuilder(68, 20, floorChar: '#')..buildExpandedOutskirts(hasLeftPortal: true);
+  final g2 = _GridBuilder(74, 22, floorChar: '#')..buildExpandedMultiPathChasm();
+  final g3 = _GridBuilder(48, 18, floorChar: '#')..buildExpandedSanctuary(secretRightAlcove: true);
+  final g4 = _GridBuilder(76, 20, floorChar: '#')..buildExpandedGauntlet(includeChasm: true);
+  final g5 = _GridBuilder(52, 18, floorChar: '#')..buildExpandedBossArena(hasRightExit: true);
 
   return <DungeonChamberSpec>[
     DungeonChamberSpec(
       id: 'act6_c1_precinct',
       actNumber: 6,
       title: 'Blackout Checkpoints',
-      subtitle: 'Act VI • Obsidian Vault',
+      subtitle: 'Act VI • Obsidian Precinct & Leni\'s Newsroom',
       asciiGrid: g1.build(),
       defaultSpawnCol: 4,
-      defaultSpawnRow: 13,
+      defaultSpawnRow: 17,
       isDarkCavern: true,
       minimapCol: 0,
       minimapRow: 5,
@@ -2126,18 +1932,18 @@ List<DungeonChamberSpec> _buildAct6Chambers() {
       exits: const <DungeonRoomExit>[
         DungeonRoomExit(
           col: 2,
-          row: 13,
+          row: 17,
           targetRoomId: 'act5_c5_boss_commander',
-          targetSpawnCol: 32,
+          targetSpawnCol: 46,
           targetSpawnRow: 13,
           label: '← Act V: Command Bunker',
         ),
         DungeonRoomExit(
-          col: 37,
-          row: 13,
+          col: 59,
+          row: 17,
           targetRoomId: 'act6_c2_panopticon',
           targetSpawnCol: 4,
-          targetSpawnRow: 17,
+          targetSpawnRow: 19,
           label: 'Surveillance Shaft →',
         ),
       ],
@@ -2145,16 +1951,16 @@ List<DungeonChamberSpec> _buildAct6Chambers() {
         DungeonEnemySpawnSpec(
           spawnId: 'a6_c1_drone1',
           archetypeId: 'censor_drone',
-          col: 17,
-          row: 6,
-          patrolRadiusTiles: 4,
+          col: 28,
+          row: 7,
+          patrolRadiusTiles: 5,
         ),
         DungeonEnemySpawnSpec(
           spawnId: 'a6_c1_jug1',
           archetypeId: 'iron_juggernaut',
-          col: 29,
-          row: 13,
-          patrolRadiusTiles: 4,
+          col: 46,
+          row: 17,
+          patrolRadiusTiles: 5,
         ),
       ],
     ),
@@ -2162,10 +1968,10 @@ List<DungeonChamberSpec> _buildAct6Chambers() {
       id: 'act6_c2_panopticon',
       actNumber: 6,
       title: 'Surveillance Shaft',
-      subtitle: 'Act VI • Panopticon Ascent',
+      subtitle: 'Act VI • Panopticon Ascent & Jun\'s Liberation',
       asciiGrid: g2.build(),
       defaultSpawnCol: 4,
-      defaultSpawnRow: 17,
+      defaultSpawnRow: 19,
       isDarkCavern: true,
       minimapCol: 1,
       minimapRow: 5,
@@ -2173,18 +1979,18 @@ List<DungeonChamberSpec> _buildAct6Chambers() {
       exits: const <DungeonRoomExit>[
         DungeonRoomExit(
           col: 2,
-          row: 17,
+          row: 19,
           targetRoomId: 'act6_c1_precinct',
-          targetSpawnCol: 35,
-          targetSpawnRow: 13,
+          targetSpawnCol: 56,
+          targetSpawnRow: 17,
           label: '← Blackout Checkpoints',
         ),
         DungeonRoomExit(
-          col: 41,
-          row: 17,
+          col: 71,
+          row: 19,
           targetRoomId: 'act6_c3_sanctuary',
           targetSpawnCol: 4,
-          targetSpawnRow: 13,
+          targetSpawnRow: 15,
           label: 'EDSA Vigil Sanctuary →',
         ),
       ],
@@ -2192,16 +1998,23 @@ List<DungeonChamberSpec> _buildAct6Chambers() {
         DungeonEnemySpawnSpec(
           spawnId: 'a6_c2_drone1',
           archetypeId: 'censor_drone',
-          col: 20,
-          row: 5,
-          patrolRadiusTiles: 4,
+          col: 28,
+          row: 6,
+          patrolRadiusTiles: 5,
         ),
         DungeonEnemySpawnSpec(
           spawnId: 'a6_c2_sniper1',
           archetypeId: 'skybridge_sniper',
-          col: 30,
-          row: 7,
+          col: 48,
+          row: 13,
           patrolRadiusTiles: 2,
+        ),
+        DungeonEnemySpawnSpec(
+          spawnId: 'a6_c2_jug1',
+          archetypeId: 'iron_juggernaut',
+          col: 64,
+          row: 19,
+          patrolRadiusTiles: 4,
         ),
       ],
     ),
@@ -2212,7 +2025,7 @@ List<DungeonChamberSpec> _buildAct6Chambers() {
       subtitle: 'Act VI • Campfire Bench Checkpoint',
       asciiGrid: g3.build(),
       defaultSpawnCol: 4,
-      defaultSpawnRow: 13,
+      defaultSpawnRow: 15,
       isBenchSanctuary: true,
       minimapCol: 2,
       minimapRow: 5,
@@ -2221,18 +2034,18 @@ List<DungeonChamberSpec> _buildAct6Chambers() {
       exits: const <DungeonRoomExit>[
         DungeonRoomExit(
           col: 2,
-          row: 13,
+          row: 15,
           targetRoomId: 'act6_c2_panopticon',
-          targetSpawnCol: 39,
-          targetSpawnRow: 17,
+          targetSpawnCol: 68,
+          targetSpawnRow: 19,
           label: '← Surveillance Shaft',
         ),
         DungeonRoomExit(
-          col: 27,
-          row: 13,
+          col: 39,
+          row: 15,
           targetRoomId: 'act6_c4_vault_gauntlet',
           targetSpawnCol: 4,
-          targetSpawnRow: 15,
+          targetSpawnRow: 17,
           label: 'Corridor of Silence →',
         ),
       ],
@@ -2244,22 +2057,22 @@ List<DungeonChamberSpec> _buildAct6Chambers() {
       subtitle: 'Act VI • Charter Switch Gauntlet',
       asciiGrid: g4.build(),
       defaultSpawnCol: 4,
-      defaultSpawnRow: 15,
+      defaultSpawnRow: 17,
       isDarkCavern: true,
       minimapCol: 3,
       minimapRow: 5,
       exits: const <DungeonRoomExit>[
         DungeonRoomExit(
           col: 2,
-          row: 15,
+          row: 17,
           targetRoomId: 'act6_c3_sanctuary',
-          targetSpawnCol: 25,
-          targetSpawnRow: 13,
+          targetSpawnCol: 36,
+          targetSpawnRow: 15,
           label: '← EDSA Vigil Sanctuary',
         ),
         DungeonRoomExit(
-          col: 47,
-          row: 15,
+          col: 73,
+          row: 17,
           targetRoomId: 'act6_c5_boss_censor',
           targetSpawnCol: 4,
           targetSpawnRow: 15,
@@ -2270,16 +2083,16 @@ List<DungeonChamberSpec> _buildAct6Chambers() {
         DungeonEnemySpawnSpec(
           spawnId: 'a6_c4_jug1',
           archetypeId: 'iron_juggernaut',
-          col: 33,
-          row: 15,
-          patrolRadiusTiles: 4,
+          col: 48,
+          row: 17,
+          patrolRadiusTiles: 5,
         ),
         DungeonEnemySpawnSpec(
           spawnId: 'a6_c4_drone1',
           archetypeId: 'censor_drone',
-          col: 28,
+          col: 38,
           row: 6,
-          patrolRadiusTiles: 4,
+          patrolRadiusTiles: 5,
         ),
       ],
     ),
@@ -2294,7 +2107,7 @@ List<DungeonChamberSpec> _buildAct6Chambers() {
       isBossArena: true,
       isDarkCavern: true,
       bossId: 'boss_iron_censor',
-      bossSpawnCol: 30,
+      bossSpawnCol: 38,
       bossSpawnRow: 15,
       minimapCol: 4,
       minimapRow: 5,
@@ -2303,16 +2116,16 @@ List<DungeonChamberSpec> _buildAct6Chambers() {
           col: 2,
           row: 15,
           targetRoomId: 'act6_c4_vault_gauntlet',
-          targetSpawnCol: 44,
-          targetSpawnRow: 15,
+          targetSpawnCol: 70,
+          targetSpawnRow: 17,
           label: '← Corridor of Silence',
         ),
         DungeonRoomExit(
-          col: 37,
+          col: 49,
           row: 15,
           targetRoomId: 'act7_c1_ascension',
           targetSpawnCol: 4,
-          targetSpawnRow: 13,
+          targetSpawnRow: 17,
           label: 'Act VII: Golden Altar of 1987 →',
           requiresBossDefeat: true,
         ),
@@ -2324,93 +2137,21 @@ List<DungeonChamberSpec> _buildAct6Chambers() {
 // ─────────────────────────── ACT VII (5 CHAMBERS) ─────────────────────────
 
 List<DungeonChamberSpec> _buildAct7Chambers() {
-  final g1 = _GridBuilder(48, 16, floorChar: 'M')
-    ..put(2, 13, 'P')
-    ..hLine(10, 18, 10, '=')
-    ..hLine(24, 33, 9, '=')
-    ..put(15, 13, 'X')
-    ..put(29, 8, 'L')
-    ..put(8, 10, 'T')
-    ..put(21, 7, 'T')
-    ..put(34, 10, 'T')
-    ..put(39, 13, 'P')
-    ..secretAlcoveRight(
-      wallCol: 42,
-      topRow: 10,
-      bottomRow: 13,
-      chamberRightCol: 46,
-      lootChar: 'K',
-      secondChar: '*',
-    );
-
-  final g2 = _GridBuilder(52, 18, floorChar: 'M')
-    ..put(2, 15, 'P')
-    ..spikeTrench(10, 35)
-    ..put(13, 13, 'O')
-    ..hLine(16, 18, 12, 'C')
-    ..put(21, 13, 'O')
-    ..put(23, 8, 'G')
-    ..put(26, 13, 'O')
-    ..hLine(29, 31, 12, 'C')
-    ..put(34, 13, 'O')
-    ..put(31, 8, 'G')
-    ..hLine(38, 45, 11, '=')
-    ..put(41, 10, 'L')
-    ..put(40, 15, '*')
-    ..put(8, 10, 'T')
-    ..put(25, 5, 'T')
-    ..put(43, 8, 'T')
-    ..put(49, 15, 'P');
-
-  final g3 = _GridBuilder(36, 16, floorChar: 'M')
-    ..put(2, 13, 'P')
-    ..put(16, 13, 'B')
-    ..put(13, 13, 'L')
-    ..hLine(12, 22, 8, '=')
-    ..vLine(12, 8, 13, 'H')
-    ..put(17, 7, 'K')
-    ..put(20, 7, '*')
-    ..put(9, 10, 'T')
-    ..put(24, 10, 'T')
-    ..put(33, 13, 'P');
-
-  final g4 = _GridBuilder(50, 18, floorChar: '#')
-    ..put(2, 15, 'P')
-    ..hLine(8, 16, 11, '=')
-    ..hLine(22, 33, 11, '=')
-    ..hLine(16, 22, 7, '=')
-    ..put(19, 6, 'S')
-    ..put(14, 9, 'G')
-    ..put(27, 9, 'G')
-    ..fillRect(40, 1, 41, 11, '#')
-    ..lockedGateWall(40, 12, 15)
-    ..put(9, 8, 'T')
-    ..put(29, 8, 'T')
-    ..put(44, 12, 'T')
-    ..put(47, 15, 'P');
-
-  final g5 = _GridBuilder(42, 18, floorChar: 'M')
-    ..put(2, 15, 'P')
-    ..hLine(7, 14, 11, '=')
-    ..hLine(27, 34, 11, '=')
-    ..hLine(17, 24, 8, '=')
-    ..put(15, 11, 'O')
-    ..put(26, 11, 'O')
-    ..put(13, 6, 'G')
-    ..put(28, 6, 'G')
-    ..put(10, 8, 'T')
-    ..put(20, 5, 'T')
-    ..put(31, 8, 'T');
+  final g1 = _GridBuilder(68, 20, floorChar: 'M')..buildExpandedOutskirts(hasLeftPortal: true);
+  final g2 = _GridBuilder(74, 22, floorChar: 'M')..buildExpandedMultiPathChasm();
+  final g3 = _GridBuilder(48, 18, floorChar: 'M')..buildExpandedSanctuary(secretRightAlcove: false);
+  final g4 = _GridBuilder(76, 20, floorChar: '#')..buildExpandedGauntlet(includeChasm: false);
+  final g5 = _GridBuilder(52, 18, floorChar: 'M')..buildExpandedBossArena(hasRightExit: false);
 
   return <DungeonChamberSpec>[
     DungeonChamberSpec(
       id: 'act7_c1_ascension',
       actNumber: 7,
       title: 'Steps of People Power',
-      subtitle: 'Act VII • Golden Colonnade',
+      subtitle: 'Act VII • Golden Rotunda & Teacher Rosa\'s Vigil',
       asciiGrid: g1.build(),
       defaultSpawnCol: 4,
-      defaultSpawnRow: 13,
+      defaultSpawnRow: 17,
       minimapCol: 0,
       minimapRow: 6,
       loreTabletIds: const <String>['lore_act7_bill_of_rights'],
@@ -2418,18 +2159,18 @@ List<DungeonChamberSpec> _buildAct7Chambers() {
       exits: const <DungeonRoomExit>[
         DungeonRoomExit(
           col: 2,
-          row: 13,
+          row: 17,
           targetRoomId: 'act6_c5_boss_censor',
-          targetSpawnCol: 34,
+          targetSpawnCol: 46,
           targetSpawnRow: 15,
           label: '← Act VI: Iron Censor Chamber',
         ),
         DungeonRoomExit(
-          col: 39,
-          row: 13,
+          col: 59,
+          row: 17,
           targetRoomId: 'act7_c2_scales',
           targetSpawnCol: 4,
-          targetSpawnRow: 15,
+          targetSpawnRow: 19,
           label: 'Bridge of the Bill of Rights →',
         ),
       ],
@@ -2437,15 +2178,22 @@ List<DungeonChamberSpec> _buildAct7Chambers() {
         DungeonEnemySpawnSpec(
           spawnId: 'a7_c1_sword1',
           archetypeId: 'malolos_swordsman',
-          col: 18,
-          row: 13,
-          patrolRadiusTiles: 4,
+          col: 26,
+          row: 17,
+          patrolRadiusTiles: 5,
+        ),
+        DungeonEnemySpawnSpec(
+          spawnId: 'a7_c1_katana1',
+          archetypeId: 'japanese_katana_warrior',
+          col: 40,
+          row: 17,
+          patrolRadiusTiles: 5,
         ),
         DungeonEnemySpawnSpec(
           spawnId: 'a7_c1_jug1',
           archetypeId: 'iron_juggernaut',
-          col: 31,
-          row: 13,
+          col: 52,
+          row: 17,
           patrolRadiusTiles: 4,
         ),
       ],
@@ -2454,28 +2202,28 @@ List<DungeonChamberSpec> _buildAct7Chambers() {
       id: 'act7_c2_scales',
       actNumber: 7,
       title: 'Bridge of the Bill of Rights',
-      subtitle: 'Act VII • Grand Silksong Chasm',
+      subtitle: 'Act VII • Grand Silksong Chasm & Tala\'s Banner',
       asciiGrid: g2.build(),
       defaultSpawnCol: 4,
-      defaultSpawnRow: 15,
+      defaultSpawnRow: 19,
       minimapCol: 1,
       minimapRow: 6,
       loreTabletIds: const <String>['lore_act7_sovereign_people'],
       exits: const <DungeonRoomExit>[
         DungeonRoomExit(
           col: 2,
-          row: 15,
+          row: 19,
           targetRoomId: 'act7_c1_ascension',
-          targetSpawnCol: 37,
-          targetSpawnRow: 13,
+          targetSpawnCol: 56,
+          targetSpawnRow: 17,
           label: '← Steps of People Power',
         ),
         DungeonRoomExit(
-          col: 49,
-          row: 15,
+          col: 71,
+          row: 19,
           targetRoomId: 'act7_c3_sanctuary',
           targetSpawnCol: 4,
-          targetSpawnRow: 13,
+          targetSpawnRow: 15,
           label: 'Sovereign Flame Sanctuary →',
         ),
       ],
@@ -2483,15 +2231,15 @@ List<DungeonChamberSpec> _buildAct7Chambers() {
         DungeonEnemySpawnSpec(
           spawnId: 'a7_c2_drone1',
           archetypeId: 'censor_drone',
-          col: 22,
+          col: 28,
           row: 5,
           patrolRadiusTiles: 5,
         ),
         DungeonEnemySpawnSpec(
           spawnId: 'a7_c2_commando1',
           archetypeId: 'imperial_commando',
-          col: 42,
-          row: 15,
+          col: 48,
+          row: 19,
           patrolRadiusTiles: 4,
         ),
       ],
@@ -2503,7 +2251,7 @@ List<DungeonChamberSpec> _buildAct7Chambers() {
       subtitle: 'Act VII • Final Campfire Bench',
       asciiGrid: g3.build(),
       defaultSpawnCol: 4,
-      defaultSpawnRow: 13,
+      defaultSpawnRow: 15,
       isBenchSanctuary: true,
       minimapCol: 2,
       minimapRow: 6,
@@ -2512,18 +2260,18 @@ List<DungeonChamberSpec> _buildAct7Chambers() {
       exits: const <DungeonRoomExit>[
         DungeonRoomExit(
           col: 2,
-          row: 13,
+          row: 15,
           targetRoomId: 'act7_c2_scales',
-          targetSpawnCol: 47,
-          targetSpawnRow: 15,
+          targetSpawnCol: 68,
+          targetSpawnRow: 19,
           label: '← Bridge of the Bill of Rights',
         ),
         DungeonRoomExit(
-          col: 33,
-          row: 13,
+          col: 45,
+          row: 15,
           targetRoomId: 'act7_c4_hall_of_charters',
           targetSpawnCol: 4,
-          targetSpawnRow: 15,
+          targetSpawnRow: 17,
           label: 'Hall of the Six Seals →',
         ),
       ],
@@ -2535,21 +2283,21 @@ List<DungeonChamberSpec> _buildAct7Chambers() {
       subtitle: 'Act VII • Final Gauntlet & Gate',
       asciiGrid: g4.build(),
       defaultSpawnCol: 4,
-      defaultSpawnRow: 15,
+      defaultSpawnRow: 17,
       minimapCol: 3,
       minimapRow: 6,
       exits: const <DungeonRoomExit>[
         DungeonRoomExit(
           col: 2,
-          row: 15,
+          row: 17,
           targetRoomId: 'act7_c3_sanctuary',
-          targetSpawnCol: 31,
-          targetSpawnRow: 13,
+          targetSpawnCol: 42,
+          targetSpawnRow: 15,
           label: '← Sovereign Flame Sanctuary',
         ),
         DungeonRoomExit(
-          col: 47,
-          row: 15,
+          col: 73,
+          row: 17,
           targetRoomId: 'act7_c5_boss_sovereign',
           targetSpawnCol: 4,
           targetSpawnRow: 15,
@@ -2560,23 +2308,23 @@ List<DungeonChamberSpec> _buildAct7Chambers() {
         DungeonEnemySpawnSpec(
           spawnId: 'a7_c4_auto1',
           archetypeId: 'deco_automaton',
-          col: 18,
-          row: 15,
-          patrolRadiusTiles: 4,
+          col: 24,
+          row: 17,
+          patrolRadiusTiles: 5,
         ),
         DungeonEnemySpawnSpec(
           spawnId: 'a7_c4_jug1',
           archetypeId: 'iron_juggernaut',
-          col: 32,
-          row: 15,
-          patrolRadiusTiles: 4,
+          col: 48,
+          row: 17,
+          patrolRadiusTiles: 5,
         ),
         DungeonEnemySpawnSpec(
           spawnId: 'a7_c4_acolyte1',
           archetypeId: 'tribunal_acolyte',
-          col: 26,
+          col: 38,
           row: 6,
-          patrolRadiusTiles: 4,
+          patrolRadiusTiles: 5,
         ),
       ],
     ),
@@ -2590,7 +2338,7 @@ List<DungeonChamberSpec> _buildAct7Chambers() {
       defaultSpawnRow: 15,
       isBossArena: true,
       bossId: 'boss_sovereign_guardian',
-      bossSpawnCol: 31,
+      bossSpawnCol: 38,
       bossSpawnRow: 15,
       minimapCol: 4,
       minimapRow: 6,
@@ -2599,8 +2347,8 @@ List<DungeonChamberSpec> _buildAct7Chambers() {
           col: 2,
           row: 15,
           targetRoomId: 'act7_c4_hall_of_charters',
-          targetSpawnCol: 44,
-          targetSpawnRow: 15,
+          targetSpawnCol: 70,
+          targetSpawnRow: 17,
           label: '← Hall of the Six Seals',
         ),
       ],
@@ -2630,8 +2378,7 @@ List<DungeonChamberSpec> chambersForAct(int actNumber) {
 }
 
 /// Validates structural integrity across all 35 chambers, exits, spawn points,
-/// enemy archetypes, bosses, treasure chests, and lore tablets.
-/// Returns an empty list when 100% of maps are structurally sound!
+/// enemy archetypes, bosses, treasure chests, lore tablets, and friendly NPCs!
 List<String> validateAllDungeonMaps() {
   final errors = <String>[];
 
@@ -2670,7 +2417,6 @@ List<String> validateAllDungeonMaps() {
       }
     }
 
-    // Validate default spawn tile is inside bounds & non-solid / non-hazard
     final spawnTile = spec.tileAt(spec.defaultSpawnCol, spec.defaultSpawnRow);
     if (spawnTile.isFullSolid || spawnTile.isHazard) {
       errors.add(
@@ -2678,7 +2424,6 @@ List<String> validateAllDungeonMaps() {
       );
     }
 
-    // Validate every room exit & its landing coordinates in the target chamber
     for (final ex in spec.exits) {
       final target = kDungeonChambersById[ex.targetRoomId];
       if (target == null) {
@@ -2699,14 +2444,15 @@ List<String> validateAllDungeonMaps() {
       }
     }
 
-    // Validate every enemy spawn & boss spawn
     for (final sp in spec.enemySpawns) {
       if (lookupDungeonArchetype(sp.archetypeId) == null) {
         errors.add('${spec.id}: unknown enemy archetype "${sp.archetypeId}"');
       }
       final t = spec.tileAt(sp.col, sp.row);
       if (t.isFullSolid) {
-        errors.add('${spec.id}: enemy ${sp.spawnId} spawned inside solid tile at (${sp.col},${sp.row})');
+        errors.add(
+          '${spec.id}: enemy ${sp.spawnId} spawned inside solid tile at (${sp.col},${sp.row})',
+        );
       }
     }
     if (spec.bossId != null) {
@@ -2719,7 +2465,6 @@ List<String> validateAllDungeonMaps() {
       }
     }
 
-    // Validate chest & lore catalog IDs
     for (final chestId in spec.chestRewardIds) {
       if (!kDungeonChestRewards.containsKey(chestId)) {
         errors.add('${spec.id}: missing chest reward "$chestId"');
@@ -2729,6 +2474,23 @@ List<String> validateAllDungeonMaps() {
       if (!kDungeonLoreTablets.containsKey(loreId)) {
         errors.add('${spec.id}: missing lore tablet "$loreId"');
       }
+    }
+  }
+
+  // Validate all 14 Friendly Filipino NPCs sit on valid open tiles above solid ground!
+  for (final npc in kDungeonNpcAllies) {
+    final room = kDungeonChambersById[npc.chamberId];
+    if (room == null) {
+      errors.add('NPC ${npc.id} references unknown chamber "${npc.chamberId}"');
+      continue;
+    }
+    final standTile = room.tileAt(npc.col, npc.row);
+    final belowTile = room.tileAt(npc.col, npc.row + 1);
+    if (standTile.isFullSolid || standTile.isHazard) {
+      errors.add('NPC ${npc.id} blocked at (${npc.col},${npc.row}) in ${room.id}');
+    }
+    if (!belowTile.isFullSolid && belowTile != DungeonTileType.oneWayBridge) {
+      errors.add('NPC ${npc.id} has no solid floor below (${npc.col},${npc.row}) in ${room.id}');
     }
   }
 

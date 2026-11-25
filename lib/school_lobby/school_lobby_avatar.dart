@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'account_save_sync_service.dart';
 import 'lobby_data_service.dart';
 import 'lobby_moderation_service.dart';
 import 'lobby_shop_service.dart';
@@ -419,8 +420,12 @@ class AvatarSpriteCache {
 
   /// Marks First-Time Avatar & Nickname onboarding as completed for [userId].
   Future<void> markOnboardingCompleted(String userId) async {
+    final clean = _cleanUserId(userId);
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('$_kPrefOnboardedPrefix${_cleanUserId(userId)}', true);
+    await prefs.setBool('$_kPrefOnboardedPrefix$clean', true);
+    if (clean != 'guest') {
+      unawaited(AccountSaveSyncService.instance.pushUnifiedAccountSave(userId: clean));
+    }
   }
 
   /// Loads the user's saved Avatar Nickname (defaults to a friendly short version of [fallbackName]).
@@ -439,12 +444,15 @@ class AvatarSpriteCache {
 
   /// Saves the user's chosen Avatar Nickname (sanitized through Campus Moderation).
   Future<void> saveNickname(String userId, String nickname) async {
+    final clean = _cleanUserId(userId);
     final prefs = await SharedPreferences.getInstance();
     final trimmed =
         LobbyModerationService.instance.sanitizeText(nickname.trim()).trim();
     if (trimmed.isNotEmpty) {
-      await prefs.setString(
-          '$_kPrefNicknamePrefix${_cleanUserId(userId)}', trimmed);
+      await prefs.setString('$_kPrefNicknamePrefix$clean', trimmed);
+      if (clean != 'guest') {
+        unawaited(AccountSaveSyncService.instance.pushUnifiedAccountSave(userId: clean));
+      }
     }
   }
 
@@ -463,9 +471,13 @@ class AvatarSpriteCache {
   }
 
   Future<void> saveLook(String userId, LobbyAvatarLook look) async {
+    final clean = _cleanUserId(userId);
     final prefs = await SharedPreferences.getInstance();
-    final key = '$_kPrefLookPrefix${_cleanUserId(userId)}';
+    final key = '$_kPrefLookPrefix$clean';
     await prefs.setString(key, look.toLookString());
+    if (clean != 'guest') {
+      unawaited(AccountSaveSyncService.instance.pushUnifiedAccountSave(userId: clean));
+    }
   }
 
   Future<ui.Image> loadRawAssetImage(String assetPath) async {

@@ -4,8 +4,10 @@ import 'package:flutter/material.dart';
 
 import '../school_lobby_avatar.dart';
 import '../spritecast_engine.dart';
+import 'dungeon_architecture.dart';
 import 'dungeon_combat.dart';
 import 'dungeon_enemy_sprites.dart';
+import 'dungeon_missions.dart';
 import 'dungeon_models.dart';
 import 'dungeon_pixelfx_vfx.dart';
 
@@ -313,6 +315,9 @@ class DungeonWorldPainter extends CustomPainter {
   /// Dual-buffer `pixelfx` combat, parry, crit & floor-shockwave VFX manager.
   final DungeonPixelfxVfxManager? pixelfxVfx;
 
+  /// Enables full volumetric god-rays & high-intensity additive bloom (`dungeon_settings.dart`).
+  final bool highGlowQuality;
+
   // Pre-allocated static brushes & bounded TextPainter cache for zero-allocation 60 FPS rendering!
   static final Paint _fill = Paint()
     ..style = PaintingStyle.fill
@@ -321,6 +326,10 @@ class DungeonWorldPainter extends CustomPainter {
     ..style = PaintingStyle.stroke
     ..isAntiAlias = false;
   static final Paint _imgPaint = Paint()..filterQuality = FilterQuality.none;
+  static final Paint _layerPaint = Paint();
+  static final Paint _cutoutPaint = Paint()
+    ..style = PaintingStyle.fill
+    ..blendMode = BlendMode.dstOut;
   static final Map<String, TextPainter> _textCache = <String, TextPainter>{};
 
   const DungeonWorldPainter({
@@ -336,6 +345,7 @@ class DungeonWorldPainter extends CustomPainter {
     this.highlightedGrappleAnchor,
     this.playerAvatarSheet,
     this.pixelfxVfx,
+    this.highGlowQuality = true,
   });
 
   static void _drawFilledRect(Canvas canvas, Rect rect, Color color) {
@@ -509,7 +519,14 @@ class DungeonWorldPainter extends CustomPainter {
     _paintLootDrops(canvas, animTick);
     pixelfxVfx?.paintBack(canvas);
 
-    // PASS 4: 22 Unique Pixel-Art Enemies, Rival Mateo & Multi-Phase Bosses
+    // PASS 4: Friendly Filipino NPCs + 24 Unique Pixel-Art Enemies, Rival Mateo & Multi-Phase Bosses
+    DungeonNpcSpritePainter.paintChamberNpcs(
+      canvas: canvas,
+      chamberId: chamber.spec.id,
+      progress: progress,
+      playerCenterX: player.centerX,
+      worldTimeSec: worldTimeSec,
+    );
     for (final entity in entities) {
       _drawDungeonEntity(canvas, entity, animTick);
     }
@@ -540,7 +557,7 @@ class DungeonWorldPainter extends CustomPainter {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  //  PASS 1: 4-LAYER ERA PARALLAX BACKDROP
+  //  PASS 1: 4-LAYER HISTORICAL ARCHITECTURAL PARALLAX BACKDROP & GOD-RAYS
   // ═══════════════════════════════════════════════════════════════════════════
 
   void _paintEraParallaxBackdrop(
@@ -549,70 +566,14 @@ class DungeonWorldPainter extends CustomPainter {
     Offset cam,
     int animTick,
   ) {
-    // Layer 0: Banded pixel-art vertical sky/cavern gradient (4 crisp horizontal bands)
-    for (var b = 0; b < 4; b++) {
-      final col = Color.lerp(theme.skyTop, theme.skyBottom, b / 3.0)!;
-      _drawFilledRect(canvas, Rect.fromLTWH(0, b * 45.0, kDungeonRefWidth, 46.0), col);
-    }
-
-    // Ambient distant stars / cavern spores (0.08x parallax)
-    _fill.color = theme.accentHighlight.withValues(alpha: 0.35);
-    for (var i = 0; i < 18; i++) {
-      final baseX = SpriteCastEngine.hash01(i * 13, theme.actNumber) * 360.0;
-      final baseY = SpriteCastEngine.hash01(i * 29, theme.actNumber + 5) * 140.0;
-      final sx = ((baseX - cam.dx * 0.08) % 340.0 + 340.0) % 340.0 - 10.0;
-      final sy = baseY + math.sin(worldTimeSec * 1.4 + i) * 3.0;
-      canvas.drawRect(Rect.fromLTWH(sx.roundToDouble(), sy.roundToDouble(), 1.5, 1.5), _fill);
-    }
-
-    // Layer 1: Far Era Silhouettes (0.16x parallax)
-    _fill.color = theme.parallaxFar;
-    final farOffset = (cam.dx * 0.16) % 80.0;
-    for (var i = -1; i < 6; i++) {
-      final bx = i * 80.0 - farOffset;
-      final pillarH = 72.0 + (i.abs() % 3) * 18.0;
-      canvas.drawRect(
-        Rect.fromLTWH(bx, kDungeonRefHeight - pillarH, 34.0, pillarH),
-        _fill,
-      );
-      if (theme.actNumber == 2 || theme.actNumber == 3 || theme.actNumber == 7) {
-        canvas.drawRect(
-          Rect.fromLTWH(bx + 8.0, kDungeonRefHeight - pillarH - 18.0, 18.0, 18.0),
-          _fill,
-        );
-        canvas.drawRect(
-          Rect.fromLTWH(bx + 14.0, kDungeonRefHeight - pillarH - 28.0, 6.0, 10.0),
-          _fill,
-        );
-      } else {
-        canvas.drawRect(
-          Rect.fromLTWH(bx + 26.0, 0.0, 22.0, 26.0 + (i.abs() % 2) * 14.0),
-          _fill,
-        );
-      }
-    }
-
-    // Layer 2: Mid-Ground Ruined Pillars & Hanging Chains (0.38x parallax)
-    _fill.color = theme.parallaxMid;
-    final midOffset = (cam.dx * 0.38) % 96.0;
-    for (var i = -1; i < 5; i++) {
-      final px = i * 96.0 - midOffset;
-      canvas.drawRect(
-        Rect.fromLTWH(px + 12.0, 18.0, 14.0, kDungeonRefHeight - 18.0),
-        _fill,
-      );
-      canvas.drawRect(
-        Rect.fromLTWH(px + 4.0, 14.0, 30.0, 8.0),
-        _fill,
-      );
-      final chainSway = SpriteCastEngine.windSwayPx(animTick, i * 19, px: 1.0);
-      for (var cy = 22.0; cy < 84.0; cy += 6.0) {
-        canvas.drawRect(
-          Rect.fromLTWH(px + 56.0 + chainSway, cy, 2.0, 4.0),
-          _fill,
-        );
-      }
-    }
+    DungeonArchitecturalBackdropPainter.paintBackdrop(
+      canvas: canvas,
+      theme: theme,
+      cameraOffset: cam,
+      worldTimeSec: worldTimeSec,
+      animTick: animTick,
+      enableVolumetricRays: highGlowQuality,
+    );
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -1183,57 +1144,194 @@ class DungeonWorldPainter extends CustomPainter {
 
   void _paintActiveSlashes(Canvas canvas) {
     final cache = DungeonPixelfxSheetCache.instance;
+    final p = SpriteCastPalette.endesga32;
+
     for (final slash in combat.activeSlashes) {
       final hb = slash.worldHitbox(player);
-      final alpha = (1.0 - slash.progress * 0.85).clamp(0.15, 1.0);
+      final alpha = (1.0 - slash.progress * 0.82).clamp(0.18, 1.0);
+      final isHeroWhiteFrame = slash.elapsedSec < 0.045;
 
       double startAngle;
       double sheetRot = 0.0;
       bool sheetFlipX = false;
-      const sweepAngle = math.pi * 0.82;
+      const sweepAngle = math.pi * 0.86;
       switch (slash.direction) {
         case DungeonSlashDirection.right:
-          startAngle = -math.pi * 0.41;
+          startAngle = -math.pi * 0.43;
           sheetFlipX = false;
           break;
         case DungeonSlashDirection.left:
-          startAngle = math.pi - math.pi * 0.41;
+          startAngle = math.pi - math.pi * 0.43;
           sheetFlipX = true;
           break;
         case DungeonSlashDirection.up:
-          startAngle = -math.pi * 0.91;
+          startAngle = -math.pi * 0.93;
           sheetRot = -math.pi * 0.5;
           break;
         case DungeonSlashDirection.down:
-          startAngle = math.pi * 0.09;
+          startAngle = math.pi * 0.07;
           sheetRot = math.pi * 0.5;
           break;
       }
 
-      // Layer 1: Exported `pixelfx` `sword_slash.png` frame when loaded
+      // Layer 1: Authentic `patch-gg/pixelfx` melee sprite sheet per combo move!
+      final sheetKey = slash.pixelfxSheetKey;
+      int frameIdx;
+      double scale;
+      switch (slash.style) {
+        case DungeonSlashComboStyle.heavyCleaveFinisher:
+          frameIdx = (4 + slash.progress * 11.0).floor().clamp(4, 15);
+          scale = 0.34;
+          break;
+        case DungeonSlashComboStyle.scissorCrossSlash:
+          frameIdx = (1 + slash.progress * 7.0).floor().clamp(1, 8);
+          scale = 0.31;
+          break;
+        case DungeonSlashComboStyle.aerialSpinWheel:
+          frameIdx = (1 + slash.progress * 7.0).floor().clamp(1, 8);
+          scale = 0.29;
+          break;
+        case DungeonSlashComboStyle.dashThrustLance:
+          frameIdx = (1 + slash.progress * 5.0).floor().clamp(1, 6);
+          scale = 0.31;
+          break;
+        case DungeonSlashComboStyle.forehandCut:
+          frameIdx = (slash.progress * 7.0).floor().clamp(0, 6);
+          scale = 0.28;
+          break;
+      }
+
       cache.drawSheetFrame(
         canvas: canvas,
         reusablePaint: _imgPaint,
-        key: 'sword_slash',
-        worldX: hb.center.dx,
-        worldY: hb.center.dy,
-        frameIndex: (slash.progress * 7.0).floor().clamp(0, 6),
-        scale: slash.comboStep == 2 ? 0.34 : 0.27,
+        key: sheetKey,
+        worldX: slash.style == DungeonSlashComboStyle.aerialSpinWheel
+            ? player.centerX
+            : hb.center.dx,
+        worldY: slash.style == DungeonSlashComboStyle.aerialSpinWheel
+            ? player.centerY
+            : hb.center.dy,
+        frameIndex: frameIdx,
+        scale: scale,
         flipX: sheetFlipX,
         rotationRad: sheetRot,
         opacity: alpha,
+        whiteFlash: isHeroWhiteFrame,
+        blendMode: BlendMode.plus,
       );
 
-      // Layer 2: Forged-blade-colored outer crescent + hot white core!
-      _stroke
-        ..color = slash.arcColor.withValues(alpha: alpha)
-        ..strokeWidth = slash.comboStep == 2 ? 4.2 : 2.8;
-      canvas.drawArc(hb, startAngle, sweepAngle, false, _stroke);
+      // Layer 2: Choreographed geometric blade-energy silhouette per combo move!
+      final primaryCol = isHeroWhiteFrame ? p[19] : slash.arcColor;
+      switch (slash.style) {
+        case DungeonSlashComboStyle.scissorCrossSlash:
+          // Scissoring twin X-blades + central crossing star burst!
+          _stroke
+            ..color = primaryCol.withValues(alpha: alpha)
+            ..strokeWidth = 3.0;
+          canvas.drawLine(
+            Offset(hb.left + 2.0, hb.top + 2.0),
+            Offset(hb.right - 2.0, hb.bottom - 2.0),
+            _stroke,
+          );
+          canvas.drawLine(
+            Offset(hb.left + 2.0, hb.bottom - 2.0),
+            Offset(hb.right - 2.0, hb.top + 2.0),
+            _stroke,
+          );
+          _stroke
+            ..color = p[19].withValues(alpha: alpha)
+            ..strokeWidth = 1.2;
+          canvas.drawLine(
+            Offset(hb.left + 3.0, hb.top + 3.0),
+            Offset(hb.right - 3.0, hb.bottom - 3.0),
+            _stroke,
+          );
+          canvas.drawLine(
+            Offset(hb.left + 3.0, hb.bottom - 3.0),
+            Offset(hb.right - 3.0, hb.top + 3.0),
+            _stroke,
+          );
+          _drawFilledCircle(canvas, hb.center, 3.2, p[19].withValues(alpha: alpha));
+          break;
 
-      _stroke
-        ..color = SpriteCastPalette.endesga32[19].withValues(alpha: alpha)
-        ..strokeWidth = 1.4;
-      canvas.drawArc(hb.deflate(2.0), startAngle, sweepAngle, false, _stroke);
+        case DungeonSlashComboStyle.dashThrustLance:
+          // Piercing multi-streak spear lance + 4-point tip flare!
+          final tipX = sheetFlipX ? hb.left : hb.right;
+          final baseX = sheetFlipX ? hb.right : hb.left;
+          _stroke
+            ..color = primaryCol.withValues(alpha: alpha)
+            ..strokeWidth = 3.2;
+          canvas.drawLine(Offset(baseX, hb.center.dy), Offset(tipX, hb.center.dy), _stroke);
+          _stroke
+            ..color = p[19].withValues(alpha: alpha)
+            ..strokeWidth = 1.3;
+          canvas.drawLine(Offset(baseX, hb.center.dy), Offset(tipX, hb.center.dy), _stroke);
+          canvas.drawLine(
+            Offset(baseX + 4.0, hb.center.dy - 3.5),
+            Offset((baseX + tipX) * 0.5, hb.center.dy - 3.5),
+            _stroke,
+          );
+          canvas.drawLine(
+            Offset(baseX + 4.0, hb.center.dy + 3.5),
+            Offset((baseX + tipX) * 0.5, hb.center.dy + 3.5),
+            _stroke,
+          );
+          _drawFilledRect(
+            canvas,
+            Rect.fromCenter(center: Offset(tipX, hb.center.dy), width: 7.0, height: 1.8),
+            p[19].withValues(alpha: alpha),
+          );
+          _drawFilledRect(
+            canvas,
+            Rect.fromCenter(center: Offset(tipX, hb.center.dy), width: 1.8, height: 7.0),
+            p[19].withValues(alpha: alpha),
+          );
+          break;
+
+        case DungeonSlashComboStyle.aerialSpinWheel:
+          // 360° tilted cyclone ring around Alon!
+          final spinRect = Rect.fromCenter(
+            center: Offset(player.centerX, player.centerY - 2.0),
+            width: hb.width * 1.25,
+            height: hb.height * 0.72,
+          );
+          _stroke
+            ..color = p[18].withValues(alpha: alpha)
+            ..strokeWidth = 3.0;
+          canvas.drawOval(spinRect, _stroke);
+          _stroke
+            ..color = p[19].withValues(alpha: alpha)
+            ..strokeWidth = 1.2;
+          canvas.drawOval(spinRect.deflate(1.6), _stroke);
+          break;
+
+        case DungeonSlashComboStyle.heavyCleaveFinisher:
+          // Massive molten-gold heavy finisher crescent + ember core!
+          _stroke
+            ..color = p[9].withValues(alpha: alpha * 0.85)
+            ..strokeWidth = 5.4;
+          canvas.drawArc(hb.inflate(1.5), startAngle, sweepAngle * 1.08, false, _stroke);
+          _stroke
+            ..color = primaryCol.withValues(alpha: alpha)
+            ..strokeWidth = 3.4;
+          canvas.drawArc(hb, startAngle, sweepAngle * 1.05, false, _stroke);
+          _stroke
+            ..color = p[19].withValues(alpha: alpha)
+            ..strokeWidth = 1.5;
+          canvas.drawArc(hb.deflate(2.0), startAngle, sweepAngle, false, _stroke);
+          break;
+
+        case DungeonSlashComboStyle.forehandCut:
+          _stroke
+            ..color = primaryCol.withValues(alpha: alpha)
+            ..strokeWidth = 3.0;
+          canvas.drawArc(hb, startAngle, sweepAngle, false, _stroke);
+          _stroke
+            ..color = p[19].withValues(alpha: alpha)
+            ..strokeWidth = 1.4;
+          canvas.drawArc(hb.deflate(2.0), startAngle, sweepAngle, false, _stroke);
+          break;
+      }
     }
   }
 
@@ -1287,6 +1385,24 @@ class DungeonWorldPainter extends CustomPainter {
     for (final p in combat.projectiles) {
       if (p.expired) continue;
       final center = Offset(p.x, p.y);
+      if (p.id.startsWith('blade_wave_')) {
+        // Traveling golden Sovereign Blade Wave launched by Combo 3 Heavy Cleave!
+        final waveRect = Rect.fromCenter(center: center, width: 10.0, height: 18.0);
+        final startA = p.vx >= 0 ? -math.pi * 0.42 : math.pi - math.pi * 0.42;
+        _stroke
+          ..color = SpriteCastPalette.endesga32[9]
+          ..strokeWidth = 3.4;
+        canvas.drawArc(waveRect, startA, math.pi * 0.84, false, _stroke);
+        _stroke
+          ..color = p.color
+          ..strokeWidth = 2.0;
+        canvas.drawArc(waveRect, startA, math.pi * 0.84, false, _stroke);
+        _stroke
+          ..color = SpriteCastPalette.endesga32[19]
+          ..strokeWidth = 1.0;
+        canvas.drawArc(waveRect.deflate(1.2), startA, math.pi * 0.78, false, _stroke);
+        continue;
+      }
       _drawFilledCircle(canvas, center, p.radius + 1.0, SpriteCastPalette.ink);
       _drawFilledCircle(canvas, center, p.radius, p.color);
       _drawFilledCircle(canvas, center, p.radius * 0.45, SpriteCastPalette.endesga32[19]);
@@ -1315,27 +1431,78 @@ class DungeonWorldPainter extends CustomPainter {
     List<({Offset pos, Color color, double radius})> emitters,
     int animTick,
   ) {
+    // Subtle personal Sovereign aura around Alon so dark corridors remain readable
+    emitters.add((
+      pos: Offset(player.centerX, player.centerY),
+      color: theme.accentHighlight,
+      radius: 36.0,
+    ));
+
     final darkness = (theme.cavernDarknessAlpha +
-            (chamber.spec.isDarkCavern ? 0.16 : 0.0))
-        .clamp(0.0, 0.68);
-    if (darkness > 0.05) {
+            (chamber.spec.isDarkCavern ? 0.18 : 0.0))
+        .clamp(0.0, 0.72);
+    final viewRect = Rect.fromLTWH(
+      cam.dx - 4.0,
+      cam.dy - 4.0,
+      kDungeonRefWidth + 8.0,
+      kDungeonRefHeight + 8.0,
+    );
+    final flicker = 0.93 + 0.07 * math.sin(worldTimeSec * 13.5);
+
+    // 1. Subtractive Cavern Darkness Lightmap (`BlendMode.dstOut` punches genuine soft light holes!)
+    if (darkness > 0.04) {
+      canvas.saveLayer(viewRect, _layerPaint);
       _drawFilledRect(
         canvas,
-        Rect.fromLTWH(cam.dx, cam.dy, kDungeonRefWidth, kDungeonRefHeight),
-        SpriteCastPalette.ink.withValues(alpha: darkness * 0.55),
+        viewRect,
+        SpriteCastPalette.ink.withValues(alpha: darkness * 0.78),
       );
+      for (final em in emitters) {
+        final cutR = (em.radius * 1.28 * flicker).clamp(12.0, 180.0);
+        _cutoutPaint.shader = ui.Gradient.radial(
+          em.pos,
+          cutR,
+          <Color>[
+            Colors.black,
+            Colors.black.withValues(alpha: 0.56),
+            Colors.transparent,
+          ],
+          const <double>[0.0, 0.52, 1.0],
+        );
+        canvas.drawCircle(em.pos, cutR, _cutoutPaint);
+      }
+      _cutoutPaint.shader = null;
+      canvas.restore();
     }
 
-    final flicker = 0.92 + 0.08 * math.sin(worldTimeSec * 14.0);
-    for (final em in emitters) {
+    // 2. True Additive Volumetric Bloom Halos (`BlendMode.plus`) + Rising Torch Motes
+    final bloomIntensity = highGlowQuality ? 0.86 : 0.48;
+    for (var i = 0; i < emitters.length; i++) {
+      final em = emitters[i];
+      final localFlicker = 0.92 + 0.08 * math.sin(worldTimeSec * 12.0 + i * 1.7);
       SpriteCastEngine.drawSteppedPixelLightPool(
         canvas,
         em.pos,
         color: em.color,
-        radius: em.radius * flicker,
+        radius: em.radius * localFlicker,
         px: 2.0,
-        intensity: 0.72,
+        intensity: bloomIntensity,
       );
+
+      // Warm rising ember/sparks on torches & campfires when high glow quality is active
+      if (highGlowQuality && em.radius >= 44.0) {
+        for (var m = 0; m < 2; m++) {
+          final cycle = ((worldTimeSec * 0.75 + i * 0.31 + m * 0.5) % 1.0);
+          final mx = em.pos.dx + math.sin(worldTimeSec * 3.8 + i + m * 2.4) * 5.0;
+          final my = em.pos.dy - cycle * 16.0;
+          final ma = ((1.0 - cycle) * 0.65).clamp(0.0, 0.65);
+          _drawFilledRect(
+            canvas,
+            Rect.fromLTWH(mx, my, 1.3, 1.3),
+            SpriteCastPalette.endesga32[19].withValues(alpha: ma),
+          );
+        }
+      }
     }
   }
 

@@ -234,6 +234,29 @@ final Map<String, DungeonEnemyArchetype> kDungeonEnemyArchetypes =
     accentColor: SpriteCastPalette.endesga32[10],
   ),
 
+  // 4b. Act II — Spanish Conquistador (Toledo Broadsword & Castilian Buckler Raider!)
+  'spanish_conquistador': DungeonEnemyArchetype(
+    id: 'spanish_conquistador',
+    displayName: 'Spanish Conquistador',
+    subtitle: 'Toledo Broadsword Tercio',
+    actNumber: 2,
+    behavior: DungeonEnemyBehavior.patrolLunger,
+    width: 14.0,
+    height: 17.0,
+    maxHp: 46,
+    moveSpeed: 56.0,
+    aggroRangePx: 138.0,
+    attackRangePx: 54.0,
+    windupSec: 0.42,
+    attackDurationSec: 0.28,
+    recoverSec: 0.52,
+    shardDropMin: 12,
+    shardDropMax: 18,
+    xpReward: 32,
+    primaryColor: SpriteCastPalette.endesga32[21],
+    accentColor: SpriteCastPalette.endesga32[8],
+  ),
+
   // 5. Act II — Intramuros Musketeer (crimson aim laser telegraph!)
   'intramuros_musketeer': DungeonEnemyArchetype(
     id: 'intramuros_musketeer',
@@ -419,6 +442,29 @@ final Map<String, DungeonEnemyArchetype> kDungeonEnemyArchetypes =
     xpReward: 48,
     primaryColor: SpriteCastPalette.endesga32[6],
     accentColor: SpriteCastPalette.endesga32[8],
+  ),
+
+  // 12b. Act V — Imperial Japanese Gunto Katana Warrior (Iaido Dash-Slash Officer!)
+  'japanese_katana_warrior': DungeonEnemyArchetype(
+    id: 'japanese_katana_warrior',
+    displayName: 'Imperial Gunto Warrior',
+    subtitle: 'Shin-Gunto Katana Duelist',
+    actNumber: 5,
+    behavior: DungeonEnemyBehavior.patrolLunger,
+    width: 14.0,
+    height: 17.0,
+    maxHp: 82,
+    moveSpeed: 78.0,
+    aggroRangePx: 162.0,
+    attackRangePx: 66.0,
+    windupSec: 0.36,
+    attackDurationSec: 0.28,
+    recoverSec: 0.48,
+    shardDropMin: 20,
+    shardDropMax: 28,
+    xpReward: 52,
+    primaryColor: SpriteCastPalette.endesga32[14],
+    accentColor: SpriteCastPalette.endesga32[26],
   ),
 
   // 13. Act VI — Obsidian Censor Drone

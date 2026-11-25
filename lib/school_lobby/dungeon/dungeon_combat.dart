@@ -42,11 +42,21 @@ enum DungeonSlashDirection {
   down, // Downward pogo-slash!
 }
 
+/// 5-move choreographed melee combo style (`pixelfx` × `using-unity` `game-feel.md`).
+enum DungeonSlashComboStyle {
+  forehandCut, // Combo 1: Diagonal crescent cut (`sword_slash`)
+  scissorCrossSlash, // Combo 2: Twin crossing X-slash (`double_slash`)
+  heavyCleaveFinisher, // Combo 3: Overhead molten slam + blade wave (`heavy_cleave`)
+  dashThrustLance, // Dash + Slash: Piercing speed-streak stab (`thrust`)
+  aerialSpinWheel, // Up-Slash / Air Spin: 360° luminous blade ring (`spin_slash`)
+}
+
 /// Live melee crescent slash hitbox & visual arc.
 class ActiveSlashArc {
   final int id;
   final DungeonSlashDirection direction;
   final int comboStep; // 0, 1, 2 (step 2 = +25% finisher!)
+  final DungeonSlashComboStyle style;
   final int damage;
   final double reachPx;
   final double thicknessPx;
@@ -61,14 +71,30 @@ class ActiveSlashArc {
     required this.id,
     required this.direction,
     required this.comboStep,
+    this.style = DungeonSlashComboStyle.forehandCut,
     required this.damage,
     required this.reachPx,
     required this.thicknessPx,
     required this.arcColor,
-    this.totalDurationSec = 0.145,
+    this.totalDurationSec = 0.165,
     this.elapsedSec = 0.0,
     this.triggeredPogo = false,
   });
+
+  String get pixelfxSheetKey {
+    switch (style) {
+      case DungeonSlashComboStyle.forehandCut:
+        return 'sword_slash';
+      case DungeonSlashComboStyle.scissorCrossSlash:
+        return 'double_slash';
+      case DungeonSlashComboStyle.heavyCleaveFinisher:
+        return 'heavy_cleave';
+      case DungeonSlashComboStyle.dashThrustLance:
+        return 'thrust';
+      case DungeonSlashComboStyle.aerialSpinWheel:
+        return 'spin_slash';
+    }
+  }
 
   double get progress => (elapsedSec / totalDurationSec).clamp(0.0, 1.0);
   bool get isFinished => elapsedSec >= totalDurationSec;
@@ -821,27 +847,94 @@ class DungeonCombatEngine {
     slashCooldownTimer = quickSlash ? 0.165 : 0.23;
     final currentStep = comboStep;
     comboStep = (comboStep + 1) % 3;
-    comboResetTimer = 0.55;
+    comboResetTimer = 0.72;
 
     final isFinisher = currentStep == 2;
+    final isHorizontal =
+        dir == DungeonSlashDirection.right || dir == DungeonSlashDirection.left;
+
+    // Choreograph the 5 distinct `pixelfx` melee styles!
+    final DungeonSlashComboStyle style;
+    if (player.isDashing && isHorizontal) {
+      style = DungeonSlashComboStyle.dashThrustLance;
+    } else if (dir == DungeonSlashDirection.up ||
+        (!player.isGrounded && dir != DungeonSlashDirection.down && currentStep == 1)) {
+      style = DungeonSlashComboStyle.aerialSpinWheel;
+    } else if (currentStep == 1) {
+      style = DungeonSlashComboStyle.scissorCrossSlash;
+    } else if (isFinisher) {
+      style = DungeonSlashComboStyle.heavyCleaveFinisher;
+    } else {
+      style = DungeonSlashComboStyle.forehandCut;
+    }
+
     final baseDmg = progress.bladeTier.baseDamage;
     final dmg = isFinisher ? (baseDmg * 1.25).round() : baseDmg;
+    final styleReachMult = style == DungeonSlashComboStyle.dashThrustLance
+        ? 1.32
+        : (isFinisher ? 1.24 : (currentStep == 1 ? 1.10 : 1.0));
     final reach = (24.0 + progress.bladeTier.reachBonusPx) *
         (longNeedle ? 1.30 : 1.0) *
-        (isFinisher ? 1.12 : 1.0);
-    final thickness = 18.0 * (longNeedle ? 1.18 : 1.0);
+        styleReachMult;
+    final thickness = (style == DungeonSlashComboStyle.heavyCleaveFinisher
+            ? 23.0
+            : (style == DungeonSlashComboStyle.aerialSpinWheel ? 22.0 : 18.0)) *
+        (longNeedle ? 1.18 : 1.0);
+
+    // Physical follow-through micro-step, squash/stretch & ghost trail (`game-feel.md`)
+    if (player.isGrounded && isHorizontal && input.moveX.abs() > 0.15) {
+      player.vx += player.facing * (isFinisher ? 34.0 : 16.0);
+    }
+    player.squashX = isFinisher ? 1.24 : 1.12;
+    player.squashY = isFinisher ? 0.82 : 0.91;
+    if (currentStep >= 1 || style == DungeonSlashComboStyle.dashThrustLance) {
+      if (player.afterimages.length < 6) {
+        player.afterimages.add(
+          DashAfterimage(
+            x: player.x - player.facing * 3.0,
+            y: player.y,
+            facing: player.facing,
+            alpha: isFinisher ? 0.65 : 0.45,
+          ),
+        );
+      }
+    }
+
+    // Combo 3 Heavy Cleave Finisher launches a golden Sovereign Blade Wave ahead!
+    if (style == DungeonSlashComboStyle.heavyCleaveFinisher && isHorizontal) {
+      final waveDir = dir == DungeonSlashDirection.right ? 1.0 : -1.0;
+      projectiles.add(
+        DungeonProjectile(
+          id: 'blade_wave_${_nextId++}',
+          isPlayerOwned: true,
+          deflectable: false,
+          x: player.centerX + waveDir * (reach + 5.0),
+          y: player.centerY,
+          vx: waveDir * 175.0,
+          vy: 0.0,
+          radius: 6.5,
+          damage: math.max(5, (baseDmg * 0.65).round()),
+          color: SpriteCastPalette.endesga32[11],
+          remainingLifeSec: 0.36,
+        ),
+      );
+    }
 
     activeSlashes.add(
       ActiveSlashArc(
         id: _nextId++,
         direction: dir,
         comboStep: currentStep,
+        style: style,
         damage: dmg,
         reachPx: reach,
         thicknessPx: thickness,
+        totalDurationSec: isFinisher ? 0.21 : (currentStep == 1 ? 0.18 : 0.16),
         arcColor: isFinisher
             ? SpriteCastPalette.endesga32[11]
-            : progress.bladeTier.slashArcColor,
+            : (currentStep == 1
+                ? SpriteCastPalette.endesga32[29]
+                : progress.bladeTier.slashArcColor),
       ),
     );
     events.add(
@@ -849,6 +942,7 @@ class DungeonCombatEngine {
         kind: DungeonCombatEventKind.slashSwung,
         x: player.centerX,
         y: player.centerY,
+        shakeIntensity: isFinisher ? 2.2 : 0.0,
         value: currentStep,
       ),
     );

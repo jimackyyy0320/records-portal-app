@@ -997,6 +997,8 @@ class DungeonProgressSave {
   final Set<String> brokenSecretKeys;
   final Set<String> unlockedGateChamberIds;
   final Set<String> defeatedBossIds;
+  final Set<String> completedMissionIds;
+  final Set<String> rescuedNpcIds;
   final String checkpointChamberId;
   final int checkpointCol;
   final int checkpointRow;
@@ -1020,9 +1022,11 @@ class DungeonProgressSave {
     this.brokenSecretKeys = const <String>{},
     this.unlockedGateChamberIds = const <String>{},
     this.defeatedBossIds = const <String>{},
+    this.completedMissionIds = const <String>{},
+    this.rescuedNpcIds = const <String>{},
     this.checkpointChamberId = 'act1_c1_shore',
     this.checkpointCol = 4,
-    this.checkpointRow = 14,
+    this.checkpointRow = 17,
     this.elixirCount = 1,
   });
 
@@ -1061,6 +1065,8 @@ class DungeonProgressSave {
     Set<String>? brokenSecretKeys,
     Set<String>? unlockedGateChamberIds,
     Set<String>? defeatedBossIds,
+    Set<String>? completedMissionIds,
+    Set<String>? rescuedNpcIds,
     String? checkpointChamberId,
     int? checkpointCol,
     int? checkpointRow,
@@ -1082,6 +1088,8 @@ class DungeonProgressSave {
       unlockedGateChamberIds:
           unlockedGateChamberIds ?? this.unlockedGateChamberIds,
       defeatedBossIds: defeatedBossIds ?? this.defeatedBossIds,
+      completedMissionIds: completedMissionIds ?? this.completedMissionIds,
+      rescuedNpcIds: rescuedNpcIds ?? this.rescuedNpcIds,
       checkpointChamberId: checkpointChamberId ?? this.checkpointChamberId,
       checkpointCol: checkpointCol ?? this.checkpointCol,
       checkpointRow: checkpointRow ?? this.checkpointRow,
@@ -1122,6 +1130,11 @@ class DungeonProgressSave {
         ...other.unlockedGateChamberIds,
       },
       defeatedBossIds: <String>{...defeatedBossIds, ...other.defeatedBossIds},
+      completedMissionIds: <String>{
+        ...completedMissionIds,
+        ...other.completedMissionIds,
+      },
+      rescuedNpcIds: <String>{...rescuedNpcIds, ...other.rescuedNpcIds},
       checkpointChamberId: checkpointChamberId,
       checkpointCol: checkpointCol,
       checkpointRow: checkpointRow,
@@ -1144,6 +1157,8 @@ class DungeonProgressSave {
         'brokenSecretKeys': brokenSecretKeys.toList(),
         'unlockedGateChamberIds': unlockedGateChamberIds.toList(),
         'defeatedBossIds': defeatedBossIds.toList(),
+        'completedMissionIds': completedMissionIds.toList(),
+        'rescuedNpcIds': rescuedNpcIds.toList(),
         'checkpointChamberId': checkpointChamberId,
         'checkpointCol': checkpointCol,
         'checkpointRow': checkpointRow,
@@ -1207,6 +1222,14 @@ class DungeonProgressSave {
               .toSet() ??
           const <String>{},
       defeatedBossIds: (json['defeatedBossIds'] as List?)
+              ?.map((e) => e.toString())
+              .toSet() ??
+          const <String>{},
+      completedMissionIds: (json['completedMissionIds'] as List?)
+              ?.map((e) => e.toString())
+              .toSet() ??
+          const <String>{},
+      rescuedNpcIds: (json['rescuedNpcIds'] as List?)
               ?.map((e) => e.toString())
               .toSet() ??
           const <String>{},

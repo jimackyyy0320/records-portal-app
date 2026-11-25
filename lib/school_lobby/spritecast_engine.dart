@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 
 import 'lobby_shop_service.dart';
@@ -165,9 +166,10 @@ class SpriteCastEngine {
     }
   }
 
-  /// SpriteCast stepped pixel light pool (`"light_style": "pixel"`).
-  /// Uses discrete concentric pixel rings + checkerboard dithering along the outer ring
-  /// so desk lamps and window sunbeams stay faithful to pixel art.
+  /// Volumetric additive pixel-bloom light pool (`BlendMode.plus` + multi-stop radial falloff).
+  ///
+  /// Replaces flat yellow circles with a genuine warm white-hot core, smooth colored
+  /// additive bloom halo, subtle star-glint rays, and illuminated floating dust specks.
   static void drawSteppedPixelLightPool(
     Canvas canvas,
     Offset center, {
@@ -176,33 +178,63 @@ class SpriteCastEngine {
     double px = 2.0,
     double intensity = 1.0,
   }) {
-    final steps = <({double frac, double alpha})>[
-      (frac: 1.00, alpha: 0.08 * intensity),
-      (frac: 0.76, alpha: 0.14 * intensity),
-      (frac: 0.52, alpha: 0.22 * intensity),
-      (frac: 0.28, alpha: 0.32 * intensity),
-    ];
-    for (final s in steps) {
-      final rx = radius * s.frac;
-      final ry = radius * s.frac * 0.72;
-      final rect = Rect.fromCenter(center: center, width: rx * 2, height: ry * 2);
-      canvas.drawOval(
-        rect,
-        Paint()
-          ..color = color.withValues(alpha: s.alpha.clamp(0.0, 0.65))
-          ..isAntiAlias = false,
-      );
-    }
+    if (radius <= 1.0 || intensity <= 0.01) return;
+    final clampedIntensity = intensity.clamp(0.0, 1.5);
+    final coreColor = Color.lerp(color, Colors.white, 0.62)!;
 
-    // Crisp pixel sparkle dither specks along the mid-ring
-    final ditherPaint = Paint()
-      ..color = color.withValues(alpha: (0.28 * intensity).clamp(0.0, 0.6))
+    // 1. Soft multi-stop additive radial bloom (`BlendMode.plus`)
+    final glowRect = Rect.fromCircle(center: center, radius: radius);
+    final bloomPaint = Paint()
+      ..blendMode = BlendMode.plus
+      ..shader = ui.Gradient.radial(
+        center,
+        radius,
+        <Color>[
+          coreColor.withValues(alpha: (0.42 * clampedIntensity).clamp(0.0, 0.85)),
+          color.withValues(alpha: (0.24 * clampedIntensity).clamp(0.0, 0.65)),
+          color.withValues(alpha: (0.08 * clampedIntensity).clamp(0.0, 0.35)),
+          color.withValues(alpha: 0.0),
+        ],
+        const <double>[0.0, 0.28, 0.66, 1.0],
+      );
+    canvas.drawOval(
+      Rect.fromCenter(
+        center: center,
+        width: glowRect.width,
+        height: glowRect.height * 0.84,
+      ),
+      bloomPaint,
+    );
+
+    // 2. Subtle cross-star light rays at the emitter core so lights read as radiant sources
+    final rayLen = (radius * 0.28).clamp(3.0, 16.0);
+    final rayPaint = Paint()
+      ..blendMode = BlendMode.plus
+      ..color = coreColor.withValues(alpha: (0.30 * clampedIntensity).clamp(0.0, 0.7))
+      ..strokeWidth = (px * 0.65).clamp(0.8, 2.0);
+    canvas.drawLine(
+      Offset(center.dx - rayLen, center.dy),
+      Offset(center.dx + rayLen, center.dy),
+      rayPaint,
+    );
+    canvas.drawLine(
+      Offset(center.dx, center.dy - rayLen * 0.85),
+      Offset(center.dx, center.dy + rayLen * 0.85),
+      rayPaint,
+    );
+
+    // 3. Illuminated pixel dust motes suspended inside the light halo
+    final motePaint = Paint()
+      ..blendMode = BlendMode.plus
+      ..color = coreColor.withValues(alpha: (0.26 * clampedIntensity).clamp(0.0, 0.55))
       ..isAntiAlias = false;
-    for (var i = 0; i < 8; i++) {
-      final angle = (i * math.pi / 4) + 0.35;
-      final sx = center.dx + math.cos(angle) * radius * 0.66;
-      final sy = center.dy + math.sin(angle) * radius * 0.48;
-      canvas.drawRect(Rect.fromLTWH(sx, sy, px, px), ditherPaint);
+    final moteSize = (px * 0.75).clamp(1.0, 2.0);
+    for (var i = 0; i < 6; i++) {
+      final angle = (i * math.pi / 3.0) + 0.42;
+      final dist = radius * (i.isEven ? 0.46 : 0.64);
+      final sx = center.dx + math.cos(angle) * dist;
+      final sy = center.dy + math.sin(angle) * dist * 0.76;
+      canvas.drawRect(Rect.fromLTWH(sx, sy, moteSize, moteSize), motePaint);
     }
   }
 
@@ -1158,7 +1190,8 @@ class SpriteCastEngine {
     }
   }
 
-  /// Renders stepped SpriteCast diagonal sunlit window shafts onto indoor school floors.
+  /// Renders volumetric diagonal sunlit/moonlit god-ray shafts (`BlendMode.plus` gradient)
+  /// with split muntin sub-rays, floor bounce bloom, and floating dust motes.
   static void drawSteppedWindowSunbeam(
     Canvas canvas,
     Offset windowFloorTopLeft, {
@@ -1167,31 +1200,62 @@ class SpriteCastEngine {
     bool isDarkMode = false,
   }) {
     final beamColor = isDarkMode
-        ? SpriteCastPalette.endesga32[17] // cool moonlight
-        : SpriteCastPalette.endesga32[11]; // warm daylight
-    final baseAlpha = isDarkMode ? 0.05 : 0.09;
-    for (var step = 0; step < 3; step++) {
-      final frac = 1.0 - step * 0.24;
-      final offset = step * 8.0;
-      final path = Path()
-        ..moveTo(windowFloorTopLeft.dx + offset, windowFloorTopLeft.dy)
-        ..lineTo(windowFloorTopLeft.dx + width * frac + offset, windowFloorTopLeft.dy)
-        ..lineTo(
-          windowFloorTopLeft.dx + width * frac + 26 + offset,
-          windowFloorTopLeft.dy + length * frac,
-        )
-        ..lineTo(
-          windowFloorTopLeft.dx + 26 + offset,
-          windowFloorTopLeft.dy + length * frac,
-        )
-        ..close();
-      canvas.drawPath(
-        path,
-        Paint()
-          ..color = beamColor.withValues(alpha: baseAlpha)
-          ..isAntiAlias = false,
+        ? SpriteCastPalette.endesga32[18] // soft cyan-azure moonlight
+        : SpriteCastPalette.endesga32[11]; // warm golden sunlight
+    final coreColor = Color.lerp(beamColor, Colors.white, 0.55)!;
+    final topAlpha = isDarkMode ? 0.14 : 0.24;
+    final midAlpha = isDarkMode ? 0.07 : 0.12;
+    final slantX = length * 0.28;
+
+    final startCenter = Offset(windowFloorTopLeft.dx + width * 0.5, windowFloorTopLeft.dy);
+    final endCenter = Offset(
+      windowFloorTopLeft.dx + width * 0.5 + slantX,
+      windowFloorTopLeft.dy + length,
+    );
+
+    // 1. Primary wide volumetric god-ray cone
+    final outerPath = Path()
+      ..moveTo(windowFloorTopLeft.dx, windowFloorTopLeft.dy)
+      ..lineTo(windowFloorTopLeft.dx + width, windowFloorTopLeft.dy)
+      ..lineTo(windowFloorTopLeft.dx + width * 1.18 + slantX, windowFloorTopLeft.dy + length)
+      ..lineTo(windowFloorTopLeft.dx - width * 0.08 + slantX, windowFloorTopLeft.dy + length)
+      ..close();
+
+    final shaftPaint = Paint()
+      ..blendMode = BlendMode.plus
+      ..shader = ui.Gradient.linear(
+        startCenter,
+        endCenter,
+        <Color>[
+          coreColor.withValues(alpha: topAlpha),
+          beamColor.withValues(alpha: midAlpha),
+          beamColor.withValues(alpha: 0.0),
+        ],
+        const <double>[0.0, 0.55, 1.0],
       );
+    canvas.drawPath(outerPath, shaftPaint);
+
+    // 2. Crisp inner twin muntin sub-rays for authentic architectural light shafts
+    for (var ray = 0; ray < 2; ray++) {
+      final rx0 = windowFloorTopLeft.dx + width * (0.16 + ray * 0.44);
+      final rw = width * 0.24;
+      final subPath = Path()
+        ..moveTo(rx0, windowFloorTopLeft.dy)
+        ..lineTo(rx0 + rw, windowFloorTopLeft.dy)
+        ..lineTo(rx0 + rw * 1.25 + slantX * 0.92, windowFloorTopLeft.dy + length * 0.92)
+        ..lineTo(rx0 + slantX * 0.92, windowFloorTopLeft.dy + length * 0.92)
+        ..close();
+      canvas.drawPath(subPath, shaftPaint);
     }
+
+    // 3. Soft additive floor bounce glow where the sunbeam strikes the floor
+    drawSteppedPixelLightPool(
+      canvas,
+      Offset(endCenter.dx, endCenter.dy - length * 0.14),
+      color: beamColor,
+      radius: width * 0.58,
+      intensity: isDarkMode ? 0.38 : 0.55,
+    );
   }
 }
 

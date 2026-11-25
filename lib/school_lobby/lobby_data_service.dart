@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/portal_models.dart';
 import '../services/api_service.dart';
+import 'account_save_sync_service.dart';
 import 'lobby_exam_bank.dart';
 import 'lobby_shop_service.dart';
 import 'sovereign_story_data.dart';
@@ -623,7 +624,6 @@ class LobbyDataService extends ChangeNotifier {
   static const String _kQuizQuestionsKey = 'mis_school_lobby_quiz_questions_v3';
   static const String _kProgressPrefix = 'mis_school_lobby_progress_v1_';
   static const String _kCloudManifestId = '999999001';
-  static const String _kCloudProgressPrefix = '999999003_';
 
   /// 24-hour refresh interval per student for each Small Mystery Chest (86,400,000 ms).
   static const int kSmallChestCooldownMs = 24 * 60 * 60 * 1000;
@@ -1742,12 +1742,41 @@ class LobbyDataService extends ChangeNotifier {
   }
 
   /// Grants Portal XP earned from Story Mode Dungeon Bench Trials, Forge upgrades,
-  /// or Boss Counter-Breaks and syncs local + cloud saves cleanly.
+  /// or Boss Counter-Breaks and syncs local + Google Sheets `Account Progress` saves cleanly.
   Future<void> awardDungeonXp(int xpAmount) async {
-    if (xpAmount <= 0) return;
-    _progress = _progress.copyWith(xp: _progress.xp + xpAmount);
-    await _saveProgress();
-    notifyListeners();
+    if (xpAmount > 0) {
+      _progress = _progress.copyWith(xp: _progress.xp + xpAmount);
+      await _saveProgress();
+      notifyListeners();
+    } else {
+      unawaited(_pushCloudProgress());
+    }
+  }
+
+  /// Reloads `_progress` from local `SharedPreferences` after `AccountSaveSyncService`
+  /// completes a cloud-first union merge.
+  Future<void> reloadFromLocalPrefsIfActive(String userId) async {
+    final cleanId = userId.trim();
+    if (!_initialized || _activeUserId != cleanId) return;
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString('$_kProgressPrefix$cleanId');
+    if (raw == null || raw.isEmpty) return;
+    try {
+      _progress = StudentLobbyProgress.fromJson(
+        Map<String, dynamic>.from(jsonDecode(raw) as Map),
+      );
+      notifyListeners();
+    } catch (_) {}
+  }
+
+  /// Clears in-memory progress immediately if [userId] was deleted from Google Sheets.
+  Future<void> clearInMemoryUserProgressIfMatching(String userId) async {
+    if (_activeUserId == userId.trim()) {
+      _progress = const StudentLobbyProgress();
+      _activeUserId = 'guest';
+      _initialized = false;
+      notifyListeners();
+    }
   }
 
   /// Teacher can also add custom Pop-Quiz Questions to the Mystery Chest pool.
@@ -1917,52 +1946,25 @@ class LobbyDataService extends ChangeNotifier {
   /// and the student's **Chronicles of the Sovereign** Story Mode save.
   Future<void> pushCloudProgressNow() => _pushCloudProgress();
 
-  /// Part 6/6 Cloud-backed RPG, Shop & Story Mode persistence (`999999003_<studentId>`)
-  /// using dedicated `saveLobbyCloudData` storage isolated from student profile avatars,
-  /// so reinstalling the APK or switching devices preserves XP, Badges, Shop Cosmetics,
-  /// and Chronicles of the Sovereign Charter Seals & Saligang Tala progress!
+  /// Permanent Google Sheets `Account Progress` cloud persistence (`AccountSaveSyncService`)
+  /// binding Lobby XP, Shop Cosmetics, Desk, Custom Avatar, Settings & Story Mode to `Student ID`,
+  /// while automatically wiping progress if the account is deleted from Google Sheets!
   Future<void> _pushCloudProgress() async {
     if (_activeUserId.isEmpty || _activeUserId == 'guest') return;
-    try {
-      final campaignSave = await SovereignCampaignSave.load(_activeUserId);
-      final payloadMap = <String, dynamic>{
-        ..._progress.toJson(),
-        'sovereignCampaign': campaignSave.toJson(),
-      };
-      final rawJson = jsonEncode(payloadMap);
-      await ApiService.instance.saveLobbyCloudData(
-        slotKey: '$_kCloudProgressPrefix$_activeUserId',
-        dataJson: rawJson,
-      );
-    } catch (_) {}
+    await AccountSaveSyncService.instance.pushUnifiedAccountSave(
+      userId: _activeUserId,
+    );
   }
 
   Future<void> _pullAndMergeCloudProgress() async {
     if (_activeUserId.isEmpty || _activeUserId == 'guest') return;
-    try {
-      final decodedStr = await ApiService.instance
-          .getLobbyCloudData('$_kCloudProgressPrefix$_activeUserId');
-      if (decodedStr == null || decodedStr.trim().isEmpty) return;
-      final map = jsonDecode(decodedStr);
-      if (map is! Map) return;
-
-      final localCampaign = await SovereignCampaignSave.load(_activeUserId);
-      final merged = mergeCloudPayload(
-        localProgress: _progress,
-        localCampaign: localCampaign,
-        cloudPayload: Map<String, dynamic>.from(map),
-      );
-      _progress = merged.progress;
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(
-        '$_kProgressPrefix$_activeUserId',
-        jsonEncode(_progress.toJson()),
-      );
-      if (merged.campaign != null) {
-        await merged.campaign!.persist(_activeUserId);
-      }
-      notifyListeners();
-    } catch (_) {}
+    final session = UserSession(
+      id: _activeUserId,
+      name: _activeUserId,
+      isFaculty: _isFaculty,
+      subjects: const <SubjectItem>[],
+    );
+    await AccountSaveSyncService.instance.hydrateFromGoogleSheets(session);
   }
 
   /// Phase 4: All Subject Chests start completely empty (`reviewers: const []`)

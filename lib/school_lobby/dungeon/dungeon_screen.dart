@@ -17,16 +17,20 @@ import 'dungeon_enemies.dart';
 import 'dungeon_enemy_sprites.dart';
 import 'dungeon_hud_and_menus.dart';
 import 'dungeon_maps.dart';
+import 'dungeon_missions.dart';
 import 'dungeon_models.dart';
 import 'dungeon_physics.dart';
 import 'dungeon_pixelfx_vfx.dart';
 import 'dungeon_renderer.dart';
+import 'dungeon_settings.dart';
 
 enum _DungeonShellMode {
   title,
   playing,
   benchModal,
   mapOverlay,
+  settingsModal,
+  npcDialogueModal,
   paused,
   loreModal,
   defeated,
@@ -34,12 +38,13 @@ enum _DungeonShellMode {
 }
 
 class _NearbyInteraction {
-  final String kind; // 'bench' | 'portal' | 'chest' | 'lore'
+  final String kind; // 'bench' | 'portal' | 'chest' | 'lore' | 'npc'
   final String label;
   final int col;
   final int row;
   final DungeonRoomExit? exit;
   final String? refId;
+  final DungeonNpcAllySpec? npc;
 
   const _NearbyInteraction({
     required this.kind,
@@ -48,6 +53,7 @@ class _NearbyInteraction {
     required this.row,
     this.exit,
     this.refId,
+    this.npc,
   });
 }
 
@@ -90,13 +96,16 @@ class _SovereignDungeonScreenState extends State<SovereignDungeonScreen>
   final DungeonEnemyManager _enemyManager = DungeonEnemyManager();
   final DungeonCameraRig _camera = DungeonCameraRig();
   final DungeonPixelfxVfxManager _pixelfxVfx = DungeonPixelfxVfxManager();
+  final DungeonMissionTracker _missionTracker = DungeonMissionTracker();
   final List<DungeonParticle> _particles = <DungeonParticle>[];
   final math.Random _rng = math.Random(1898);
 
-  // Campaign & Live World State
+  // Campaign, Settings & Live World State
   _DungeonShellMode _shellMode = _DungeonShellMode.title;
+  _DungeonShellMode _returnModeFromSettings = _DungeonShellMode.playing;
   SovereignCampaignSave _campaignSave = const SovereignCampaignSave();
   DungeonProgressSave _progress = const DungeonProgressSave();
+  DungeonControlAndSettingsProfile _settings = DungeonControlAndSettingsProfile();
   late DungeonChamberRuntime _chamber;
   late DungeonPlayerPhysicsState _player;
 
@@ -108,6 +117,8 @@ class _SovereignDungeonScreenState extends State<SovereignDungeonScreen>
   _NearbyInteraction? _nearbyInteract;
   Offset? _highlightedGrapple;
   DungeonLoreTabletSpec? _activeLoreTablet;
+  DungeonNpcAllySpec? _activeNpc;
+  bool _justRescuedActiveNpc = false;
   String? _toastMessage;
   double _toastTimer = 0.0;
 
@@ -155,12 +166,19 @@ class _SovereignDungeonScreenState extends State<SovereignDungeonScreen>
   }
 
   Future<void> _bootstrapAsyncState() async {
-    // 1. Load persisted Story Mode & Dungeon Save immediately (never blocked by PNG texture decoding!)
+    // 1. Load persisted Story Mode, Dungeon Save & Custom Controls/Audio Profile immediately!
     final loadedCampaign = await SovereignCampaignSave.load(widget.session.id);
+    final loadedSettings =
+        await DungeonControlAndSettingsProfile.load(widget.session.id);
+    DungeonAudioService.instance.applyVolumes(
+      musicVolume: loadedSettings.musicVolume,
+      sfxVolume: loadedSettings.sfxVolume,
+    );
     if (!mounted) return;
     setState(() {
       _campaignSave = loadedCampaign;
       _progress = loadedCampaign.dungeonProgress;
+      _settings = loadedSettings;
       _loadChamber(
         chamberId: _progress.checkpointChamberId,
         spawnCol: _progress.checkpointCol,
@@ -168,6 +186,7 @@ class _SovereignDungeonScreenState extends State<SovereignDungeonScreen>
         restoreFullVitals: true,
       );
     });
+    _syncAmbientBgmState();
 
     // 2. Preload `pixelfx` sprite sheets & student's custom School Lobby character sprite sheet
     try {
@@ -194,9 +213,31 @@ class _SovereignDungeonScreenState extends State<SovereignDungeonScreen>
 
   @override
   void dispose() {
+    DungeonAudioService.instance.stopBgm();
     _ticker.dispose();
     _focusNode.dispose();
     super.dispose();
+  }
+
+  void _setShellMode(_DungeonShellMode next) {
+    _shellMode = next;
+    _syncAmbientBgmState();
+  }
+
+  void _syncAmbientBgmState() {
+    final isBossFight = _shellMode != _DungeonShellMode.title &&
+        _enemyManager.activeBoss != null;
+    DungeonAudioService.instance.syncDungeonBgm(
+      actNumber: _chamber.spec.actNumber,
+      isTitleOrSanctuary:
+          _shellMode == _DungeonShellMode.title || _chamber.spec.isBenchSanctuary,
+      isBossOrRivalActive: isBossFight,
+      isFinaleVictory: _shellMode == _DungeonShellMode.altarVictory,
+    );
+    DungeonAudioService.instance.setBgmDucked(
+      _shellMode != _DungeonShellMode.playing &&
+          _shellMode != _DungeonShellMode.title,
+    );
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -238,9 +279,21 @@ class _SovereignDungeonScreenState extends State<SovereignDungeonScreen>
         ? maxSilk * 0.5
         : _player.civicSilk.clamp(0.0, maxSilk);
 
+    // Safe floor-snapping spawn guard so legacy saves from older chamber sizes never spawn mid-air or inside stone!
+    var safeCol = spawnCol.clamp(1, spec.cols - 2);
+    var safeRow = spawnRow.clamp(1, spec.rows - 3);
+    final atTile = spec.tileAt(safeCol, safeRow);
+    final belowTile = spec.tileAt(safeCol, safeRow + 1);
+    if (atTile.isFullSolid ||
+        atTile.isHazard ||
+        (!belowTile.isFullSolid && belowTile != DungeonTileType.oneWayBridge)) {
+      safeCol = spec.defaultSpawnCol;
+      safeRow = spec.defaultSpawnRow;
+    }
+
     _player = DungeonPlayerPhysicsState(
-      x: spawnCol * kDungeonTileSize + 2.0,
-      y: (spawnRow + 1) * kDungeonTileSize - 15.0,
+      x: safeCol * kDungeonTileSize + 2.0,
+      y: (safeRow + 1) * kDungeonTileSize - 15.0,
       facing: 1,
       isGrounded: true,
       resolveHp: prevHp,
@@ -285,6 +338,7 @@ class _SovereignDungeonScreenState extends State<SovereignDungeonScreen>
       );
       unawaited(_persistProgress());
     }
+    _syncAmbientBgmState();
   }
 
   Future<void> _persistProgress() async {
@@ -341,8 +395,10 @@ class _SovereignDungeonScreenState extends State<SovereignDungeonScreen>
     // 1. Sample unified Keyboard + Mobile Touch Input
     final input = _consumeCurrentFrameInput();
 
-    // 2. Apply Hit-Stop freeze scale (dramatic Silksong impact freeze!)
-    final simDt = _combat.hitStop.applyToDt(rawDt);
+    // 2. Apply Hit-Stop freeze scale (respects player's Comfort toggle!)
+    final simDt = _settings.hitStopEnabled
+        ? _combat.hitStop.applyToDt(rawDt)
+        : rawDt;
 
     // 3. Step Fixed-Timestep 2D Platformer Physics
     final physEvents = _physics.step(
@@ -393,7 +449,7 @@ class _SovereignDungeonScreenState extends State<SovereignDungeonScreen>
     // 7. Check Player Defeat -> Respawn at Sanctuary Bench screen
     if (_player.resolveHp <= 0 && _shellMode == _DungeonShellMode.playing) {
       DungeonAudioService.instance.play(DungeonSfxCue.playerHurt);
-      _shellMode = _DungeonShellMode.defeated;
+      _setShellMode(_DungeonShellMode.defeated);
     }
 
     if (mounted) {
@@ -401,29 +457,32 @@ class _SovereignDungeonScreenState extends State<SovereignDungeonScreen>
     }
   }
 
+  bool _isBoundActionHeld(String action) {
+    for (final k in _heldKeys) {
+      if (_settings.matchesKey(action, k)) return true;
+    }
+    return false;
+  }
+
   DungeonPlayerInput _consumeCurrentFrameInput() {
     var mx = _touchMoveX;
     var my = _touchMoveY;
-    if (_heldKeys.contains(LogicalKeyboardKey.keyA) ||
-        _heldKeys.contains(LogicalKeyboardKey.arrowLeft)) {
+    if (_isBoundActionHeld(DungeonBindAction.moveLeft)) {
       mx = -1.0;
-    } else if (_heldKeys.contains(LogicalKeyboardKey.keyD) ||
-        _heldKeys.contains(LogicalKeyboardKey.arrowRight)) {
+    } else if (_isBoundActionHeld(DungeonBindAction.moveRight)) {
       mx = 1.0;
     }
-    if (_heldKeys.contains(LogicalKeyboardKey.keyW) ||
-        _heldKeys.contains(LogicalKeyboardKey.arrowUp)) {
+    if (_isBoundActionHeld(DungeonBindAction.moveUp)) {
       my = -1.0;
-    } else if (_heldKeys.contains(LogicalKeyboardKey.keyS) ||
-        _heldKeys.contains(LogicalKeyboardKey.arrowDown)) {
+    } else if (_isBoundActionHeld(DungeonBindAction.moveDown)) {
       my = 1.0;
     }
 
     final jumpHeld = _touchJumpHeld ||
-        _heldKeys.contains(LogicalKeyboardKey.space) ||
+        _isBoundActionHeld(DungeonBindAction.jump) ||
         _heldKeys.contains(LogicalKeyboardKey.keyZ);
     final healHeld = _touchBindHeld ||
-        _heldKeys.contains(LogicalKeyboardKey.keyH) ||
+        _isBoundActionHeld(DungeonBindAction.bind) ||
         _heldKeys.contains(LogicalKeyboardKey.keyQ);
 
     final snapshot = DungeonPlayerInput(
@@ -541,21 +600,26 @@ class _SovereignDungeonScreenState extends State<SovereignDungeonScreen>
 
   void _handleCombatEvents(List<DungeonCombatEvent> events) {
     for (final ev in events) {
-      if (ev.shakeIntensity > 0.0) _camera.addShake(ev.shakeIntensity);
+      if (ev.shakeIntensity > 0.0) {
+        _camera.addShake(ev.shakeIntensity * _settings.screenShakeScale);
+      }
       switch (ev.kind) {
         case DungeonCombatEventKind.slashSwung:
           DungeonAudioService.instance.play(
             ev.value >= 2 ? DungeonSfxCue.slashFinisher : DungeonSfxCue.slashLight,
           );
-          if (ev.value >= 2) {
-            _pixelfxVfx.spawnSlashArc(
-              x: ev.x,
-              y: ev.y,
-              facing: _player.facing,
-              isFinisher: true,
-              glowColor: _progress.bladeTier.slashArcColor,
-            );
-          }
+          final latestSlash = _combat.activeSlashes.isNotEmpty
+              ? _combat.activeSlashes.last
+              : null;
+          _pixelfxVfx.spawnSlashArc(
+            x: ev.x,
+            y: ev.y,
+            facing: _player.facing,
+            isFinisher: ev.value >= 2,
+            sheetKey: latestSlash?.pixelfxSheetKey ?? 'sword_slash',
+            groundY: _player.bottom,
+            glowColor: latestSlash?.arcColor ?? _progress.bladeTier.slashArcColor,
+          );
           break;
         case DungeonCombatEventKind.enemyHit:
           DungeonAudioService.instance.play(DungeonSfxCue.enemyHit);
@@ -592,6 +656,18 @@ class _SovereignDungeonScreenState extends State<SovereignDungeonScreen>
             shadeColor: SpriteCastPalette.endesga32[7],
             count: 7,
           );
+          final missionUpdate = _missionTracker.recordEnemyDefeated(
+            actNumber: _chamber.spec.actNumber,
+            progress: _progress,
+          );
+          _progress = missionUpdate.progress;
+          if (missionUpdate.completedMission != null) {
+            final m = missionUpdate.completedMission!;
+            DungeonAudioService.instance.play(DungeonSfxCue.victoryFanfare);
+            _showToast(m.completionToast, duration: 3.6);
+            unawaited(_persistProgress());
+            unawaited(LobbyDataService.instance.awardDungeonXp(m.rewardXp));
+          }
           break;
         case DungeonCombatEventKind.skillCast:
           DungeonAudioService.instance.play(DungeonSfxCue.skillCast);
@@ -605,7 +681,9 @@ class _SovereignDungeonScreenState extends State<SovereignDungeonScreen>
           break;
         case DungeonCombatEventKind.parrySuccess:
           DungeonAudioService.instance.play(DungeonSfxCue.parryGoldenClang);
-          HapticFeedback.heavyImpact();
+          if (_settings.hapticsEnabled) {
+            HapticFeedback.heavyImpact();
+          }
           _emitBurst(ev.x, ev.y, SpriteCastPalette.endesga32[11], count: 14);
           _pixelfxVfx.spawnGoldenParry(
             x: ev.x,
@@ -635,7 +713,9 @@ class _SovereignDungeonScreenState extends State<SovereignDungeonScreen>
           break;
         case DungeonCombatEventKind.playerDamaged:
           DungeonAudioService.instance.play(DungeonSfxCue.playerHurt);
-          HapticFeedback.mediumImpact();
+          if (_settings.hapticsEnabled) {
+            HapticFeedback.mediumImpact();
+          }
           _emitBurst(ev.x, ev.y, SpriteCastPalette.endesga32[8], count: 10);
           _pixelfxVfx.spawnHitImpact(
             x: ev.x,
@@ -903,6 +983,23 @@ class _SovereignDungeonScreenState extends State<SovereignDungeonScreen>
       }
     }
 
+    // 1.5 Check Friendly Filipino NPCs & Captive Citizens in the chamber!
+    for (final npc in npcsForChamber(_chamber.spec.id)) {
+      if ((npc.col - pCol).abs() <= 2 && (npc.row - pRow).abs() <= 2) {
+        final isCaptiveBound = npc.role == DungeonNpcRole.captiveCitizen &&
+            !_progress.rescuedNpcIds.contains(npc.id);
+        return _NearbyInteraction(
+          kind: 'npc',
+          label: isCaptiveBound
+              ? 'RESCUE ${npc.name.toUpperCase()}'
+              : 'SPEAK TO ${npc.name.toUpperCase()}',
+          col: npc.col,
+          row: npc.row,
+          npc: npc,
+        );
+      }
+    }
+
     // 2. Scan nearby tiles for Campfire Bench ('B'), Chest ('K'), or Lore Tablet ('L')
     for (var r = pRow - 1; r <= pRow + 1; r++) {
       for (var c = pCol - 1; c <= pCol + 1; c++) {
@@ -1029,9 +1126,47 @@ class _SovereignDungeonScreenState extends State<SovereignDungeonScreen>
           DungeonAudioService.instance.play(DungeonSfxCue.secretDiscovered);
           setState(() {
             _activeLoreTablet = lore;
-            _shellMode = _DungeonShellMode.loreModal;
+            _setShellMode(_DungeonShellMode.loreModal);
           });
         }
+        break;
+
+      case 'npc':
+        final npc = inter.npc;
+        if (npc == null) return;
+        final res = _missionTracker.interactWithNpc(
+          npc: npc,
+          progress: _progress,
+        );
+        _progress = res.progress;
+        if (res.newlyRescued) {
+          DungeonAudioService.instance.play(DungeonSfxCue.victoryFanfare);
+          _emitBurst(
+            npc.worldCenterX,
+            npc.worldBottomY - 8.0,
+            SpriteCastPalette.endesga32[12],
+            count: 16,
+          );
+          _pixelfxVfx.spawnGoldenParry(
+            x: npc.worldCenterX,
+            y: npc.worldBottomY - 8.0,
+            groundY: npc.worldBottomY,
+          );
+          unawaited(_persistProgress());
+        } else {
+          DungeonAudioService.instance.play(DungeonSfxCue.lootPickup);
+        }
+        if (res.completedMission != null) {
+          final m = res.completedMission!;
+          _showToast(m.completionToast, duration: 3.6);
+          unawaited(_persistProgress());
+          unawaited(LobbyDataService.instance.awardDungeonXp(m.rewardXp));
+        }
+        setState(() {
+          _activeNpc = npc;
+          _justRescuedActiveNpc = res.newlyRescued;
+          _setShellMode(_DungeonShellMode.npcDialogueModal);
+        });
         break;
     }
   }
@@ -1059,40 +1194,50 @@ class _SovereignDungeonScreenState extends State<SovereignDungeonScreen>
 
       if (key == LogicalKeyboardKey.escape) {
         setState(() {
-          _shellMode = _shellMode == _DungeonShellMode.playing
-              ? _DungeonShellMode.paused
-              : _DungeonShellMode.playing;
+          _setShellMode(
+            _shellMode == _DungeonShellMode.playing
+                ? _DungeonShellMode.paused
+                : _DungeonShellMode.playing,
+          );
         });
         return;
       }
-      if (key == LogicalKeyboardKey.keyM &&
+      if (_settings.matchesKey(DungeonBindAction.openMap, key) &&
           (_shellMode == _DungeonShellMode.playing ||
               _shellMode == _DungeonShellMode.mapOverlay)) {
         setState(() {
-          _shellMode = _shellMode == _DungeonShellMode.mapOverlay
-              ? _DungeonShellMode.playing
-              : _DungeonShellMode.mapOverlay;
+          _setShellMode(
+            _shellMode == _DungeonShellMode.mapOverlay
+                ? _DungeonShellMode.playing
+                : _DungeonShellMode.mapOverlay,
+          );
         });
         return;
       }
       if (_shellMode != _DungeonShellMode.playing) return;
 
-      if (key == LogicalKeyboardKey.space || key == LogicalKeyboardKey.keyZ) {
+      if (_settings.matchesKey(DungeonBindAction.jump, key) ||
+          key == LogicalKeyboardKey.keyZ) {
         _queuedJumpPress = true;
-      } else if (key == LogicalKeyboardKey.keyK || key == LogicalKeyboardKey.keyC) {
+      } else if (_settings.matchesKey(DungeonBindAction.dash, key) ||
+          key == LogicalKeyboardKey.keyC) {
         _queuedDashPress = true;
-      } else if (key == LogicalKeyboardKey.keyJ || key == LogicalKeyboardKey.keyX) {
+      } else if (_settings.matchesKey(DungeonBindAction.slash, key) ||
+          key == LogicalKeyboardKey.keyX) {
         _queuedSlashPress = true;
-      } else if (key == LogicalKeyboardKey.keyL || key == LogicalKeyboardKey.keyV) {
+      } else if (_settings.matchesKey(DungeonBindAction.skill, key) ||
+          key == LogicalKeyboardKey.keyV) {
         _queuedSkillPress = true;
-      } else if (key == LogicalKeyboardKey.keyG || key == LogicalKeyboardKey.keyF) {
+      } else if (_settings.matchesKey(DungeonBindAction.hook, key) ||
+          key == LogicalKeyboardKey.keyF) {
         _queuedGrapplePress = true;
-      } else if (key == LogicalKeyboardKey.keyE) {
+      } else if (_settings.matchesKey(DungeonBindAction.interact, key)) {
         _queuedInteractPress = true;
       }
     } else if (event is KeyUpEvent) {
       _heldKeys.remove(key);
-      if (key == LogicalKeyboardKey.space || key == LogicalKeyboardKey.keyZ) {
+      if (_settings.matchesKey(DungeonBindAction.jump, key) ||
+          key == LogicalKeyboardKey.keyZ) {
         _queuedJumpRelease = true;
       }
     }
@@ -1132,6 +1277,7 @@ class _SovereignDungeonScreenState extends State<SovereignDungeonScreen>
                     highlightedGrappleAnchor: _highlightedGrapple,
                     playerAvatarSheet: _playerAvatarSheet,
                     pixelfxVfx: _pixelfxVfx,
+                    highGlowQuality: _settings.highGlowQuality,
                   ),
                 ),
               ),
@@ -1153,7 +1299,7 @@ class _SovereignDungeonScreenState extends State<SovereignDungeonScreen>
             // 2. Title & Act Select Screen
             if (_shellMode == _DungeonShellMode.title) _buildTitleOverlay(),
 
-            // 3. Diegetic Top HUD + Active Boss Bar
+            // 3. Diegetic Top HUD + Mission Tracker + Active Boss Bar
             if (_shellMode == _DungeonShellMode.playing)
               Align(
                 alignment: Alignment.topCenter,
@@ -1162,8 +1308,20 @@ class _SovereignDungeonScreenState extends State<SovereignDungeonScreen>
                   progress: _progress,
                   chamber: _chamber.spec,
                   activeBoss: _enemyManager.activeBoss,
-                  onOpenMap: () => setState(() => _shellMode = _DungeonShellMode.mapOverlay),
-                  onTogglePause: () => setState(() => _shellMode = _DungeonShellMode.paused),
+                  missionStatusText: _missionTracker.buildHudStatusLine(
+                    _chamber.spec.actNumber,
+                    _progress,
+                  ),
+                  onOpenMap: () => setState(
+                    () => _setShellMode(_DungeonShellMode.mapOverlay),
+                  ),
+                  onOpenSettings: () => setState(() {
+                    _returnModeFromSettings = _DungeonShellMode.playing;
+                    _setShellMode(_DungeonShellMode.settingsModal);
+                  }),
+                  onTogglePause: () => setState(
+                    () => _setShellMode(_DungeonShellMode.paused),
+                  ),
                   onUseElixir: _drinkResolveElixir,
                 ),
               ),
@@ -1296,6 +1454,42 @@ class _SovereignDungeonScreenState extends State<SovereignDungeonScreen>
                 _activeLoreTablet != null)
               _buildLoreTabletOverlay(_activeLoreTablet!),
 
+            // 9b. Friendly Filipino NPC Story & Liberation Dialogue Modal
+            if (_shellMode == _DungeonShellMode.npcDialogueModal &&
+                _activeNpc != null)
+              DungeonNpcDialogueModal(
+                npc: _activeNpc!,
+                mission: missionForAct(_activeNpc!.actNumber),
+                progress: _progress,
+                currentKills: _missionTracker.killsForAct(
+                  _activeNpc!.actNumber,
+                  _progress,
+                ),
+                justRescued: _justRescuedActiveNpc,
+                onClose: () => setState(() {
+                  _activeNpc = null;
+                  _justRescuedActiveNpc = false;
+                  _setShellMode(_DungeonShellMode.playing);
+                }),
+              ),
+
+            // 9c. Interactive Touch Mapper, Keybind & Audio Settings Studio
+            if (_shellMode == _DungeonShellMode.settingsModal)
+              DungeonSettingsStudioModal(
+                initialProfile: _settings,
+                onChanged: (updated) {
+                  setState(() => _settings = updated);
+                  DungeonAudioService.instance.applyVolumes(
+                    musicVolume: updated.musicVolume,
+                    sfxVolume: updated.sfxVolume,
+                  );
+                  unawaited(updated.persist(widget.session.id));
+                },
+                onClose: () => setState(
+                  () => _setShellMode(_returnModeFromSettings),
+                ),
+              ),
+
             // 10. Pause Menu
             if (_shellMode == _DungeonShellMode.paused) _buildPauseOverlay(),
 
@@ -1427,6 +1621,26 @@ class _SovereignDungeonScreenState extends State<SovereignDungeonScreen>
                     const SizedBox(width: 8),
                     OutlinedButton.icon(
                       style: OutlinedButton.styleFrom(
+                        foregroundColor: const Color(0xFF2CE8F5),
+                        side: const BorderSide(color: Color(0xFF2CE8F5)),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 12,
+                        ),
+                      ),
+                      onPressed: () => setState(() {
+                        _returnModeFromSettings = _DungeonShellMode.title;
+                        _setShellMode(_DungeonShellMode.settingsModal);
+                      }),
+                      icon: const Icon(Icons.tune_rounded, size: 16),
+                      label: const Text(
+                        'CONTROLS',
+                        style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
                         foregroundColor: const Color(0xFFEAD4AA),
                         side: const BorderSide(color: Color(0xFF5A6988)),
                         padding: const EdgeInsets.symmetric(
@@ -1514,143 +1728,174 @@ class _SovereignDungeonScreenState extends State<SovereignDungeonScreen>
   Widget _buildMobileTouchControls() {
     final activeSkill = silkSkillSpecFor(_progress.activeSkill);
     final canGrapple = _highlightedGrapple != null;
+    final scale = _settings.buttonScale;
+
+    Positioned placeControl({
+      required String id,
+      required double diameter,
+      required double screenW,
+      required double screenH,
+      required Widget child,
+    }) {
+      final norm = _settings.normalizedTouchPos(id);
+      final left =
+          (norm.dx * screenW - diameter * 0.5).clamp(6.0, screenW - diameter - 6.0);
+      final top =
+          (norm.dy * screenH - diameter * 0.5).clamp(48.0, screenH - diameter - 6.0);
+      return Positioned(
+        left: left,
+        top: top,
+        child: Opacity(
+          opacity: _settings.buttonOpacity,
+          child: child,
+        ),
+      );
+    }
 
     return SafeArea(
       top: false,
-      child: Align(
-        alignment: Alignment.bottomCenter,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final w = constraints.maxWidth;
+          final h = constraints.maxHeight;
+          final stickSize = (126.0 * scale).clamp(92.0, 168.0);
+          final slashSize = (58.0 * scale).clamp(42.0, 78.0);
+          final jumpSize = (54.0 * scale).clamp(40.0, 74.0);
+          final midSize = (46.0 * scale).clamp(34.0, 64.0);
+          final auxSize = (42.0 * scale).clamp(32.0, 58.0);
+
+          return Stack(
+            fit: StackFit.expand,
             children: [
-              // Left Thumb: 360° Virtual Analog Joystick Wheel
-              // (Smooth analog sprint, diagonal up-slash, downward pogo & ladder climb!)
-              DungeonVirtualJoystickWheel(
-                size: 124,
-                onChanged: (vec) {
-                  _touchMoveX = vec.dx;
-                  _touchMoveY = vec.dy;
-                },
+              // 1. 360° Virtual Analog Joystick Wheel (Customizable position, scale & deadzone!)
+              placeControl(
+                id: 'joystick',
+                diameter: stickSize,
+                screenW: w,
+                screenH: h,
+                child: DungeonVirtualJoystickWheel(
+                  size: stickSize,
+                  deadzone: _settings.joystickDeadzone,
+                  onChanged: (vec) {
+                    _touchMoveX = vec.dx;
+                    _touchMoveY = vec.dy;
+                  },
+                ),
               ),
 
-              // Center Dynamic Context INTERACT Button (Bench / Portal / Chest / Lore!)
-              Expanded(
-                child: _nearbyInteract != null
-                    ? Center(
-                        child: Padding(
-                          padding: const EdgeInsets.only(bottom: 12),
-                          child: ElevatedButton.icon(
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: SpriteCastPalette.endesga32[10],
-                              foregroundColor: SpriteCastPalette.ink,
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 8,
-                              ),
-                            ),
-                            onPressed: () => _queuedInteractPress = true,
-                            icon: const Icon(Icons.touch_app_rounded, size: 15),
-                            label: Text(
-                              _nearbyInteract!.label,
-                              style: const TextStyle(
-                                fontSize: 10,
-                                fontWeight: FontWeight.w900,
-                              ),
-                            ),
-                          ),
+              // 2. Center Dynamic Context INTERACT Button (Bench / Portal / Chest / Lore / NPC!)
+              if (_nearbyInteract != null)
+                Align(
+                  alignment: Alignment.bottomCenter,
+                  child: Padding(
+                    padding: const EdgeInsets.only(bottom: 18),
+                    child: ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: SpriteCastPalette.endesga32[10],
+                        foregroundColor: SpriteCastPalette.ink,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 9,
                         ),
-                      )
-                    : const SizedBox.shrink(),
-              ),
+                      ),
+                      onPressed: () => _queuedInteractPress = true,
+                      icon: const Icon(Icons.touch_app_rounded, size: 15),
+                      label: Text(
+                        _nearbyInteract!.label,
+                        style: const TextStyle(
+                          fontSize: 10.5,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
 
-              // Right Thumb: Silksong Ergonomic Action Button Arc
-              SizedBox(
-                width: 162,
-                height: 124,
-                child: Stack(
-                  children: [
-                    // BIND (Hold-to-Heal) — Top Left
-                    Positioned(
-                      left: 0,
-                      top: 6,
-                      child: _TouchHoldButton(
-                        size: 42,
-                        label: 'BIND',
-                        color: SpriteCastPalette.endesga32[12],
-                        onChanged: (down) => _touchBindHeld = down,
-                      ),
-                    ),
-                    // GRAPPLE — Top Center
-                    Positioned(
-                      left: 52,
-                      top: 0,
-                      child: _TouchTapButton(
-                        size: 42,
-                        label: 'HOOK',
-                        color: canGrapple
-                            ? SpriteCastPalette.endesga32[18]
-                            : SpriteCastPalette.endesga32[22],
-                        onTapDown: () => _queuedGrapplePress = true,
-                      ),
-                    ),
-                    // SILK SKILL — Top Right
-                    Positioned(
-                      right: 4,
-                      top: 10,
-                      child: _TouchTapButton(
-                        size: 44,
-                        label: 'SKILL',
-                        color: activeSkill.fxColor,
-                        onTapDown: () => _queuedSkillPress = true,
-                      ),
-                    ),
-                    // DASH — Bottom Left
-                    Positioned(
-                      left: 4,
-                      bottom: 10,
-                      child: _TouchTapButton(
-                        size: 44,
-                        label: 'DASH',
-                        color: SpriteCastPalette.endesga32[10],
-                        onTapDown: () => _queuedDashPress = true,
-                      ),
-                    ),
-                    // SLASH — Primary Center-Bottom
-                    Positioned(
-                      left: 56,
-                      bottom: 4,
-                      child: _TouchTapButton(
-                        size: 52,
-                        label: 'SLASH',
-                        color: SpriteCastPalette.endesga32[8],
-                        onTapDown: () => _queuedSlashPress = true,
-                      ),
-                    ),
-                    // JUMP — Bottom Right (variable jump hold!)
-                    Positioned(
-                      right: 0,
-                      bottom: 16,
-                      child: _TouchHoldButton(
-                        size: 50,
-                        label: 'JUMP',
-                        color: SpriteCastPalette.endesga32[18],
-                        onChanged: (down) {
-                          _touchJumpHeld = down;
-                          if (down) {
-                            _queuedJumpPress = true;
-                          } else {
-                            _queuedJumpRelease = true;
-                          }
-                        },
-                      ),
-                    ),
-                  ],
+              // 3. Un-cramped Spacious Action & Skill Arc (Drag-customizable in Controls Studio!)
+              placeControl(
+                id: DungeonBindAction.bind,
+                diameter: auxSize,
+                screenW: w,
+                screenH: h,
+                child: _TouchHoldButton(
+                  size: auxSize,
+                  label: 'BIND',
+                  color: SpriteCastPalette.endesga32[12],
+                  onChanged: (down) => _touchBindHeld = down,
+                ),
+              ),
+              placeControl(
+                id: DungeonBindAction.hook,
+                diameter: auxSize,
+                screenW: w,
+                screenH: h,
+                child: _TouchTapButton(
+                  size: auxSize,
+                  label: 'HOOK',
+                  color: canGrapple
+                      ? SpriteCastPalette.endesga32[18]
+                      : SpriteCastPalette.endesga32[22],
+                  onTapDown: () => _queuedGrapplePress = true,
+                ),
+              ),
+              placeControl(
+                id: DungeonBindAction.skill,
+                diameter: midSize,
+                screenW: w,
+                screenH: h,
+                child: _TouchTapButton(
+                  size: midSize,
+                  label: 'SKILL',
+                  color: activeSkill.fxColor,
+                  onTapDown: () => _queuedSkillPress = true,
+                ),
+              ),
+              placeControl(
+                id: DungeonBindAction.dash,
+                diameter: midSize,
+                screenW: w,
+                screenH: h,
+                child: _TouchTapButton(
+                  size: midSize,
+                  label: 'DASH',
+                  color: SpriteCastPalette.endesga32[10],
+                  onTapDown: () => _queuedDashPress = true,
+                ),
+              ),
+              placeControl(
+                id: DungeonBindAction.slash,
+                diameter: slashSize,
+                screenW: w,
+                screenH: h,
+                child: _TouchTapButton(
+                  size: slashSize,
+                  label: 'SLASH',
+                  color: SpriteCastPalette.endesga32[8],
+                  onTapDown: () => _queuedSlashPress = true,
+                ),
+              ),
+              placeControl(
+                id: DungeonBindAction.jump,
+                diameter: jumpSize,
+                screenW: w,
+                screenH: h,
+                child: _TouchHoldButton(
+                  size: jumpSize,
+                  label: 'JUMP',
+                  color: SpriteCastPalette.endesga32[18],
+                  onChanged: (down) {
+                    _touchJumpHeld = down;
+                    if (down) {
+                      _queuedJumpPress = true;
+                    } else {
+                      _queuedJumpRelease = true;
+                    }
+                  },
                 ),
               ),
             ],
-          ),
-        ),
+          );
+        },
       ),
     );
   }
@@ -1760,8 +2005,26 @@ class _SovereignDungeonScreenState extends State<SovereignDungeonScreen>
                     backgroundColor: SpriteCastPalette.endesga32[10],
                     foregroundColor: SpriteCastPalette.ink,
                   ),
-                  onPressed: () => setState(() => _shellMode = _DungeonShellMode.playing),
+                  onPressed: () => setState(
+                    () => _setShellMode(_DungeonShellMode.playing),
+                  ),
                   child: const Text('RESUME ADVENTURE', style: TextStyle(fontWeight: FontWeight.w900)),
+                ),
+              ),
+              const SizedBox(height: 8),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: const Color(0xFF2CE8F5),
+                    side: const BorderSide(color: Color(0xFF2CE8F5)),
+                  ),
+                  onPressed: () => setState(() {
+                    _returnModeFromSettings = _DungeonShellMode.paused;
+                    _setShellMode(_DungeonShellMode.settingsModal);
+                  }),
+                  icon: const Icon(Icons.tune_rounded, size: 16),
+                  label: const Text('CONTROLS & AUDIO STUDIO'),
                 ),
               ),
               const SizedBox(height: 8),
@@ -1769,7 +2032,9 @@ class _SovereignDungeonScreenState extends State<SovereignDungeonScreen>
                 width: double.infinity,
                 child: OutlinedButton(
                   style: OutlinedButton.styleFrom(foregroundColor: Colors.white),
-                  onPressed: () => setState(() => _shellMode = _DungeonShellMode.title),
+                  onPressed: () => setState(
+                    () => _setShellMode(_DungeonShellMode.title),
+                  ),
                   child: const Text('ACT SELECT / TITLE'),
                 ),
               ),

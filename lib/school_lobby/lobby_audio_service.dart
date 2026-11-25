@@ -135,16 +135,31 @@ class LobbyAudioService extends ChangeNotifier {
     buffer.setUint8(39, 0x61); // 'a'
     buffer.setUint32(40, dataSize, Endian.little);
 
+    final declickSamples = math.max(1, (sampleRate * 0.005).round());
     var sampleIdx = 0;
+    var lpState = 0.0;
     for (final freq in frequenciesHz) {
       for (var i = 0; i < samplesPerNote; i++) {
         final t = i / sampleRate;
-        // Apply fast attack + exponential decay envelope for crisp retro RPG pluck
         final progress = i / samplesPerNote;
-        final envelope = math.sin(progress * math.pi);
-        final rawWave = freq <= 0 ? 0.0 : math.sin(2.0 * math.pi * freq * t);
+        // Smooth attack + warm exponential release + 5ms cosine de-click fade-in/out!
+        var envelope = progress < 0.12
+            ? 0.5 * (1.0 - math.cos(math.pi * (progress / 0.12)))
+            : math.pow(1.0 - ((progress - 0.12) / 0.88), 1.45).toDouble();
+        if (i < declickSamples) {
+          envelope *= 0.5 * (1.0 - math.cos(math.pi * (i / declickSamples)));
+        } else if (samplesPerNote - 1 - i < declickSamples) {
+          final rem = samplesPerNote - 1 - i;
+          envelope *= 0.5 * (1.0 - math.cos(math.pi * (rem / declickSamples)));
+        }
+        final rawWave = freq <= 0
+            ? 0.0
+            : (math.sin(2.0 * math.pi * freq * t) * 0.78 +
+                (2.0 / math.pi) * math.asin(math.sin(2.0 * math.pi * freq * 0.5 * t)) * 0.22);
+        // One-pole low-pass warmth filter removes harsh digital buzz!
+        lpState += 0.42 * (rawWave - lpState);
         final sampleVal =
-            (rawWave * envelope * volume * 32767.0).round().clamp(-32768, 32767);
+            (lpState * envelope * volume * 32767.0).round().clamp(-32768, 32767);
         buffer.setInt16(44 + sampleIdx * 2, sampleVal, Endian.little);
         sampleIdx++;
       }
@@ -275,12 +290,36 @@ class LobbyAudioService extends ChangeNotifier {
 <head><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
 <body style="margin:0;background:transparent;">
 <script>
-  window.playWavBase64 = function(b64) {
+  window._bgmAudio = null;
+  window.playWavBase64 = function(b64, vol) {
     try {
       var audio = new Audio("data:audio/wav;base64," + b64);
-      audio.volume = 0.65;
+      audio.volume = (typeof vol === 'number') ? Math.max(0, Math.min(1, vol)) : 0.65;
       var p = audio.play();
       if (p && p.catch) p.catch(function(){});
+    } catch (e) {}
+  };
+  window.startLoopBgmBase64 = function(b64, vol) {
+    try {
+      if (window._bgmAudio) { window._bgmAudio.pause(); window._bgmAudio = null; }
+      var bgm = new Audio("data:audio/wav;base64," + b64);
+      bgm.loop = true;
+      bgm.volume = (typeof vol === 'number') ? Math.max(0, Math.min(1, vol)) : 0.55;
+      window._bgmAudio = bgm;
+      var p = bgm.play();
+      if (p && p.catch) p.catch(function(){});
+    } catch (e) {}
+  };
+  window.setLoopBgmVolume = function(vol) {
+    try {
+      if (window._bgmAudio) {
+        window._bgmAudio.volume = Math.max(0, Math.min(1, vol));
+      }
+    } catch (e) {}
+  };
+  window.stopLoopBgm = function() {
+    try {
+      if (window._bgmAudio) { window._bgmAudio.pause(); window._bgmAudio = null; }
     } catch (e) {}
   };
 </script>

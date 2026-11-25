@@ -217,29 +217,60 @@ class DungeonPixelfxVfxManager {
     required int facing,
     double rotationRad = 0.0,
     bool isFinisher = false,
+    String sheetKey = 'sword_slash',
+    double? groundY,
     Color? glowColor,
   }) {
-    _trimPool(_bursts, 20);
+    _trimPool(_bursts, 24);
+    final scale = sheetKey == 'heavy_cleave'
+        ? 0.33
+        : (sheetKey == 'double_slash'
+            ? 0.30
+            : (sheetKey == 'spin_slash'
+                ? 0.28
+                : (sheetKey == 'thrust' ? 0.30 : (isFinisher ? 0.34 : 0.26))));
+    final duration = sheetKey == 'heavy_cleave'
+        ? 0.38
+        : (sheetKey == 'double_slash' ? 0.28 : (isFinisher ? 0.32 : 0.22));
+
     _bursts.add(
       _VfxSheetBurst(
-        sheetKey: 'sword_slash',
+        sheetKey: sheetKey,
         x: x,
         y: y,
-        scale: isFinisher ? 0.34 : 0.26,
+        scale: scale,
         flipX: facing < 0,
         rotationRad: rotationRad,
         glowColor: glowColor ?? SpriteCastPalette.endesga32[18],
-        durationSec: isFinisher ? 0.30 : 0.22,
+        durationSec: duration,
       ),
     );
-    if (isFinisher) {
+
+    if (isFinisher || sheetKey == 'heavy_cleave') {
+      spawnFloorShockwave(
+        x: x + facing * 12.0,
+        groundY: groundY ?? (y + 7.0),
+        color: glowColor ?? SpriteCastPalette.endesga32[11],
+        maxRadiusX: 32.0,
+      );
+      _spawnSparkFan(
+        x: x + facing * 12.0,
+        y: y,
+        count: 10,
+        color: glowColor ?? SpriteCastPalette.endesga32[11],
+        minSpeed: 55.0,
+        maxSpeed: 135.0,
+        groundY: groundY,
+      );
+    } else if (sheetKey == 'double_slash' || sheetKey == 'thrust') {
       _spawnSparkFan(
         x: x + facing * 10.0,
         y: y,
-        count: 6,
-        color: glowColor ?? SpriteCastPalette.endesga32[11],
-        minSpeed: 45.0,
-        maxSpeed: 115.0,
+        count: 5,
+        color: glowColor ?? SpriteCastPalette.endesga32[29],
+        minSpeed: 40.0,
+        maxSpeed: 95.0,
+        groundY: groundY,
       );
     }
   }

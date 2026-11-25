@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import 'config/app_config.dart';
 import 'models/portal_models.dart';
+import 'school_lobby/account_save_sync_service.dart';
 import 'screens/auth_screen.dart';
 import 'screens/faculty_dashboard_screen.dart';
 import 'screens/student_dashboard_screen.dart';
@@ -52,16 +55,56 @@ class PortalRootShell extends StatefulWidget {
   State<PortalRootShell> createState() => _PortalRootShellState();
 }
 
-class _PortalRootShellState extends State<PortalRootShell> {
+class _PortalRootShellState extends State<PortalRootShell>
+    with WidgetsBindingObserver {
   bool _booting = true;
   bool _facultyLoginDuringMaintenance = false;
   SystemStatus? _systemStatus;
   UserSession? _session;
+  StreamSubscription<String>? _deletedAccountSub;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _deletedAccountSub = AccountSaveSyncService.instance.accountDeletedStream
+        .listen((deletedUserId) {
+      if (!mounted) return;
+      if (_session != null && _session!.id.trim() == deletedUserId.trim()) {
+        setState(() {
+          _session = null;
+          _facultyLoginDuringMaintenance = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Account was removed from the school Google Sheet. All saved progress has been cleared.',
+            ),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
+    });
     _bootstrapPortal();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _deletedAccountSub?.cancel();
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive) {
+      unawaited(AccountSaveSyncService.instance.flushActiveAccountSave());
+    } else if (state == AppLifecycleState.resumed && _session != null) {
+      unawaited(
+        AccountSaveSyncService.instance.hydrateFromGoogleSheets(_session!),
+      );
+    }
   }
 
   Future<void> _bootstrapPortal() async {
@@ -89,7 +132,10 @@ class _PortalRootShellState extends State<PortalRootShell> {
         _booting = false;
       });
 
-      // Background refresh of portal status & announcements
+      // Background refresh of portal status & Google Sheets Account Progress + deletion check!
+      unawaited(
+        AccountSaveSyncService.instance.hydrateFromGoogleSheets(savedSession),
+      );
       ApiService.instance.getSystemStatus().then((freshStatus) {
         if (mounted) {
           setState(() => _systemStatus = freshStatus);
@@ -120,6 +166,9 @@ class _PortalRootShellState extends State<PortalRootShell> {
 
   Future<void> _handleAuthenticated(UserSession session) async {
     await SessionService.instance.saveSession(session);
+    unawaited(
+      AccountSaveSyncService.instance.hydrateFromGoogleSheets(session),
+    );
     if (mounted) {
       setState(() {
         _session = session;

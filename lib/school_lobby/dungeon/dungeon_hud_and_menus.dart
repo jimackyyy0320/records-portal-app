@@ -506,14 +506,17 @@ class DungeonBenchLogic {
 //  DIEGETIC SILKSONG × TERRARIA IN-GAME HUD & COUNTER-BREAK BANNER
 // ═══════════════════════════════════════════════════════════════════════════
 
-/// Crisp diegetic top HUD showing Resolve Masks, Civic Silk Spool, Shards, Elixirs,
-/// Active Boss Nameplate + Posture Bar, and quick Map/Pause actions.
+/// Crisp diegetic top HUD showing Smooth Sovereign Vital & Damage-Trail Gauge,
+/// Civic Silk Spool, Shards, Elixirs, Live Story Mission Tracker, Active Boss Bar,
+/// and quick Map / Controls Studio / Pause actions.
 class DungeonDiegeticHud extends StatelessWidget {
   final DungeonPlayerPhysicsState player;
   final DungeonProgressSave progress;
   final DungeonChamberSpec chamber;
   final DungeonEnemyInstance? activeBoss;
+  final String? missionStatusText;
   final VoidCallback onOpenMap;
+  final VoidCallback? onOpenSettings;
   final VoidCallback onTogglePause;
   final VoidCallback? onUseElixir;
 
@@ -524,6 +527,8 @@ class DungeonDiegeticHud extends StatelessWidget {
     required this.chamber,
     required this.onOpenMap,
     required this.onTogglePause,
+    this.onOpenSettings,
+    this.missionStatusText,
     this.activeBoss,
     this.onUseElixir,
   });
@@ -531,9 +536,6 @@ class DungeonDiegeticHud extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final activeSkillSpec = silkSkillSpecFor(progress.activeSkill);
-    final silkFrac = player.maxCivicSilk <= 0
-        ? 0.0
-        : (player.civicSilk / player.maxCivicSilk).clamp(0.0, 1.0);
 
     return SafeArea(
       bottom: false,
@@ -546,75 +548,20 @@ class DungeonDiegeticHud extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                // Top-Left: Resolve Masks + Civic Silk Spool + Shards & Elixir
+                // Top-Left: Smooth Sovereign Vital + Damage-Trail Bar & Civic Silk Gauge
                 Flexible(
                   child: _HudPanelBox(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        // Resolve Masks Row
-                        Wrap(
-                          spacing: 3,
-                          runSpacing: 3,
-                          children: List<Widget>.generate(player.maxResolveHp, (i) {
-                            final filled = i < player.resolveHp;
-                            return Container(
-                              width: 12,
-                              height: 12,
-                              decoration: BoxDecoration(
-                                color: filled
-                                    ? SpriteCastPalette.endesga32[8]
-                                    : SpriteCastPalette.endesga32[24],
-                                border: Border.all(
-                                  color: filled
-                                      ? SpriteCastPalette.endesga32[11]
-                                      : SpriteCastPalette.endesga32[22],
-                                  width: 1.4,
-                                ),
-                                borderRadius: BorderRadius.circular(3),
-                              ),
-                            );
-                          }),
+                        DungeonSmoothVitalBar(
+                          resolveHp: player.resolveHp,
+                          maxResolveHp: player.maxResolveHp,
+                          civicSilk: player.civicSilk,
+                          maxCivicSilk: player.maxCivicSilk,
                         ),
                         const SizedBox(height: 5),
-                        // Civic Silk Spool Bar
-                        Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Container(
-                              width: 96,
-                              height: 8,
-                              decoration: BoxDecoration(
-                                color: SpriteCastPalette.ink,
-                                border: Border.all(
-                                  color: SpriteCastPalette.endesga32[18],
-                                  width: 1.0,
-                                ),
-                                borderRadius: BorderRadius.circular(2),
-                              ),
-                              child: FractionallySizedBox(
-                                alignment: Alignment.centerLeft,
-                                widthFactor: silkFrac,
-                                child: Container(
-                                  color: silkFrac >= 0.35
-                                      ? SpriteCastPalette.endesga32[18]
-                                      : SpriteCastPalette.endesga32[17],
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 6),
-                            Text(
-                              '${player.civicSilk.round()}',
-                              style: const TextStyle(
-                                color: Color(0xFF2CE8F5),
-                                fontSize: 10,
-                                fontWeight: FontWeight.w900,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 4),
                         // Shards + Active Skill + Elixir Pill (Wraps cleanly on compact screens!)
                         Wrap(
                           spacing: 6,
@@ -686,62 +633,108 @@ class DungeonDiegeticHud extends StatelessWidget {
 
                 const SizedBox(width: 8),
 
-                // Top-Right: Chamber Badge + Cartographer Map + Pause
+                // Top-Right: Chamber Badge + Mission Strip + Map + Controls Studio + Pause
                 Flexible(
-                  child: _HudPanelBox(
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Flexible(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.end,
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                chamber.title,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  color: Color(0xFFEAD4AA),
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w800,
-                                ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _HudPanelBox(
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Flexible(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.end,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    chamber.title,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      color: Color(0xFFEAD4AA),
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                                  Text(
+                                    chamber.subtitle,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      color: Color(0xFF8B9BB4),
+                                      fontSize: 9,
+                                    ),
+                                  ),
+                                ],
                               ),
-                              Text(
-                                chamber.subtitle,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  color: Color(0xFF8B9BB4),
-                                  fontSize: 9,
-                                ),
+                            ),
+                            const SizedBox(width: 8),
+                            _HudIconButton(
+                              icon: Icons.map_rounded,
+                              tooltip: 'Cartographer Map (M)',
+                              color: SpriteCastPalette.endesga32[10],
+                              onTap: onOpenMap,
+                            ),
+                            if (onOpenSettings != null) ...[
+                              const SizedBox(width: 4),
+                              _HudIconButton(
+                                icon: Icons.tune_rounded,
+                                tooltip: 'Controls & Audio Studio',
+                                color: SpriteCastPalette.endesga32[18],
+                                onTap: onOpenSettings!,
                               ),
                             ],
+                            const SizedBox(width: 4),
+                            _HudIconButton(
+                              icon: Icons.pause_rounded,
+                              tooltip: 'Pause',
+                              color: SpriteCastPalette.endesga32[20],
+                              onTap: onTogglePause,
+                            ),
+                          ],
+                        ),
+                      ),
+                      if (missionStatusText != null &&
+                          missionStatusText!.isNotEmpty) ...[
+                        const SizedBox(height: 4),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 3,
+                          ),
+                          decoration: BoxDecoration(
+                            color: const Color(0xD8111526),
+                            borderRadius: BorderRadius.circular(5),
+                            border: Border.all(
+                              color: missionStatusText!.startsWith('✓')
+                                  ? const Color(0xFF63C74D)
+                                  : const Color(0xFF3E4B73),
+                            ),
+                          ),
+                          child: Text(
+                            missionStatusText!,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: missionStatusText!.startsWith('✓')
+                                  ? const Color(0xFF63C74D)
+                                  : const Color(0xFFFEE761),
+                              fontSize: 9.0,
+                              fontWeight: FontWeight.w800,
+                            ),
                           ),
                         ),
-                        const SizedBox(width: 8),
-                        _HudIconButton(
-                          icon: Icons.map_rounded,
-                          tooltip: 'Cartographer Map (M)',
-                          color: SpriteCastPalette.endesga32[10],
-                          onTap: onOpenMap,
-                        ),
-                        const SizedBox(width: 4),
-                        _HudIconButton(
-                          icon: Icons.pause_rounded,
-                          tooltip: 'Pause',
-                          color: SpriteCastPalette.endesga32[20],
-                          onTap: onTogglePause,
-                        ),
                       ],
-                    ),
+                    ],
                   ),
                 ),
               ],
             ),
 
-            // Active Boss Multi-Phase HP & Posture Bar
+            // Active Boss Smooth Multi-Phase HP + Damage-Trail & Posture Bar
             if (activeBoss != null) ...[
               const SizedBox(height: 6),
-              _BossHealthAndPostureBar(boss: activeBoss!),
+              DungeonSmoothBossBar(boss: activeBoss!),
             ],
           ],
         ),
@@ -750,85 +743,668 @@ class DungeonDiegeticHud extends StatelessWidget {
   }
 }
 
-class _BossHealthAndPostureBar extends StatelessWidget {
-  final DungeonEnemyInstance boss;
-  const _BossHealthAndPostureBar({required this.boss});
+/// Silky-smooth beveled Sovereign Vital & Civic Silk Gauge (`craft-game-floors` UI Floor).
+///
+/// Features:
+/// - Smooth `OutCubic` HP & Silk bar interpolation (no abrupt square snapping!)
+/// - Delayed glowing amber-white **Ghost Damage-Trail Bar** that catches up smoothly after hits
+/// - Emerald-gold **Heal Surge Flash** when restoring Resolve via Silk Bind or Elixirs
+/// - Segmented Charter Crest dividers (`maxResolveHp`) + crisp numeric `HP` & `SILK` readouts
+class DungeonSmoothVitalBar extends StatefulWidget {
+  final int resolveHp;
+  final int maxResolveHp;
+  final double civicSilk;
+  final double maxCivicSilk;
+
+  const DungeonSmoothVitalBar({
+    super.key,
+    required this.resolveHp,
+    required this.maxResolveHp,
+    required this.civicSilk,
+    required this.maxCivicSilk,
+  });
+
+  @override
+  State<DungeonSmoothVitalBar> createState() => DungeonSmoothVitalBarState();
+}
+
+class DungeonSmoothVitalBarState extends State<DungeonSmoothVitalBar>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+
+  double _startHpRatio = 1.0;
+  double _targetHpRatio = 1.0;
+  double _startTrailRatio = 1.0;
+  double _targetTrailRatio = 1.0;
+  double _startSilkRatio = 0.5;
+  double _targetSilkRatio = 0.5;
+  double _healFlashPeak = 0.0;
+
+  double get currentDisplayHpRatio {
+    final t = Curves.easeOutCubic.transform((_controller.value / 0.42).clamp(0.0, 1.0));
+    return _startHpRatio + (_targetHpRatio - _startHpRatio) * t;
+  }
+
+  double get currentGhostTrailRatio {
+    // Hold ghost trail for the first 24% (~145ms), then smoothly drain over remaining 76% (~455ms)!
+    final delayed = ((_controller.value - 0.24) / 0.76).clamp(0.0, 1.0);
+    final t = Curves.easeOutQuart.transform(delayed);
+    return _startTrailRatio + (_targetTrailRatio - _startTrailRatio) * t;
+  }
+
+  double get currentSilkRatio {
+    final t = Curves.easeOutCubic.transform((_controller.value / 0.40).clamp(0.0, 1.0));
+    return _startSilkRatio + (_targetSilkRatio - _startSilkRatio) * t;
+  }
+
+  double get currentHealFlash {
+    return (_healFlashPeak * (1.0 - _controller.value)).clamp(0.0, 1.0);
+  }
+
+  double _computeHpRatio() => widget.maxResolveHp <= 0
+      ? 0.0
+      : (widget.resolveHp / widget.maxResolveHp).clamp(0.0, 1.0);
+
+  double _computeSilkRatio() => widget.maxCivicSilk <= 0
+      ? 0.0
+      : (widget.civicSilk / widget.maxCivicSilk).clamp(0.0, 1.0);
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 600),
+    )..value = 1.0;
+    final hpR = _computeHpRatio();
+    final silkR = _computeSilkRatio();
+    _startHpRatio = hpR;
+    _targetHpRatio = hpR;
+    _startTrailRatio = hpR;
+    _targetTrailRatio = hpR;
+    _startSilkRatio = silkR;
+    _targetSilkRatio = silkR;
+  }
+
+  @override
+  void didUpdateWidget(covariant DungeonSmoothVitalBar oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final nextHpR = _computeHpRatio();
+    final nextSilkR = _computeSilkRatio();
+    final hpChanged = (nextHpR - _targetHpRatio).abs() > 0.002 ||
+        oldWidget.maxResolveHp != widget.maxResolveHp;
+    final silkChanged = (nextSilkR - _targetSilkRatio).abs() > 0.005;
+
+    if (!hpChanged && !silkChanged) return;
+
+    final liveHp = currentDisplayHpRatio;
+    final liveTrail = currentGhostTrailRatio;
+    final liveSilk = currentSilkRatio;
+
+    _startHpRatio = liveHp;
+    _targetHpRatio = nextHpR;
+    _startSilkRatio = liveSilk;
+    _targetSilkRatio = nextSilkR;
+
+    if (nextHpR < liveHp) {
+      // Damage taken: hold Ghost Damage-Trail at the higher mark and smoothly drain!
+      _startTrailRatio = math.max(liveTrail, liveHp);
+      _targetTrailRatio = nextHpR;
+      _healFlashPeak = 0.0;
+    } else if (nextHpR > liveHp) {
+      // Healed: snap trail up with primary bar & pulse emerald-gold heal sheen!
+      _startTrailRatio = nextHpR;
+      _targetTrailRatio = nextHpR;
+      _healFlashPeak = 0.85;
+    } else {
+      _startTrailRatio = liveTrail;
+      _targetTrailRatio = nextHpR;
+    }
+
+    _controller.forward(from: 0.0);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      constraints: const BoxConstraints(maxWidth: 360),
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: SpriteCastPalette.ink.withValues(alpha: 0.88),
-        border: Border.all(
-          color: boss.isStaggered
-              ? SpriteCastPalette.endesga32[11]
-              : SpriteCastPalette.endesga32[8],
-          width: 1.5,
-        ),
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  '${boss.archetype.displayName.toUpperCase()} — PHASE ${boss.phase}',
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, _) {
+        final isLowHp = widget.resolveHp > 0 && widget.resolveHp <= 2;
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Row 1: Sovereign Crest Diamond + Beveled Smooth HP & Ghost Trail Bar + Numeric HP
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CustomPaint(
+                  size: const Size(148, 15),
+                  painter: _SmoothVitalGaugePainter(
+                    hpRatio: currentDisplayHpRatio,
+                    ghostTrailRatio: currentGhostTrailRatio,
+                    healFlashAlpha: currentHealFlash,
+                    segments: widget.maxResolveHp.clamp(1, 12),
+                    isLowHp: isLowHp,
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  '${widget.resolveHp}/${widget.maxResolveHp}',
+                  style: TextStyle(
+                    color: isLowHp
+                        ? const Color(0xFFFF6B7A)
+                        : const Color(0xFFEAD4AA),
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            // Row 2: Smooth Liquid Cyan Civic Silk Bar + Silk Counter
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CustomPaint(
+                  size: const Size(124, 9),
+                  painter: _SmoothSilkGaugePainter(
+                    silkRatio: currentSilkRatio,
+                    readyToCast: widget.civicSilk >= 24.0,
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  '${widget.civicSilk.round()}',
                   style: const TextStyle(
-                    color: Color(0xFFFEE761),
+                    color: Color(0xFF2CE8F5),
                     fontSize: 10,
                     fontWeight: FontWeight.w900,
-                    letterSpacing: 0.6,
                   ),
-                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _SmoothVitalGaugePainter extends CustomPainter {
+  final double hpRatio;
+  final double ghostTrailRatio;
+  final double healFlashAlpha;
+  final int segments;
+  final bool isLowHp;
+
+  const _SmoothVitalGaugePainter({
+    required this.hpRatio,
+    required this.ghostTrailRatio,
+    required this.healFlashAlpha,
+    required this.segments,
+    required this.isLowHp,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final p = SpriteCastPalette.endesga32;
+    const emblemW = 12.0;
+    final barLeft = emblemW + 2.0;
+    final barW = math.max(20.0, size.width - barLeft - 2.0);
+    final barRect = RRect.fromRectAndRadius(
+      Rect.fromLTWH(barLeft, 1.5, barW, size.height - 3.0),
+      const Radius.circular(3.5),
+    );
+
+    // 1. Golden Sovereign Sun-Diamond Crest on left cap
+    final cy = size.height * 0.5;
+    final crest = Path()
+      ..moveTo(6.0, cy - 6.0)
+      ..lineTo(12.0, cy)
+      ..lineTo(6.0, cy + 6.0)
+      ..lineTo(0.0, cy)
+      ..close();
+    canvas.drawPath(crest, Paint()..color = isLowHp ? p[8] : p[10]);
+    canvas.drawCircle(
+      Offset(6.0, cy),
+      2.3,
+      Paint()..color = isLowHp ? p[19] : p[11],
+    );
+
+    // 2. Recessed Obsidian Well
+    canvas.drawRRect(barRect, Paint()..color = const Color(0xFF0E101D));
+
+    canvas.save();
+    canvas.clipRRect(barRect.deflate(1.0));
+    final innerLeft = barLeft + 1.0;
+    final innerTop = 2.5;
+    final innerW = barW - 2.0;
+    final innerH = size.height - 5.0;
+
+    // 3. Delayed Ghost Damage-Trail Bar (Warm Amber -> Hot Ivory!)
+    if (ghostTrailRatio > hpRatio + 0.003) {
+      final trailRect = Rect.fromLTWH(
+        innerLeft,
+        innerTop,
+        innerW * ghostTrailRatio.clamp(0.0, 1.0),
+        innerH,
+      );
+      canvas.drawRect(
+        trailRect,
+        Paint()
+          ..shader = const LinearGradient(
+            colors: <Color>[Color(0xFFFEAE34), Color(0xFFFFF3C4)],
+          ).createShader(trailRect),
+      );
+    }
+
+    // 4. Smooth Primary Vital Gradient Fill + Glossy Specular Top Strip
+    if (hpRatio > 0.001) {
+      final fillW = innerW * hpRatio.clamp(0.0, 1.0);
+      final fillRect = Rect.fromLTWH(innerLeft, innerTop, fillW, innerH);
+      canvas.drawRect(
+        fillRect,
+        Paint()
+          ..shader = LinearGradient(
+            colors: isLowHp
+                ? const <Color>[Color(0xFF9E1B32), Color(0xFFFF3B5C)]
+                : const <Color>[Color(0xFFB42038), Color(0xFFE83B48), Color(0xFFFF7A59)],
+          ).createShader(fillRect),
+      );
+      // Top glossy bevel highlight
+      canvas.drawRect(
+        Rect.fromLTWH(innerLeft, innerTop, fillW, innerH * 0.34),
+        Paint()..color = Colors.white.withValues(alpha: 0.24),
+      );
+    }
+
+    // 5. Emerald-Gold Heal Surge Overlay
+    if (healFlashAlpha > 0.01) {
+      canvas.drawRect(
+        Rect.fromLTWH(innerLeft, innerTop, innerW * hpRatio.clamp(0.0, 1.0), innerH),
+        Paint()
+          ..color = const Color(0xFF63C74D)
+              .withValues(alpha: (healFlashAlpha * 0.65).clamp(0.0, 0.65)),
+      );
+    }
+
+    // 6. Subtle Resolve Mask Segment Notches (`segments`)
+    if (segments > 1) {
+      final notchPaint = Paint()
+        ..color = const Color(0x880B0D18)
+        ..strokeWidth = 1.0;
+      for (var i = 1; i < segments; i++) {
+        final nx = innerLeft + (innerW * i / segments);
+        canvas.drawLine(
+          Offset(nx, innerTop),
+          Offset(nx, innerTop + innerH),
+          notchPaint,
+        );
+      }
+    }
+    canvas.restore();
+
+    // 7. Beveled Metallic Gold/Crimson Outer Border
+    canvas.drawRRect(
+      barRect,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.4
+        ..color = isLowHp ? const Color(0xFFFF4D6D) : const Color(0xFFD89C3E),
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _SmoothVitalGaugePainter oldDelegate) {
+    return oldDelegate.hpRatio != hpRatio ||
+        oldDelegate.ghostTrailRatio != ghostTrailRatio ||
+        oldDelegate.healFlashAlpha != healFlashAlpha ||
+        oldDelegate.segments != segments ||
+        oldDelegate.isLowHp != isLowHp;
+  }
+}
+
+class _SmoothSilkGaugePainter extends CustomPainter {
+  final double silkRatio;
+  final bool readyToCast;
+
+  const _SmoothSilkGaugePainter({
+    required this.silkRatio,
+    required this.readyToCast,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    const barLeft = 14.0;
+    final barW = math.max(16.0, size.width - barLeft - 2.0);
+    final cy = size.height * 0.5;
+
+    // Small cyan silk spool icon on left
+    canvas.drawCircle(
+      Offset(6.0, cy),
+      3.5,
+      Paint()
+        ..color = readyToCast
+            ? const Color(0xFF2CE8F5)
+            : const Color(0xFF3A5478),
+    );
+    canvas.drawCircle(
+      Offset(6.0, cy),
+      1.4,
+      Paint()..color = Colors.white,
+    );
+
+    final rrect = RRect.fromRectAndRadius(
+      Rect.fromLTWH(barLeft, 1.0, barW, size.height - 2.0),
+      const Radius.circular(3.0),
+    );
+    canvas.drawRRect(rrect, Paint()..color = const Color(0xFF0C1020));
+
+    if (silkRatio > 0.002) {
+      canvas.save();
+      canvas.clipRRect(rrect.deflate(0.8));
+      final fillW = (barW - 1.6) * silkRatio.clamp(0.0, 1.0);
+      final fillRect = Rect.fromLTWH(barLeft + 0.8, 1.8, fillW, size.height - 3.6);
+      canvas.drawRect(
+        fillRect,
+        Paint()
+          ..shader = LinearGradient(
+            colors: readyToCast
+                ? const <Color>[Color(0xFF0088CC), Color(0xFF2CE8F5), Color(0xFFB8FBFF)]
+                : const <Color>[Color(0xFF1E446B), Color(0xFF3B7BA8)],
+          ).createShader(fillRect),
+      );
+      canvas.restore();
+    }
+
+    canvas.drawRRect(
+      rrect,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.1
+        ..color = readyToCast
+            ? const Color(0xFF2CE8F5)
+            : const Color(0xFF3A527A),
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _SmoothSilkGaugePainter oldDelegate) {
+    return oldDelegate.silkRatio != silkRatio ||
+        oldDelegate.readyToCast != readyToCast;
+  }
+}
+
+/// Smooth Multi-Phase Boss Health, Ghost Damage-Trail & Golden Posture Bar!
+class DungeonSmoothBossBar extends StatefulWidget {
+  final DungeonEnemyInstance boss;
+
+  const DungeonSmoothBossBar({super.key, required this.boss});
+
+  @override
+  State<DungeonSmoothBossBar> createState() => _DungeonSmoothBossBarState();
+}
+
+class _DungeonSmoothBossBarState extends State<DungeonSmoothBossBar>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  double _startHp = 1.0;
+  double _targetHp = 1.0;
+  double _startTrail = 1.0;
+  double _targetTrail = 1.0;
+  String _trackedBossId = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 560),
+    )..value = 1.0;
+    _syncInitial();
+  }
+
+  void _syncInitial() {
+    _trackedBossId = widget.boss.id;
+    _startHp = widget.boss.hpRatio;
+    _targetHp = widget.boss.hpRatio;
+    _startTrail = widget.boss.hpRatio;
+    _targetTrail = widget.boss.hpRatio;
+  }
+
+  @override
+  void didUpdateWidget(covariant DungeonSmoothBossBar oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.boss.id != _trackedBossId) {
+      _syncInitial();
+      return;
+    }
+    final nextHp = widget.boss.hpRatio;
+    if ((nextHp - _targetHp).abs() > 0.002) {
+      final tHp = Curves.easeOutCubic.transform((_controller.value / 0.42).clamp(0.0, 1.0));
+      final curHp = _startHp + (_targetHp - _startHp) * tHp;
+      final tTrail = Curves.easeOutQuart.transform(((_controller.value - 0.22) / 0.78).clamp(0.0, 1.0));
+      final curTrail = _startTrail + (_targetTrail - _startTrail) * tTrail;
+      _startHp = curHp;
+      _targetHp = nextHp;
+      _startTrail = math.max(curTrail, curHp);
+      _targetTrail = nextHp;
+      _controller.forward(from: 0.0);
+    } else if (_controller.isCompleted) {
+      _startHp = nextHp;
+      _targetHp = nextHp;
+      _startTrail = nextHp;
+      _targetTrail = nextHp;
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final boss = widget.boss;
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, _) {
+        final tHp = Curves.easeOutCubic
+            .transform((_controller.value / 0.42).clamp(0.0, 1.0));
+        final dispHp = (_controller.isAnimating)
+            ? (_startHp + (_targetHp - _startHp) * tHp)
+            : boss.hpRatio;
+        final tTrail = Curves.easeOutQuart
+            .transform(((_controller.value - 0.22) / 0.78).clamp(0.0, 1.0));
+        final dispTrail = (_controller.isAnimating)
+            ? (_startTrail + (_targetTrail - _startTrail) * tTrail)
+            : boss.hpRatio;
+        final posture = boss.isStaggered ? 1.0 : boss.staggerRatio.clamp(0.0, 1.0);
+
+        return Container(
+          constraints: const BoxConstraints(maxWidth: 380),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          decoration: BoxDecoration(
+            color: SpriteCastPalette.ink.withValues(alpha: 0.90),
+            border: Border.all(
+              color: boss.isStaggered
+                  ? SpriteCastPalette.endesga32[11]
+                  : SpriteCastPalette.endesga32[8],
+              width: 1.6,
+            ),
+            borderRadius: BorderRadius.circular(7),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      '${boss.archetype.displayName.toUpperCase()} — PHASE ${boss.phase}',
+                      style: const TextStyle(
+                        color: Color(0xFFFEE761),
+                        fontSize: 10,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 0.6,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  Text(
+                    '${boss.hp}/${boss.maxHp}',
+                    style: const TextStyle(
+                      color: Color(0xFFEAD4AA),
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              CustomPaint(
+                size: const Size(double.infinity, 9),
+                painter: _SmoothBossGaugePainter(
+                  hpRatio: dispHp,
+                  ghostTrailRatio: dispTrail,
+                  phase: boss.phase,
+                  hasThreePhases: boss.archetype.hasThreePhases,
                 ),
               ),
-              Text(
-                '${boss.hp}/${boss.maxHp}',
-                style: const TextStyle(
-                  color: Color(0xFFEAD4AA),
-                  fontSize: 10,
-                  fontWeight: FontWeight.w700,
+              const SizedBox(height: 3),
+              CustomPaint(
+                size: const Size(double.infinity, 4.5),
+                painter: _SmoothPostureGaugePainter(
+                  postureRatio: posture,
+                  isStaggered: boss.isStaggered,
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 4),
-          // HP Bar
-          ClipRRect(
-            borderRadius: BorderRadius.circular(2),
-            child: LinearProgressIndicator(
-              value: boss.hpRatio,
-              minHeight: 7,
-              backgroundColor: SpriteCastPalette.endesga32[6],
-              valueColor: AlwaysStoppedAnimation<Color>(
-                boss.phase >= 3
-                    ? SpriteCastPalette.endesga32[26]
-                    : SpriteCastPalette.endesga32[8],
-              ),
-            ),
-          ),
-          const SizedBox(height: 3),
-          // Golden Posture / Stagger Bar
-          ClipRRect(
-            borderRadius: BorderRadius.circular(2),
-            child: LinearProgressIndicator(
-              value: boss.isStaggered ? 1.0 : boss.staggerRatio,
-              minHeight: 4,
-              backgroundColor: SpriteCastPalette.endesga32[24],
-              valueColor: AlwaysStoppedAnimation<Color>(
-                boss.isStaggered
-                    ? SpriteCastPalette.endesga32[11]
-                    : SpriteCastPalette.endesga32[10],
-              ),
-            ),
-          ),
-        ],
-      ),
+        );
+      },
     );
+  }
+}
+
+class _SmoothBossGaugePainter extends CustomPainter {
+  final double hpRatio;
+  final double ghostTrailRatio;
+  final int phase;
+  final bool hasThreePhases;
+
+  const _SmoothBossGaugePainter({
+    required this.hpRatio,
+    required this.ghostTrailRatio,
+    required this.phase,
+    required this.hasThreePhases,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rrect = RRect.fromRectAndRadius(
+      Offset.zero & size,
+      const Radius.circular(3.0),
+    );
+    canvas.drawRRect(rrect, Paint()..color = const Color(0xFF140D18));
+
+    canvas.save();
+    canvas.clipRRect(rrect.deflate(0.8));
+    final w = size.width - 1.6;
+    final h = size.height - 1.6;
+
+    if (ghostTrailRatio > hpRatio + 0.002) {
+      canvas.drawRect(
+        Rect.fromLTWH(0.8, 0.8, w * ghostTrailRatio.clamp(0.0, 1.0), h),
+        Paint()..color = const Color(0xFFFFE599),
+      );
+    }
+    if (hpRatio > 0.001) {
+      final fillRect = Rect.fromLTWH(0.8, 0.8, w * hpRatio.clamp(0.0, 1.0), h);
+      canvas.drawRect(
+        fillRect,
+        Paint()
+          ..shader = LinearGradient(
+            colors: phase >= 3
+                ? const <Color>[Color(0xFF8F113B), Color(0xFFFF0044), Color(0xFFFEAE34)]
+                : const <Color>[Color(0xFF8C1D2C), Color(0xFFE43B44), Color(0xFFFF7A59)],
+          ).createShader(fillRect),
+      );
+      canvas.drawRect(
+        Rect.fromLTWH(0.8, 0.8, fillRect.width, h * 0.32),
+        Paint()..color = Colors.white.withValues(alpha: 0.22),
+      );
+    }
+
+    // Phase threshold notch markers (62% & 32%)
+    final markerPaint = Paint()
+      ..color = const Color(0xAA000000)
+      ..strokeWidth = 1.2;
+    canvas.drawLine(Offset(0.8 + w * 0.62, 0.8), Offset(0.8 + w * 0.62, 0.8 + h), markerPaint);
+    if (hasThreePhases) {
+      canvas.drawLine(Offset(0.8 + w * 0.32, 0.8), Offset(0.8 + w * 0.32, 0.8 + h), markerPaint);
+    }
+    canvas.restore();
+
+    canvas.drawRRect(
+      rrect,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.0
+        ..color = const Color(0xFFD49B38),
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _SmoothBossGaugePainter oldDelegate) {
+    return oldDelegate.hpRatio != hpRatio ||
+        oldDelegate.ghostTrailRatio != ghostTrailRatio ||
+        oldDelegate.phase != phase;
+  }
+}
+
+class _SmoothPostureGaugePainter extends CustomPainter {
+  final double postureRatio;
+  final bool isStaggered;
+
+  const _SmoothPostureGaugePainter({
+    required this.postureRatio,
+    required this.isStaggered,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rrect = RRect.fromRectAndRadius(
+      Offset.zero & size,
+      const Radius.circular(2.0),
+    );
+    canvas.drawRRect(rrect, Paint()..color = const Color(0xFF1A1E33));
+    if (postureRatio > 0.002) {
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromLTWH(0, 0, size.width * postureRatio.clamp(0.0, 1.0), size.height),
+          const Radius.circular(2.0),
+        ),
+        Paint()
+          ..color = isStaggered
+              ? const Color(0xFFFEE761)
+              : const Color(0xFFFEAE34),
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _SmoothPostureGaugePainter oldDelegate) {
+    return oldDelegate.postureRatio != postureRatio ||
+        oldDelegate.isStaggered != isStaggered;
   }
 }
 

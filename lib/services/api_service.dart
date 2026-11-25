@@ -417,6 +417,108 @@ class ApiService {
     }
   }
 
+  /// Loads the student's permanent Google Sheets `Account Progress` row,
+  /// detecting immediately if the student's account was deleted from Google Sheets.
+  Future<({bool accountDeleted, int revision, String? dataJson, bool reachable})>
+      loadAccountProgress({
+    required String userId,
+    required bool isFaculty,
+  }) async {
+    final cleanId = userId.trim();
+    if (cleanId.isEmpty || cleanId == 'guest') {
+      return (accountDeleted: false, revision: 0, dataJson: null, reachable: false);
+    }
+
+    try {
+      final res = await postAction('loadAccountProgress', {
+        'userId': cleanId,
+        'isFaculty': isFaculty,
+      });
+      if (res['accountDeleted'] == true || res['code'] == 'ACCOUNT_DELETED') {
+        return (accountDeleted: true, revision: 0, dataJson: null, reachable: true);
+      }
+      if (res['success'] == true) {
+        final raw = res['dataJson']?.toString();
+        final rev = (res['revision'] as num?)?.toInt() ?? 0;
+        return (
+          accountDeleted: false,
+          revision: rev,
+          dataJson: (raw != null && raw.trim().isNotEmpty) ? raw : null,
+          reachable: true,
+        );
+      }
+
+      // Backward-compatible fallback if the Apps Script Web App hasn't been redeployed yet
+      final msg = (res['message']?.toString() ?? '').toLowerCase();
+      if (msg.contains('unknown action')) {
+        final legacyJson = await getLobbyCloudData('999999003_$cleanId');
+        return (
+          accountDeleted: false,
+          revision: legacyJson != null ? 1 : 0,
+          dataJson: legacyJson,
+          reachable: true,
+        );
+      }
+    } catch (_) {
+      return (accountDeleted: false, revision: 0, dataJson: null, reachable: false);
+    }
+
+    return (accountDeleted: false, revision: 0, dataJson: null, reachable: false);
+  }
+
+  /// Writes the unified account-bound save directly into the Master Google Sheet's
+  /// `Account Progress` tab (with transparent fallback to `saveLobbyCloudData` prior to script update).
+  Future<({bool success, bool accountDeleted, int revision})> saveAccountProgress({
+    required String userId,
+    required String userName,
+    required bool isFaculty,
+    required int level,
+    required int xp,
+    required int sealsCount,
+    required int revision,
+    required String dataJson,
+  }) async {
+    final cleanId = userId.trim();
+    if (cleanId.isEmpty || cleanId == 'guest') {
+      return (success: false, accountDeleted: false, revision: revision);
+    }
+
+    try {
+      final res = await postAction('saveAccountProgress', {
+        'userId': cleanId,
+        'userName': userName,
+        'isFaculty': isFaculty,
+        'level': level,
+        'xp': xp,
+        'sealsCount': sealsCount,
+        'revision': revision,
+        'dataJson': dataJson,
+      });
+      if (res['accountDeleted'] == true || res['code'] == 'ACCOUNT_DELETED') {
+        return (success: false, accountDeleted: true, revision: 0);
+      }
+      if (res['success'] == true) {
+        final nextRev = (res['revision'] as num?)?.toInt() ?? revision;
+        return (success: true, accountDeleted: false, revision: nextRev);
+      }
+
+      final msg = (res['message']?.toString() ?? '').toLowerCase();
+      if (msg.contains('unknown action')) {
+        final fallbackRes = await saveLobbyCloudData(
+          slotKey: '999999003_$cleanId',
+          dataJson: dataJson,
+        );
+        return (
+          success: fallbackRes['success'] == true,
+          accountDeleted: false,
+          revision: revision,
+        );
+      }
+    } catch (_) {}
+
+    return (success: false, accountDeleted: false, revision: revision);
+  }
+
   // ─────────────────────────────────────────────────────────────
   //  SCANNER BOOTSTRAP ("Reference" Col C) & BATCH SYNC (FACULTY ONLY)
   // ─────────────────────────────────────────────────────────────

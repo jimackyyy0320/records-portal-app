@@ -79,6 +79,9 @@ class MainActivity : FlutterActivity() {
     private val sfxExecutor = Executors.newCachedThreadPool()
     private var radioMediaPlayer: MediaPlayer? = null
     private var radioStreamToken: Int = 0
+    @Volatile private var bgmAudioTrack: AudioTrack? = null
+    @Volatile private var bgmWantedPlaying: Boolean = false
+    @Volatile private var bgmVolume: Float = 0.72f
 
     private val nfcReaderCallback = NfcAdapter.ReaderCallback { tag ->
         if (tag != null && nfcReaderWanted) {
@@ -152,12 +155,32 @@ class MainActivity : FlutterActivity() {
                 }
                 "playWavBytes" -> {
                     val bytes = call.argument<ByteArray>("bytes")
+                    val volume = (call.argument<Double>("volume") ?: 0.85).toFloat().coerceIn(0f, 1f)
                     if (bytes != null && bytes.size > 44) {
-                        playNativePcmWav(bytes)
+                        playNativePcmWav(bytes, volume)
                         result.success(true)
                     } else {
                         result.success(false)
                     }
+                }
+                "startLoopingBgmWav" -> {
+                    val bytes = call.argument<ByteArray>("bytes")
+                    val volume = (call.argument<Double>("volume") ?: 0.72).toFloat().coerceIn(0f, 1f)
+                    if (bytes != null && bytes.size > 44) {
+                        startNativeLoopingBgmWav(bytes, volume)
+                        result.success(true)
+                    } else {
+                        result.success(false)
+                    }
+                }
+                "setBgmVolume" -> {
+                    val volume = (call.argument<Double>("volume") ?: 0.72).toFloat().coerceIn(0f, 1f)
+                    setNativeBgmVolume(volume)
+                    result.success(true)
+                }
+                "stopLoopingBgm" -> {
+                    stopNativeLoopingBgm()
+                    result.success(true)
                 }
                 "setRadioStream" -> {
                     val url = call.argument<String>("url") ?: ""
@@ -176,11 +199,23 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun onDestroy() {
+        stopNativeLoopingBgm()
         stopNativeRadioStream()
         super.onDestroy()
     }
 
-    private fun playNativePcmWav(wavBytes: ByteArray) {
+    private fun readWavSampleRate(wavBytes: ByteArray): Int {
+        if (wavBytes.size < 28) return 22050
+        val b0 = wavBytes[24].toInt() and 0xFF
+        val b1 = (wavBytes[25].toInt() and 0xFF) shl 8
+        val b2 = (wavBytes[26].toInt() and 0xFF) shl 16
+        val b3 = (wavBytes[27].toInt() and 0xFF) shl 24
+        val rate = b0 or b1 or b2 or b3
+        return rate.coerceIn(8000, 48000)
+    }
+
+    private fun playNativePcmWav(wavBytes: ByteArray, volume: Float = 0.85f) {
+        if (volume <= 0.005f) return
         sfxExecutor.execute {
             var track: AudioTrack? = null
             try {
@@ -188,7 +223,7 @@ class MainActivity : FlutterActivity() {
                 val pcmLen = wavBytes.size - pcmOffset
                 if (pcmLen <= 0) return@execute
 
-                val sampleRate = 22050
+                val sampleRate = readWavSampleRate(wavBytes)
                 val minBuf = AudioTrack.getMinBufferSize(
                     sampleRate,
                     AudioFormat.CHANNEL_OUT_MONO,
@@ -216,6 +251,7 @@ class MainActivity : FlutterActivity() {
                 )
                 val written = track.write(wavBytes, pcmOffset, pcmLen)
                 if (written > 0 && track.state == AudioTrack.STATE_INITIALIZED) {
+                    track.setVolume(volume.coerceIn(0f, 1f))
                     track.play()
                     val durationMs = ((pcmLen / 2L) * 1000L / sampleRate) + 75L
                     Thread.sleep(durationMs.coerceIn(45L, 2200L))
@@ -230,6 +266,87 @@ class MainActivity : FlutterActivity() {
                     track?.release()
                 } catch (_: Throwable) {
                 }
+            }
+        }
+    }
+
+    @Synchronized
+    private fun stopNativeLoopingBgm() {
+        bgmWantedPlaying = false
+        val old = bgmAudioTrack
+        bgmAudioTrack = null
+        if (old != null) {
+            sfxExecutor.execute {
+                try {
+                    old.stop()
+                } catch (_: Throwable) {
+                } finally {
+                    try {
+                        old.release()
+                    } catch (_: Throwable) {
+                    }
+                }
+            }
+        }
+    }
+
+    @Synchronized
+    private fun setNativeBgmVolume(volume: Float) {
+        bgmVolume = volume.coerceIn(0f, 1f)
+        try {
+            bgmAudioTrack?.setVolume(bgmVolume)
+        } catch (_: Throwable) {
+        }
+    }
+
+    @Synchronized
+    private fun startNativeLoopingBgmWav(wavBytes: ByteArray, volume: Float) {
+        stopNativeLoopingBgm()
+        bgmVolume = volume.coerceIn(0f, 1f)
+        bgmWantedPlaying = true
+        sfxExecutor.execute {
+            try {
+                val pcmOffset = 44
+                val pcmLen = wavBytes.size - pcmOffset
+                val totalFrames = pcmLen / 2
+                if (totalFrames <= 64 || !bgmWantedPlaying) return@execute
+
+                val sampleRate = readWavSampleRate(wavBytes)
+                val minBuf = AudioTrack.getMinBufferSize(
+                    sampleRate,
+                    AudioFormat.CHANNEL_OUT_MONO,
+                    AudioFormat.ENCODING_PCM_16BIT
+                )
+                val bufSize = maxOf(pcmLen, minBuf.coerceAtLeast(2048))
+
+                val attrs = AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_GAME)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                    .build()
+
+                val format = AudioFormat.Builder()
+                    .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                    .setSampleRate(sampleRate)
+                    .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                    .build()
+
+                val track = AudioTrack(
+                    attrs,
+                    format,
+                    bufSize,
+                    AudioTrack.MODE_STATIC,
+                    android.media.AudioManager.AUDIO_SESSION_ID_GENERATE
+                )
+                val written = track.write(wavBytes, pcmOffset, pcmLen)
+                if (written > 0 && track.state == AudioTrack.STATE_INITIALIZED && bgmWantedPlaying) {
+                    track.setLoopPoints(0, totalFrames, -1)
+                    track.setVolume(bgmVolume)
+                    track.play()
+                    bgmAudioTrack = track
+                } else {
+                    track.release()
+                }
+            } catch (_: Throwable) {
             }
         }
     }
@@ -333,12 +450,22 @@ class MainActivity : FlutterActivity() {
         if (nfcReaderWanted) {
             enableNfcReaderIfPossible()
         }
+        if (bgmWantedPlaying) {
+            try {
+                bgmAudioTrack?.play()
+            } catch (_: Throwable) {
+            }
+        }
         methodChannel?.invokeMethod("onHardwareStatusChanged", getHardwareStatusMap())
     }
 
     override fun onPause() {
         if (nfcReaderAttached) {
             disableNfcReader()
+        }
+        try {
+            bgmAudioTrack?.pause()
+        } catch (_: Throwable) {
         }
         super.onPause()
     }
