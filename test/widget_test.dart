@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -4134,7 +4135,13 @@ void main() {
         isFaculty: false,
       );
       expect(restoredLook.outfit, '7-2');
-      expect(await AvatarSpriteCache.instance.loadNickname(studentSession.id), 'GabiHero');
+      expect(
+        await AvatarSpriteCache.instance.loadSavedNickname(
+          studentSession.id,
+          fallbackName: studentSession.name,
+        ),
+        'GabiHero',
+      );
 
       final restoredCampaign = await SovereignCampaignSave.load(studentSession.id);
       expect(restoredCampaign.currentActNumber, 5);

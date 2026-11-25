@@ -344,6 +344,11 @@ class AccountSaveSyncService {
     }
   }
 
+  /// Schedules a background flush of the active account save without blocking UI interaction.
+  void scheduleActiveAccountSync() {
+    unawaited(flushActiveAccountSave());
+  }
+
   /// Flushes the currently signed-in user's save immediately (called on app pause/backgrounding).
   Future<void> flushActiveAccountSave() async {
     final session =
