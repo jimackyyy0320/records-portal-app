@@ -4103,6 +4103,7 @@ void main() {
 
       // 2. Simulate complete APK uninstall/reinstall or switching to a brand-new phone!
       SharedPreferences.setMockInitialValues({});
+      await LobbyDataService.instance.clearInMemoryUserProgressIfMatching(studentSession.id);
       sync.resetForTesting();
       // Re-attach mock Google Sheet transport backed by the saved sheet row
       sync.debugLoadOverride = ({required String userId, required bool isFaculty}) async => (

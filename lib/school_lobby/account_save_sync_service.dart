@@ -58,7 +58,7 @@ class AccountSaveSyncService {
       StreamController<String>.broadcast();
   final Set<String> _hydratedUserIds = <String>{};
   UserSession? _lastKnownSession;
-  bool _syncInFlight = false;
+  Future<bool>? _activePushFuture;
 
   /// Optional test hooks for deterministic unit/widget verification without live HTTP.
   CloudAccountLoadCallback? debugLoadOverride;
@@ -73,7 +73,7 @@ class AccountSaveSyncService {
   void resetForTesting() {
     _hydratedUserIds.clear();
     _lastKnownSession = null;
-    _syncInFlight = false;
+    _activePushFuture = null;
     debugLoadOverride = null;
     debugSaveOverride = null;
   }
@@ -81,8 +81,9 @@ class AccountSaveSyncService {
   /// Hydrates & union-merges the student's permanent save from Google Sheets (`Account Progress`),
   /// or wipes all local data immediately if the account was deleted from the Master Sheet.
   Future<({bool ok, bool accountDeleted})> hydrateFromGoogleSheets(
-    UserSession session,
-  ) async {
+    UserSession session, {
+    bool seedIfEmpty = true,
+  }) async {
     final cleanId = session.id.trim();
     if (cleanId.isEmpty || cleanId == 'guest') {
       return (ok: false, accountDeleted: false);
@@ -136,7 +137,7 @@ class AccountSaveSyncService {
             prefs.containsKey('$kSovereignSavePrefix$cleanId') ||
             prefs.containsKey('$kAvatarLookPrefix$cleanId') ||
             localRev > 0;
-    if (hasExistingLocal) {
+    if (hasExistingLocal && seedIfEmpty) {
       await pushUnifiedAccountSave(userId: cleanId, session: session);
     }
     return (ok: true, accountDeleted: false);
@@ -233,6 +234,7 @@ class AccountSaveSyncService {
   }
 
   /// Builds & pushes the complete unified account save envelope to Google Sheets (`Account Progress`).
+  /// Concurrent saves serialize cleanly so rapid consecutive edits never get dropped.
   Future<bool> pushUnifiedAccountSave({
     required String userId,
     UserSession? session,
@@ -240,8 +242,38 @@ class AccountSaveSyncService {
   }) async {
     final cleanId = userId.trim();
     if (cleanId.isEmpty || cleanId == 'guest') return false;
-    if (_syncInFlight) return false;
 
+    while (_activePushFuture != null) {
+      try {
+        await _activePushFuture;
+      } catch (_) {}
+    }
+
+    final completer = Completer<bool>();
+    _activePushFuture = completer.future;
+    try {
+      final result = await _performPushUnifiedAccountSave(
+        cleanId: cleanId,
+        session: session,
+        allowBeforeHydration: allowBeforeHydration,
+      );
+      completer.complete(result);
+      return result;
+    } catch (e, st) {
+      completer.complete(false);
+      Error.throwWithStackTrace(e, st);
+    } finally {
+      if (identical(_activePushFuture, completer.future)) {
+        _activePushFuture = null;
+      }
+    }
+  }
+
+  Future<bool> _performPushUnifiedAccountSave({
+    required String cleanId,
+    UserSession? session,
+    required bool allowBeforeHydration,
+  }) async {
     final resolvedSession = session ??
         (_lastKnownSession?.id.trim() == cleanId ? _lastKnownSession : null) ??
         await SessionService.instance.restoreSession();
@@ -255,93 +287,90 @@ class AccountSaveSyncService {
     // Never overwrite a student's cloud save with fresh post-install defaults before hydrating first!
     if (!_hydratedUserIds.contains(cleanId) && !allowBeforeHydration) {
       if (resolvedSession != null && resolvedSession.id.trim() == cleanId) {
-        final hyd = await hydrateFromGoogleSheets(resolvedSession);
+        final hyd = await hydrateFromGoogleSheets(
+          resolvedSession,
+          seedIfEmpty: false,
+        );
         if (hyd.accountDeleted) return false;
       }
     }
 
-    _syncInFlight = true;
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final nextRev = (prefs.getInt('$kAccountRevisionPrefix$cleanId') ?? 0) + 1;
+    final prefs = await SharedPreferences.getInstance();
+    final nextRev = (prefs.getInt('$kAccountRevisionPrefix$cleanId') ?? 0) + 1;
 
-      StudentLobbyProgress lobbyProg = const StudentLobbyProgress();
-      final rawLobby = prefs.getString('$kLobbyProgressPrefix$cleanId');
-      if (rawLobby != null && rawLobby.isNotEmpty) {
-        try {
-          lobbyProg = StudentLobbyProgress.fromJson(
-            Map<String, dynamic>.from(jsonDecode(rawLobby) as Map),
-          );
-        } catch (_) {}
-      }
-
-      final campaignSave = await SovereignCampaignSave.load(cleanId);
-      final avatarLookStr = prefs.getString('$kAvatarLookPrefix$cleanId') ?? '';
-      final avatarNick =
-          prefs.getString('$kAvatarNicknamePrefix$cleanId') ?? '';
-      final avatarOnboarded =
-          prefs.getBool('$kAvatarOnboardedPrefix$cleanId') ?? false;
-
-      Map<String, dynamic>? settingsMap;
-      final rawSettings = prefs.getString('$kDungeonSettingsPrefix$cleanId');
-      if (rawSettings != null && rawSettings.isNotEmpty) {
-        try {
-          final dec = jsonDecode(rawSettings);
-          if (dec is Map) settingsMap = Map<String, dynamic>.from(dec);
-        } catch (_) {}
-      }
-
-      final unifiedEnvelope = <String, dynamic>{
-        'schemaVersion': 2,
-        'userId': cleanId,
-        'userName': userName,
-        'isFaculty': isFaculty,
-        'revision': nextRev,
-        'updatedAtMs': DateTime.now().millisecondsSinceEpoch,
-        // Keep root-level Lobby fields too so older v1 clients can still parse if needed!
-        ...lobbyProg.toJson(),
-        'lobbyProgress': lobbyProg.toJson(),
-        'sovereignCampaign': campaignSave.toJson(),
-        if (avatarLookStr.isNotEmpty) 'avatarLook': avatarLookStr,
-        if (avatarNick.isNotEmpty) 'avatarNickname': avatarNick,
-        'avatarOnboarded': avatarOnboarded,
-        if (settingsMap != null) 'dungeonSettings': settingsMap,
-      };
-
-      final sealsCount = campaignSave.dungeonProgress.defeatedBossIds
-          .where((id) => id.startsWith('boss_'))
-          .length;
-
-      final saver = debugSaveOverride ?? ApiService.instance.saveAccountProgress;
-      final res = await saver(
-        userId: cleanId,
-        userName: userName,
-        isFaculty: isFaculty,
-        level: lobbyProg.level,
-        xp: lobbyProg.xp,
-        sealsCount: sealsCount,
-        revision: nextRev,
-        dataJson: jsonEncode(unifiedEnvelope),
-      );
-
-      if (res.accountDeleted) {
-        await wipeAllLocalAccountData(cleanId);
-        await SessionService.instance.clearSession();
-        _accountDeletedController.add(cleanId);
-        return false;
-      }
-
-      if (res.success) {
-        await prefs.setInt(
-          '$kAccountRevisionPrefix$cleanId',
-          math.max(nextRev, res.revision),
+    StudentLobbyProgress lobbyProg = const StudentLobbyProgress();
+    final rawLobby = prefs.getString('$kLobbyProgressPrefix$cleanId');
+    if (rawLobby != null && rawLobby.isNotEmpty) {
+      try {
+        lobbyProg = StudentLobbyProgress.fromJson(
+          Map<String, dynamic>.from(jsonDecode(rawLobby) as Map),
         );
-        return true;
-      }
-      return false;
-    } finally {
-      _syncInFlight = false;
+      } catch (_) {}
     }
+
+    final campaignSave = await SovereignCampaignSave.load(cleanId);
+    final avatarLookStr = prefs.getString('$kAvatarLookPrefix$cleanId') ?? '';
+    final avatarNick = prefs.getString('$kAvatarNicknamePrefix$cleanId') ?? '';
+    final avatarOnboarded =
+        prefs.getBool('$kAvatarOnboardedPrefix$cleanId') ?? false;
+
+    Map<String, dynamic>? settingsMap;
+    final rawSettings = prefs.getString('$kDungeonSettingsPrefix$cleanId');
+    if (rawSettings != null && rawSettings.isNotEmpty) {
+      try {
+        final dec = jsonDecode(rawSettings);
+        if (dec is Map) settingsMap = Map<String, dynamic>.from(dec);
+      } catch (_) {}
+    }
+
+    final unifiedEnvelope = <String, dynamic>{
+      'schemaVersion': 2,
+      'userId': cleanId,
+      'userName': userName,
+      'isFaculty': isFaculty,
+      'revision': nextRev,
+      'updatedAtMs': DateTime.now().millisecondsSinceEpoch,
+      // Keep root-level Lobby fields too so older v1 clients can still parse if needed!
+      ...lobbyProg.toJson(),
+      'lobbyProgress': lobbyProg.toJson(),
+      'sovereignCampaign': campaignSave.toJson(),
+      if (avatarLookStr.isNotEmpty) 'avatarLook': avatarLookStr,
+      if (avatarNick.isNotEmpty) 'avatarNickname': avatarNick,
+      'avatarOnboarded': avatarOnboarded,
+      if (settingsMap != null) 'dungeonSettings': settingsMap,
+    };
+
+    final sealsCount = campaignSave.dungeonProgress.defeatedBossIds
+        .where((id) => id.startsWith('boss_'))
+        .length;
+
+    final saver = debugSaveOverride ?? ApiService.instance.saveAccountProgress;
+    final res = await saver(
+      userId: cleanId,
+      userName: userName,
+      isFaculty: isFaculty,
+      level: lobbyProg.level,
+      xp: lobbyProg.xp,
+      sealsCount: sealsCount,
+      revision: nextRev,
+      dataJson: jsonEncode(unifiedEnvelope),
+    );
+
+    if (res.accountDeleted) {
+      await wipeAllLocalAccountData(cleanId);
+      await SessionService.instance.clearSession();
+      _accountDeletedController.add(cleanId);
+      return false;
+    }
+
+    if (res.success) {
+      await prefs.setInt(
+        '$kAccountRevisionPrefix$cleanId',
+        math.max(nextRev, res.revision),
+      );
+      return true;
+    }
+    return false;
   }
 
   /// Schedules a background flush of the active account save without blocking UI interaction.

@@ -865,42 +865,54 @@ class _DungeonNpcDialogueModalState extends State<DungeonNpcDialogueModal> {
               ),
             ],
           ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
+          child: Material(
+            type: MaterialType.transparency,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: widget.npc.outfitPrimary.withValues(alpha: 0.32),
-                      borderRadius: BorderRadius.circular(6),
-                      border: Border.all(color: widget.npc.outfitAccent),
-                    ),
-                    child: Text(
-                      widget.justRescued
-                          ? 'CITIZEN LIBERATED!'
-                          : widget.mission.eraBanner,
-                      style: TextStyle(
-                        color: widget.npc.outfitAccent,
-                        fontSize: 10,
-                        fontWeight: FontWeight.w900,
-                        letterSpacing: 1.0,
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Flexible(
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color:
+                                widget.npc.outfitPrimary.withValues(alpha: 0.32),
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(color: widget.npc.outfitAccent),
+                          ),
+                          child: Text(
+                            widget.justRescued
+                                ? 'CITIZEN LIBERATED!'
+                                : widget.mission.eraBanner,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: widget.npc.outfitAccent,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: 0.8,
+                            ),
+                          ),
+                        ),
                       ),
-                    ),
+                      const SizedBox(width: 8),
+                      Text(
+                        '${safeIdx + 1} / ${lines.length}',
+                        style: const TextStyle(
+                          color: Color(0xFF8B9BB4),
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
                   ),
-                  const Spacer(),
-                  Text(
-                    '${safeIdx + 1} / ${lines.length}',
-                    style: const TextStyle(
-                      color: Color(0xFF8B9BB4),
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ],
-              ),
               const SizedBox(height: 10),
               Text(
                 widget.npc.name,
@@ -1027,6 +1039,8 @@ class _DungeonNpcDialogueModalState extends State<DungeonNpcDialogueModal> {
                 ),
               ),
             ],
+              ),
+            ),
           ),
         ),
       ),

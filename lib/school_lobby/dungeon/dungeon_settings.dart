@@ -430,8 +430,10 @@ class _DungeonSettingsStudioModalState
                 ),
                 borderRadius: BorderRadius.circular(12),
               ),
-              child: Column(
-                children: [
+              child: Material(
+                type: MaterialType.transparency,
+                child: Column(
+                  children: [
                   // Header Row
                   Row(
                     children: [
@@ -480,6 +482,7 @@ class _DungeonSettingsStudioModalState
                             : _buildAudioAndVisualsTab()),
                   ),
                 ],
+                ),
               ),
             ),
           ),
